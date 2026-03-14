@@ -148,7 +148,9 @@ func (l *Logger) openFile() error {
 
 	info, err := f.Stat()
 	if err != nil {
-		f.Close()
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "ERROR | [logging] failed to close log file after stat error: %v\n", cerr)
+		}
 		return fmt.Errorf("stat log file: %w", err)
 	}
 
@@ -256,7 +258,9 @@ func (l *Logger) Close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.file != nil {
-		l.file.Close()
+		if err := l.file.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR | [%s] failed to close log file: %v\n", l.module, err)
+		}
 	}
 }
 
@@ -295,7 +299,9 @@ func (l *Logger) isFlooded() bool {
 // rotate performs log file rotation.
 func (l *Logger) rotate() {
 	if l.file != nil {
-		l.file.Close()
+		if err := l.file.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR | [%s] failed to close log file during rotation: %v\n", l.module, err)
+		}
 	}
 
 	// Rotate existing backups

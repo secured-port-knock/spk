@@ -1,7 +1,7 @@
 # SPK (Secured Port Knock)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml)
 [![Build](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml)
 
