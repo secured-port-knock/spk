@@ -73,7 +73,9 @@ func TestSetLogDirOverridesDefault(t *testing.T) {
 	origDir := getLogDirForRestore()
 	defer restoreLogDir(origDir)
 
-	logging.SetLogDir(dir)
+	if err := logging.SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	if got := logging.LogDir(); got != dir {
 		t.Errorf("LogDir() = %q, want %q", got, dir)
 	}
@@ -86,7 +88,9 @@ func TestSetLogDirCreatesNestedPath(t *testing.T) {
 	origDir := getLogDirForRestore()
 	defer restoreLogDir(origDir)
 
-	logging.SetLogDir(nested)
+	if err := logging.SetLogDir(nested); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	info, err := os.Stat(nested)
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
@@ -103,7 +107,9 @@ func TestLoggerUsesCustomLogDir(t *testing.T) {
 	origDir := getLogDirForRestore()
 	defer restoreLogDir(origDir)
 
-	logging.SetLogDir(dir)
+	if err := logging.SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 
 	l, err := logging.New("custom_test.log", logging.DefaultConfig(), "test")
 	if err != nil {
@@ -215,7 +221,9 @@ func getLogDirForRestore() string {
 }
 
 func restoreLogDir(dir string) {
-	logging.SetLogDir(dir)
+	// dir was previously returned by LogDir() so it is a valid path;
+	// ignore the error to keep this helper simple.
+	_ = logging.SetLogDir(dir)
 }
 
 // ---------------------------------------------------------------------------
