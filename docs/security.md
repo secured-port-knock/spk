@@ -105,7 +105,13 @@ This also helps scenarios where an admin wants to manually authorize a remote us
 
 ## Secure Key Storage
 
-During client setup, you can choose where to store the server's public key:
+The server's ML-KEM public key (encapsulation key) and the activation bundle are the most sensitive client-side assets. Anyone who possesses the server public key can construct valid knock packets (unless TOTP is also enabled). **Treat the activation bundle and the server public key exactly like a private key** -- if either is leaked, an attacker can open your firewall ports.
+
+**Recommended practices:**
+
+1. **Encrypt the bundle for transport.** When exporting (`spk --server --export`), set a password. The bundle is then AES-256-GCM encrypted and safe to transfer over untrusted channels. Remember the password: if it is forgotten before the client imports the bundle, you must re-export.
+2. **Delete after import.** Once `spk --client --setup` has imported the bundle, delete the file and any copies from email, USB drives, and clipboard history.
+3. **Store the imported key in the OS credential manager.** SPK supports the following backends -- chosen during client setup:
 
 | Platform | Storage Backend | Method |
 |---|---|---|
@@ -113,9 +119,9 @@ During client setup, you can choose where to store the server's public key:
 | macOS | Keychain | `security add-generic-password` |
 | Linux | Secret Service | `secret-tool store` |
 
-The setup wizard **tests** the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you're prompted to choose an alternative (file-based storage).
+The setup wizard tests the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you are prompted to choose file-based storage instead.
 
-Keys stored in credential managers are encrypted with your OS user credentials - they can only be accessed by the same user account on the same machine.
+Keys stored in credential managers are encrypted with your OS user credentials -- they can only be accessed by the same user account on the same machine. This prevents accidental leakage through backups, screenshots, or other programs reading config directories.
 
 ## Security Analysis
 
@@ -158,7 +164,13 @@ The server's ML-KEM public key is **never transmitted over the network** during 
 - Without the private key, the attacker cannot decapsulate captured ciphertexts to learn the shared secret.
 - The server never sends any response, so there is no handshake to intercept or manipulate.
 
-**The only way to compromise key distribution** is to intercept the activation bundle during the out-of-band transfer. Mitigation: use encrypted transfer (SCP, encrypted email), verify the bundle fingerprint, or use password-protected bundles (`--export` prompts for a password interactively -- the password is never stored in config files).
+**The only way to compromise key distribution** is to intercept the activation bundle during the out-of-band transfer. Mitigations:
+
+- **Use encrypted bundles:** `spk --server --export` prompts for an optional password. A password-protected bundle is AES-256-GCM encrypted and safe to send over email, messaging apps, or shared storage. Only the recipient who knows the password can import it.
+- **Password is not recoverable:** If the password is forgotten before the client imports the bundle, generate a new export with `spk --server --export`. The server keypair is unchanged. SPK never stores the bundle password.
+- **Delete after import:** Once `spk --client --setup` has imported the bundle, delete the bundle file from any intermediate storage (email sent folder, USB drives, clipboard history).
+- **Use secure transfer channels:** SCP or encrypted email for unencrypted bundles. QR code scanning reduces clipboard/file exposure.
+- **Verify the bundle fingerprint** if your transfer channel does not guarantee integrity.
 
 ### What's NOT Protected
 

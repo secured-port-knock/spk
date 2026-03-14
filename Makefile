@@ -1,9 +1,9 @@
 .PHONY: build test clean all linux windows darwin cross vet coverage test-short
 
 BINARY=spk
-VERSION?=1.0.0
+VERSION?=$(shell if [ -f version/version_base.txt ]; then head -1 version/version_base.txt | tr -cd '0-9.'; else echo "1.0.0"; fi)
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
-BUILD_NUMBER_FILE=build_number.txt
+BUILD_NUMBER_FILE=version/build_number.txt
 BUILD_NUMBER=$(shell if [ -f $(BUILD_NUMBER_FILE) ]; then cat $(BUILD_NUMBER_FILE); else echo 0; fi)
 NEXT_BUILD=$(shell echo $$(( $(BUILD_NUMBER) + 1 )))
 FULL_VERSION=$(VERSION).$(NEXT_BUILD)

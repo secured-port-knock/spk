@@ -1,0 +1,591 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - beta
+          - release
+        default: "beta"
+      version:
+        description: "Base version (e.g. 1.0.3) -- leave empty to use version/version_base.txt"
+        required: false
+        type: string
+      build_number:
+        description: "Build number -- leave empty for auto-increment (current + 1)"
+        required: false
+        type: string
+      release_description:
+        description: "Release description (optional -- can be edited on GitHub after publishing)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# Prevent concurrent release runs to avoid version file race conditions.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1. Run CI tests on all three platforms -- abort on any failure
+  # ---------------------------------------------------------------
+  ci-tests:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run unit tests
+        run: go test ./... -count=1 -timeout 120s
+
+      - name: Run integration tests
+        run: go test -v -count=1 -timeout 120s ./tests/integration/
+
+  # ---------------------------------------------------------------
+  # 2. Resolve version and build number from version/ files,
+  #    applying any user overrides. Outputs feed all downstream jobs.
+  # ---------------------------------------------------------------
+  resolve-version:
+    needs: ci-tests
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      build_number: ${{ steps.resolve.outputs.build_number }}
+      full_version: ${{ steps.resolve.outputs.full_version }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+      is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
+      version_changed: ${{ steps.resolve.outputs.version_changed }}
+      original_build_number: ${{ steps.resolve.outputs.original_build_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and build number
+        id: resolve
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILE_VERSION="1.0.0"
+          if [ -f version/version_base.txt ]; then
+            FILE_VERSION=$(head -1 version/version_base.txt | tr -cd '0-9.')
+          fi
+          FILE_BUILD=0
+          if [ -f version/build_number.txt ]; then
+            FILE_BUILD=$(head -1 version/build_number.txt | tr -cd '0-9')
+          fi
+          [ -z "$FILE_BUILD" ] && FILE_BUILD=0
+          ORIGINAL_BUILD=$FILE_BUILD
+
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            VERSION_CHANGED="true"
+          else
+            VERSION="$FILE_VERSION"
+            VERSION_CHANGED="false"
+          fi
+
+          if [ -n "${{ inputs.build_number }}" ]; then
+            BUILD_NUMBER="${{ inputs.build_number }}"
+          else
+            BUILD_NUMBER=$((FILE_BUILD + 1))
+          fi
+
+          FULL_VERSION="${VERSION}.${BUILD_NUMBER}"
+
+          if [ "${{ inputs.release_type }}" = "beta" ]; then
+            TAG_NAME="v${FULL_VERSION}-beta"
+            IS_PRERELEASE="true"
+          else
+            TAG_NAME="v${FULL_VERSION}"
+            IS_PRERELEASE="false"
+          fi
+
+          echo "version=$VERSION"             >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER"   >> "$GITHUB_OUTPUT"
+          echo "full_version=$FULL_VERSION"   >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME"           >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "version_changed=$VERSION_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "original_build_number=$ORIGINAL_BUILD" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved: $FULL_VERSION (tag: $TAG_NAME, prerelease: $IS_PRERELEASE)"
+          # Set the workflow run name so the run shows the resolved version
+          if [ -n "$GITHUB_RUN_ID" ]; then
+            RUN_NAME="${GITHUB_WORKFLOW} - ${FULL_VERSION}"
+            echo "Setting workflow run name to '${RUN_NAME}'"
+            curl -s -X PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              -d "$(printf '{"name":"%s"}' "$RUN_NAME")" || true
+          fi
+
+  # ---------------------------------------------------------------
+  # 3a. Build Linux binaries + deb/rpm packages (native builds)
+  #     linux/amd64: pcap via native gcc (IS_NATIVE=true on amd64 ubuntu)
+  #     linux/arm64: pcap via zig cc (cross, ZIG_AVAILABLE=true)
+  #     build.sh is called with VERSION and BUILD_NUMBER env vars so it
+  #     uses exact resolved values without writing back to version files.
+  # ---------------------------------------------------------------
+  build-linux:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build environment info
+        run: |
+          echo "Runner OS  : $(uname -s)"
+          echo "Runner arch: $(uname -m)"
+          echo "Go version : $(go version)"
+          echo "GCC version: $(gcc --version | head -1)"
+
+      - name: Install Zig (for linux/arm64 pcap cross-compile)
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Log tool versions
+        run: |
+          echo "Zig version: $(zig version)"
+          echo "nfpm will be installed next"
+
+      - name: Install tools (libpcap headers for native amd64 pcap, nfpm for packages)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libpcap-dev
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          echo "nfpm version: $(nfpm --version)"
+
+      - name: Build linux binaries + deb/rpm packages
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
+        run: |
+          echo "Building VERSION=${VERSION} BUILD_NUMBER=${BUILD_NUMBER}"
+          chmod +x build.sh
+          ./build.sh -linux -deb -rpm
+
+      - name: List build outputs
+        run: |
+          echo "=== build/linux/ ==="
+          find build/linux -type f | sort | while read f; do
+            echo "  $f  ($(stat -c%s "$f") bytes)"
+          done
+
+      - name: Verify linux pcap binaries and packages
+        run: |
+          fail=0
+          for arch in amd64 arm64; do
+            found=$(find build/linux -name "*p-linux-${arch}" -type f 2>/dev/null)
+            if [ -z "$found" ]; then
+              echo "::error::FAIL: pcap binary not found for linux/${arch}"
+              fail=1
+            else
+              echo "OK binary: $found ($(stat -c%s "$found") bytes)"
+            fi
+            for ext in deb rpm; do
+              pkg=$(find build/linux -name "*-linux-${arch}.${ext}" -type f 2>/dev/null)
+              if [ -z "$pkg" ]; then
+                echo "::error::FAIL: ${ext} package not found for linux/${arch}"
+                fail=1
+              else
+                echo "OK package: $pkg ($(stat -c%s "$pkg") bytes)"
+              fi
+            done
+          done
+          if [ $fail -ne 0 ]; then
+            echo "::error::Linux pcap build or packaging failed -- aborting release"
+            exit 1
+          fi
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux
+          path: build/linux/
+          retention-days: 1
+
+  # ---------------------------------------------------------------
+  # 3b. Build Windows binaries (always pcap -- pure Go, CGO_ENABLED=0)
+  #     Windows pcap loads wpcap.dll (Npcap) at runtime; no compile-time
+  #     SDK or zig is needed. Both amd64 and arm64 always have pcap.
+  # ---------------------------------------------------------------
+  build-windows:
+    needs: resolve-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build environment info
+        shell: pwsh
+        run: |
+          Write-Host "Runner OS  : $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)"
+          Write-Host "Runner arch: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
+          Write-Host "Go version : $(go version)"
+
+      - name: Build windows binaries (amd64 + arm64, always pcap)
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
+        run: |
+          Write-Host "Building VERSION=$env:VERSION BUILD_NUMBER=$env:BUILD_NUMBER"
+          .\build.ps1 -windows
+
+      - name: List build outputs
+        shell: pwsh
+        run: |
+          Write-Host "=== build\windows\ ==="
+          Get-ChildItem "build\windows" -Recurse -File | Sort-Object FullName | ForEach-Object {
+            Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+          }
+
+      - name: Verify windows pcap binaries
+        shell: pwsh
+        run: |
+          $fail = $false
+          foreach ($arch in @("amd64", "arm64")) {
+            $found = Get-ChildItem "build\windows" -Filter "*p-windows-${arch}.exe" -ErrorAction SilentlyContinue
+            if (-not $found) {
+              Write-Host "::error::FAIL: pcap binary not found for windows/${arch}" -ForegroundColor Red
+              $fail = $true
+            } else {
+              Write-Host "OK: $($found.FullName) ($($found.Length) bytes)"
+            }
+          }
+          if ($fail) {
+            Write-Host "::error::Windows pcap build failed -- aborting release"
+            exit 1
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: build\windows\
+          retention-days: 1
+
+  # ---------------------------------------------------------------
+  # 3c. Build macOS arm64 binary (macos-latest = arm64 runner)
+  #     darwin/arm64: pcap via native clang (IS_NATIVE = true, arm64 host)
+  #     Only the arm64 target is built here; amd64 is built on macos-##-intel.
+  # ---------------------------------------------------------------
+  build-macos-arm64:
+    needs: resolve-version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build environment info
+        run: |
+          echo "Runner OS  : $(uname -s)"
+          echo "Runner arch: $(uname -m)"
+          echo "Go version : $(go version)"
+          echo "Clang      : $(clang --version | head -1)"
+
+      - name: Build darwin/arm64 (pcap via native clang)
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
+        run: |
+          chmod +x build.sh
+          ./build.sh -darwin -arm64
+
+      - name: List build outputs
+        run: |
+          echo "=== build/darwin/ ==="
+          find build/darwin -type f | sort | while read f; do
+            echo "  $f  ($(stat -f%z "$f") bytes)"
+          done
+
+      - name: Verify darwin/arm64 pcap binary
+        run: |
+          fail=0
+          arm64_pcap=$(find build/darwin -name "*p-darwin-arm64" -type f 2>/dev/null)
+          if [ -z "$arm64_pcap" ]; then
+            echo "::error::FAIL: pcap binary not found for darwin/arm64 -- native clang build must produce pcap"
+            fail=1
+          else
+            echo "OK: $arm64_pcap ($(stat -f%z "$arm64_pcap") bytes)"
+          fi
+          exit $fail
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-arm64
+          path: build/darwin/
+          retention-days: 1
+
+  # ---------------------------------------------------------------
+  # 3d. Build macOS amd64 binary (macos-##-intel = Intel/amd64 runner)
+  #     darwin/amd64: pcap via native clang (IS_NATIVE = true, Intel host)
+  #     Only the amd64 target is built here; arm64 is built on macos-latest.
+  # ---------------------------------------------------------------
+  build-macos-amd64:
+    needs: resolve-version
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build environment info
+        run: |
+          echo "Runner OS  : $(uname -s)"
+          echo "Runner arch: $(uname -m)"
+          echo "Go version : $(go version)"
+          echo "Clang      : $(clang --version | head -1)"
+
+      - name: Build darwin/amd64 (pcap via native Intel clang)
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
+        run: |
+          chmod +x build.sh
+          ./build.sh -darwin -amd64
+
+      - name: List build outputs
+        run: |
+          echo "=== build/darwin/ ==="
+          find build/darwin -type f | sort | while read f; do
+            echo "  $f  ($(stat -f%z "$f") bytes)"
+          done
+
+      - name: Verify darwin/amd64 pcap binary
+        run: |
+          fail=0
+          amd64_pcap=$(find build/darwin -name "*p-darwin-amd64" -type f 2>/dev/null)
+          if [ -z "$amd64_pcap" ]; then
+            echo "::error::FAIL: pcap binary not found for darwin/amd64 -- native Intel clang build must produce pcap"
+            fail=1
+          else
+            echo "OK: $amd64_pcap ($(stat -f%z "$amd64_pcap") bytes)"
+          fi
+          exit $fail
+
+      - name: Upload macOS amd64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-amd64
+          path: build/darwin/
+          retention-days: 1
+
+  # ---------------------------------------------------------------
+  # 4. Publish release
+  #    All four build jobs must succeed before this runs.
+  #    Steps:
+  #      - Collect and verify all 10 release files
+  #      - Update version/ files and push commit
+  #      - Compute SHA256 checksums
+  #      - Create GitHub Release with all files attached
+  # ---------------------------------------------------------------
+  publish:
+    needs: [resolve-version, build-linux, build-windows, build-macos-arm64, build-macos-amd64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts/ -type f | while read f; do
+            cp "$f" release/
+          done
+          echo "=== Collected release files ==="
+          ls -lh release/ | sort
+          echo "Total: $(find release -type f | wc -l | tr -d ' ') file(s)"
+
+      - name: Verify all 10 release files are present
+        run: |
+          echo "=== Verifying release artifacts ==="
+          ls release/ | sort
+          echo ""
+          count=$(find release -type f | wc -l | tr -d ' ')
+          echo "Total files found: $count"
+          if [ "$count" -lt 10 ]; then
+            echo "::error::Expected at least 10 release files, found $count -- aborting release"
+            exit 1
+          fi
+          # Require pcap on: linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64, darwin/arm64
+          fail=0
+          for arch in amd64 arm64; do
+            found=$(find release -name "*p-linux-${arch}" -type f 2>/dev/null)
+            if [ -z "$found" ]; then
+              echo "::error::FAIL: missing pcap binary for linux/${arch}"
+              fail=1
+            else
+              echo "OK: $found ($(stat -c%s "$found") bytes)"
+            fi
+            found=$(find release -name "*p-windows-${arch}.exe" -type f 2>/dev/null)
+            if [ -z "$found" ]; then
+              echo "::error::FAIL: missing pcap binary for windows/${arch}"
+              fail=1
+            else
+              echo "OK: $found ($(stat -c%s "$found") bytes)"
+            fi
+            found=$(find release -name "*p-darwin-${arch}" -type f 2>/dev/null)
+            if [ -z "$found" ]; then
+              echo "::error::FAIL: missing pcap binary for darwin/${arch}"
+              fail=1
+            else
+              echo "OK: $found ($(stat -c%s "$found") bytes)"
+            fi
+          done
+          if [ $fail -ne 0 ]; then
+            echo "::error::Required pcap binaries are missing -- aborting release"
+            exit 1
+          fi
+          echo ""
+          echo "All release files verified."
+
+      - name: Update version files
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          BUILD_NUMBER="${{ needs.resolve-version.outputs.build_number }}"
+          VERSION_CHANGED="${{ needs.resolve-version.outputs.version_changed }}"
+          ORIGINAL_BUILD="${{ needs.resolve-version.outputs.original_build_number }}"
+
+          if [ "$VERSION_CHANGED" = "true" ]; then
+            printf '%s\n' "$VERSION" > version/version_base.txt
+            echo "Updated version_base.txt to $VERSION"
+          fi
+
+          printf '%s\n' "$BUILD_NUMBER" > version/build_number.txt
+          echo "Updated build_number.txt: $ORIGINAL_BUILD -> $BUILD_NUMBER"
+
+      - name: Commit and push version files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version/version_base.txt version/build_number.txt
+          if git diff --cached --quiet; then
+            echo "No version file changes to commit."
+          else
+            TAG_NAME="${{ needs.resolve-version.outputs.tag_name }}"
+            git commit -m "release: update version files for ${TAG_NAME}"
+            git push
+          fi
+
+      - name: Compute SHA256 checksums
+        run: |
+          cd release
+          echo "## SHA256 Checksums" > /tmp/checksums.md
+          echo "" >> /tmp/checksums.md
+          echo '```' >> /tmp/checksums.md
+          for f in $(ls -1 | sort); do
+            sha256sum "$f" >> /tmp/checksums.md
+          done
+          echo '```' >> /tmp/checksums.md
+          cat /tmp/checksums.md
+
+      - name: Build release body
+        env:
+          RELEASE_DESC: ${{ inputs.release_description }}
+        run: |
+          FULL_VERSION="${{ needs.resolve-version.outputs.full_version }}"
+          TAG_NAME="${{ needs.resolve-version.outputs.tag_name }}"
+          TYPE="${{ inputs.release_type }}"
+
+          {
+            if [ "$TYPE" = "beta" ]; then
+              echo "## SPK ${TAG_NAME} (Pre-release)"
+              echo ""
+              echo "> **This is a pre-release build.** It may contain bugs or incomplete features."
+            else
+              echo "## SPK ${TAG_NAME}"
+            fi
+            echo ""
+            if [ -n "$RELEASE_DESC" ]; then
+              echo "$RELEASE_DESC"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "### Downloads"
+            echo ""
+            echo "| Platform | Architecture | File | PCAP |"
+            echo "|---|---|---|---|"
+            for f in $(ls -1 release/ | sort); do
+              case "$f" in
+                *-windows-amd64.exe) echo "| Windows | amd64 | \`$f\` | Yes (wpcap.dll runtime) |" ;;
+                *-windows-arm64.exe) echo "| Windows | arm64 | \`$f\` | Yes (wpcap.dll runtime) |" ;;
+                *p-linux-amd64)     echo "| Linux   | amd64 | \`$f\` | Yes |" ;;
+                *p-linux-arm64)     echo "| Linux   | arm64 | \`$f\` | Yes |" ;;
+                *-linux-amd64)      echo "| Linux   | amd64 | \`$f\` | No  |" ;;
+                *-linux-arm64)      echo "| Linux   | arm64 | \`$f\` | No  |" ;;
+                *p-darwin-amd64)    echo "| macOS   | amd64 | \`$f\` | Yes |" ;;
+                *p-darwin-arm64)    echo "| macOS   | arm64 | \`$f\` | Yes |" ;;
+                *-darwin-arm64)     echo "| macOS   | arm64 | \`$f\` | No  |" ;;
+                *-darwin-amd64)     echo "| macOS   | amd64 | \`$f\` | No  |" ;;
+                *p-linux-amd64.deb) echo "| Linux   | amd64 | \`$f\` | Yes |" ;;
+                *p-linux-arm64.deb) echo "| Linux   | arm64 | \`$f\` | Yes |" ;;
+                *-linux-amd64.deb)  echo "| Linux   | amd64 | \`$f\` | No  |" ;;
+                *-linux-arm64.deb)  echo "| Linux   | arm64 | \`$f\` | No  |" ;;
+                *p-linux-amd64.rpm) echo "| Linux   | amd64 | \`$f\` | Yes |" ;;
+                *p-linux-arm64.rpm) echo "| Linux   | arm64 | \`$f\` | Yes |" ;;
+                *-linux-amd64.rpm)  echo "| Linux   | amd64 | \`$f\` | No  |" ;;
+                *-linux-arm64.rpm)  echo "| Linux   | arm64 | \`$f\` | No  |" ;;
+              esac
+            done
+            echo ""
+            echo "> **PCAP runtime libraries:** Windows requires [Npcap](https://npcap.com) (\`wpcap.dll\`)."
+            echo "> Linux requires \`libpcap0.8\` (\`apt install libpcap0.8\` or \`yum install libpcap\`)."
+            echo "> macOS has libpcap built-in -- nothing to install."
+            echo "> All darwin binaries are built on native CI runners (arm64: \`macos-latest\`, amd64: \`macos-26-intel\`) with Apple clang."
+            echo ""
+            echo "---"
+            echo ""
+            cat /tmp/checksums.md
+          } > /tmp/release_body.md
+          cat /tmp/release_body.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-version.outputs.tag_name }}
+          name: "SPK ${{ needs.resolve-version.outputs.tag_name }}"
+          body_path: /tmp/release_body.md
+          prerelease: ${{ needs.resolve-version.outputs.is_prerelease == 'true' }}
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

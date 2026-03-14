@@ -52,18 +52,35 @@ param(
 )
 
 $Binary = "spk"
-$Version = if ($env:VERSION) { $env:VERSION } else { "1.0.0" }
 $Commit = try { git rev-parse --short HEAD 2>$null } catch { "dev" }
 if (-not $Commit) { $Commit = "dev" }
 
-# Auto-increment build number
-$BuildNumberFile = Join-Path $PSScriptRoot "build_number.txt"
-$BuildNumber = 0
-if (Test-Path $BuildNumberFile) {
-    $BuildNumber = [int](Get-Content $BuildNumberFile -ErrorAction SilentlyContinue)
+# Read base version from version/version_base.txt
+$VersionBaseFile = Join-Path $PSScriptRoot "version\version_base.txt"
+if (Test-Path $VersionBaseFile) {
+    $Version = (Get-Content $VersionBaseFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
 }
-$BuildNumber++
-Set-Content $BuildNumberFile $BuildNumber
+if (-not $Version) { $Version = "1.0.0" }
+if ($env:VERSION) { $Version = $env:VERSION }
+
+# Auto-increment build number (or use BUILD_NUMBER env var to pin an exact value)
+# When $env:BUILD_NUMBER is set, the file is NOT written -- callers manage versioning.
+$BuildNumberFile = Join-Path $PSScriptRoot "version\build_number.txt"
+$SkipBuildNumberBump = $false
+if ($env:BUILD_NUMBER) {
+    $BuildNumber = [int]$env:BUILD_NUMBER
+    $SkipBuildNumberBump = $true
+} else {
+    $BuildNumber = 0
+    if (Test-Path $BuildNumberFile) {
+        $raw = (Get-Content $BuildNumberFile -Raw -ErrorAction SilentlyContinue).Trim() -replace '[^0-9]', ''
+        if ($raw) { $BuildNumber = [int]$raw }
+    }
+    $BuildNumber++
+}
+if (-not $SkipBuildNumberBump) {
+    Set-Content $BuildNumberFile $BuildNumber
+}
 
 $FullVersion = "$Version.$BuildNumber"
 $LDFlags = "-X main.version=$Version -X main.commit=$Commit -X main.buildNumber=$BuildNumber"

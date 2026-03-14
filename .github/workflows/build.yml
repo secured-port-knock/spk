@@ -1,0 +1,307 @@
+name: Build
+run-name: ${{ github.workflow }} - ${{ github.event.head_commit.message }}
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # ---------------------------------------------------------------
+  # Build script verification -- Linux (ubuntu-latest)
+  # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
+  #        darwin pcap skipped (no native macOS toolchain),
+  #        nopcap, deb+rpm packaging, build script -test flag.
+  # ---------------------------------------------------------------
+  build-scripts-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Install tools (libpcap, nfpm)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libpcap-dev
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build all platforms amd64+arm64 (pcap via zig)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Build all platforms without pcap
+        run: ./build.sh -all -nopcap
+
+      - name: Build linux + create deb and rpm packages
+        run: ./build.sh -linux -deb -rpm
+
+      - name: Run tests via build script (-test flag)
+        run: ./build.sh -test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux
+          path: build/
+
+  # ---------------------------------------------------------------
+  # Build script verification -- macOS (macos-latest, arm64)
+  # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
+  #        darwin/arm64 pcap via native clang (IS_NATIVE),
+  #        darwin/amd64 no-pcap (cross-arch; zig never used for darwin),
+  #        nopcap, deb+rpm packaging, build script -test flag.
+  # ---------------------------------------------------------------
+  build-scripts-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Install tools (nfpm)
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin via native clang)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Build all platforms without pcap
+        run: ./build.sh -all -nopcap
+
+      - name: Build linux + create deb and rpm packages
+        run: ./build.sh -linux -deb -rpm
+
+      - name: Run tests via build script (-test flag)
+        run: ./build.sh -test
+
+  # ---------------------------------------------------------------
+  # Build script verification -- Windows (windows-latest)
+  # Tests: all-platforms amd64+arm64, windows pcap (pure Go),
+  #        linux pcap via zig, darwin pcap skipped (no native
+  #        macOS toolchain), nopcap, deb+rpm packaging (cross-
+  #        compiled linux binary), build script -test flag.
+  # ---------------------------------------------------------------
+  build-scripts-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build all platforms amd64+arm64
+        run: .\build.ps1 -all
+
+      - name: Build all platforms without pcap
+        run: .\build.ps1 -all -nopcap
+
+      - name: Build linux + create deb and rpm packages
+        run: .\build.ps1 -linux -deb -rpm
+
+      - name: Run tests via build script (-test flag)
+        run: .\build.ps1 -test
+
+  # ---------------------------------------------------------------
+  # Build script verification -- no zig, Linux (ubuntu-latest)
+  # Verifies behavior when zig is absent:
+  #   windows/*      -> pcap (pure Go, always)
+  #   linux/amd64    -> pcap (native gcc, host is amd64)
+  #   linux/arm64    -> no-pcap (cross, no zig)
+  #   darwin/*       -> no-pcap (cross from linux, no native clang)
+  # ---------------------------------------------------------------
+  build-scripts-linux-nozig:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install libpcap (for native linux/amd64 pcap without zig)
+        run: sudo apt-get update -qq && sudo apt-get install -y libpcap-dev
+
+      - name: Build all platforms (no zig installed)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Verify expected pcap/no-pcap outputs
+        run: |
+          fail=0
+          expect_pcap()   { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . || { echo "FAIL: expected pcap binary for $1/$2"; fail=1; }; }
+          expect_nopcap() { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . && { echo "FAIL: unexpected pcap binary for $1/$2 (should be no-pcap)"; fail=1; } || true; }
+          expect_pcap   windows amd64
+          expect_pcap   windows arm64
+          expect_pcap   linux   amd64
+          expect_nopcap linux   arm64
+          expect_nopcap darwin  amd64
+          expect_nopcap darwin  arm64
+          exit $fail
+
+  # ---------------------------------------------------------------
+  # Build script verification -- no zig, macOS (macos-latest, arm64)
+  # Verifies behavior when zig is absent:
+  #   windows/*      -> pcap (pure Go, always)
+  #   linux/*        -> no-pcap (cross from macOS, no zig)
+  #   darwin/arm64   -> pcap (native clang, host is arm64)
+  #   darwin/amd64   -> no-pcap (cross-arch on arm64 host)
+  # ---------------------------------------------------------------
+  build-scripts-macos-nozig:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build all platforms (no zig installed)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Verify expected pcap/no-pcap outputs
+        run: |
+          fail=0
+          expect_pcap()   { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . || { echo "FAIL: expected pcap binary for $1/$2"; fail=1; }; }
+          expect_nopcap() { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . && { echo "FAIL: unexpected pcap binary for $1/$2 (should be no-pcap)"; fail=1; } || true; }
+          expect_pcap   windows amd64
+          expect_pcap   windows arm64
+          expect_nopcap linux   amd64
+          expect_nopcap linux   arm64
+          expect_nopcap darwin  amd64
+          expect_pcap   darwin  arm64
+          exit $fail
+
+  # ---------------------------------------------------------------
+  # Build script verification -- no zig, Windows (windows-latest)
+  # Verifies behavior when zig is absent:
+  #   windows/*      -> pcap (pure Go, always)
+  #   linux/*        -> no-pcap (cross from Windows, no zig/gcc)
+  #   darwin/*       -> no-pcap (cross from Windows, no native clang)
+  # ---------------------------------------------------------------
+  build-scripts-windows-nozig:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build all platforms (no zig installed)
+        run: .\build.ps1 -all
+
+      - name: Verify expected pcap/no-pcap outputs
+        run: |
+          $fail = $false
+          function Expect-Pcap($os, $arch) {
+            $found = Get-ChildItem "build\$os" -Filter "*p-${os}-${arch}*" -ErrorAction SilentlyContinue
+            if (-not $found) { Write-Host "FAIL: expected pcap binary for $os/$arch" -ForegroundColor Red; $script:fail = $true }
+          }
+          function Expect-NoPcap($os, $arch) {
+            $found = Get-ChildItem "build\$os" -Filter "*p-${os}-${arch}*" -ErrorAction SilentlyContinue
+            if ($found) { Write-Host "FAIL: unexpected pcap binary for $os/$arch (should be no-pcap)" -ForegroundColor Red; $script:fail = $true }
+          }
+          Expect-Pcap   windows amd64
+          Expect-Pcap   windows arm64
+          Expect-NoPcap linux   amd64
+          Expect-NoPcap linux   arm64
+          Expect-NoPcap darwin  amd64
+          Expect-NoPcap darwin  arm64
+          if ($fail) { exit 1 }
+
+  # ---------------------------------------------------------------
+  # Build script verification -- macOS Intel (macos-##-intel, amd64)
+  # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
+  #        darwin/amd64 pcap via native clang (IS_NATIVE, Intel host),
+  #        darwin/arm64 no-pcap (cross-arch on Intel host),
+  #        nopcap, deb+rpm packaging, build script -test flag.
+  # ---------------------------------------------------------------
+  build-scripts-macos-intel:
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Install tools (nfpm)
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin/amd64 pcap via native clang)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Build all platforms without pcap
+        run: ./build.sh -all -nopcap
+
+      - name: Build linux + create deb and rpm packages
+        run: ./build.sh -linux -deb -rpm
+
+      - name: Run tests via build script (-test flag)
+        run: ./build.sh -test
+
+  # ---------------------------------------------------------------
+  # Build script verification -- no zig, macOS Intel (macos-##-intel, amd64)
+  # Verifies behavior when zig is absent:
+  #   windows/*      -> pcap (pure Go, always)
+  #   linux/*        -> no-pcap (cross from macOS, no zig)
+  #   darwin/amd64   -> pcap (native clang, host IS amd64)
+  #   darwin/arm64   -> no-pcap (cross-arch on Intel host)
+  # ---------------------------------------------------------------
+  build-scripts-macos-intel-nozig:
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build all platforms (no zig installed)
+        run: chmod +x build.sh && ./build.sh -all
+
+      - name: Verify expected pcap/no-pcap outputs
+        run: |
+          fail=0
+          expect_pcap()   { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . || { echo "FAIL: expected pcap binary for $1/$2"; fail=1; }; }
+          expect_nopcap() { find "build/$1" -name "*p-$1-$2*" -type f 2>/dev/null | grep -q . && { echo "FAIL: unexpected pcap binary for $1/$2 (should be no-pcap)"; fail=1; } || true; }
+          expect_pcap   windows amd64
+          expect_pcap   windows arm64
+          expect_nopcap linux   amd64
+          expect_nopcap linux   arm64
+          expect_pcap   darwin  amd64
+          expect_nopcap darwin  arm64
+          exit $fail

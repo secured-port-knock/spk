@@ -8,8 +8,8 @@
 | `server.crt` | ML-KEM encapsulation key (PEM format, **treat as secret** -- distributed only via activation bundle) |
 | `spk_server.toml` | Server configuration (TOML) |
 | `spk_client.toml` | Client configuration (TOML) |
-| `activation.b64` | Base64-encoded key bundle (public key + KEM size + seed/port + policies) |
-| `activation_qr.png` | QR code of the key bundle (raw binary, Medium EC) |
+| `activation.b64` | Base64-encoded key bundle (public key + KEM size + seed/port + policies). **Treat like a private key** -- delete after client import |
+| `activation_qr.png` | QR code of the key bundle (raw binary, Medium EC). **Treat like a private key** -- delete after client import |
 | `totp_qr.png` | TOTP QR code for authenticator apps (when TOTP enabled) |
 | `state.json` | Server state for crash recovery |
 | `spk_server.log` | Server log (rotated, max 10 MB x 5 backups) |
@@ -42,8 +42,15 @@ internal/
   sniffer/          - Packet capture backends (UDP, pcap, AF_PACKET, WinDivert)
 tests/integration/  - End-to-end integration tests
 docs/               - Documentation
-build.ps1           - Windows build script (PowerShell)
-build.sh            - Linux/macOS build script (bash)
-build.cmd           - Windows CMD wrapper for build.ps1
-Makefile            - Make targets for build/test/coverage
+version/              - Version metadata
+  version_base.txt    - Base version string (e.g. 1.0.0)
+  build_number.txt    - Auto-incremented build number
+build.ps1             - Windows build script (PowerShell)
+build.sh              - Linux/macOS build script (bash)
+build.cmd             - Windows CMD wrapper for build.ps1
+Makefile              - Make targets for build/test/coverage
+.github/workflows/    - GitHub Actions CI and release workflows
+  ci.yml              - Continuous integration (tests, sniffer tests, linting)
+  build.yml           - Build script verification across all platforms
+  release.yml         - Manual release and beta publishing
 ```

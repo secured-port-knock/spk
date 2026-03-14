@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml)
+[![Build](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml)
 
 > **Development Status**
 >
@@ -44,6 +45,7 @@ The core issue: **services must be reachable to be usable, but reachable means a
 | Forward Secrecy | Each packet uses an ephemeral key -- compromising one reveals nothing about past or future knocks |
 | Tamper Detection | AES-256-GCM authenticated encryption covers the entire payload, making any modification detectable |
 | Key Exchange | Asymmetric (ML-KEM) -- every knock generates a new symmetric key, so no two knocks share cryptographic material |
+| Secure Key Storage | Server public key stored in OS credential manager (Windows DPAPI, macOS Keychain, Linux Secret Service) -- encrypted at rest, bound to user account |
 | 2FA / TOTP | Optional second factor via RFC 6238 time-based codes (Google Authenticator, Authy, etc.) |
 | Cross-Platform | Windows, Linux, macOS |
 
@@ -72,7 +74,8 @@ Download the latest release for your platform from [GitHub Releases](../../relea
 
 ```bash
 ./spk --version
-# spk 1.0.0.42p (abc1234)
+# SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [No PCAP]    -- non-pcap build
+# SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [With PCAP]  -- pcap build
 ```
 
 To build from source, see [docs/compilation.md](docs/compilation.md).
@@ -118,6 +121,11 @@ To build from source, see [docs/compilation.md](docs/compilation.md).
 ./spk --client --cmd open-t22 --totp 123456
 ./spk open-t22 --totp 482901
 ```
+
+> **Protect your activation bundle and server public key.** The activation bundle (`activation.b64` / QR code) contains the server's ML-KEM public key. Anyone who has this key can send valid knock packets to open your firewall. Treat the activation bundle like a private key:
+> - **Encrypt it for transport:** `spk --server --export` prompts for a password; use one when sending over email or messaging apps. If the password is forgotten before client import, re-export from the server (no keypair change needed).
+> - **Delete after import:** Once `spk --client --setup` has imported it, delete the file from all intermediate storage.
+> - **Use the OS credential manager:** SPK can store the imported key in Windows Credential Manager / DPAPI, macOS Keychain, or Linux Secret Service. See [docs/security.md - Secure Key Storage](docs/security.md#secure-key-storage).
 
 ### Re-export Activation Bundle
 
@@ -296,7 +304,7 @@ See [docs/files.md](docs/files.md) for a complete list of generated files, defau
 | [docs/activation.md](docs/activation.md) | Activation bundle binary format, encrypted bundles, parsing instructions |
 | [docs/integration.md](docs/integration.md) | Third-party client integration guide, pseudocode, library recommendations |
 | [docs/capture-modes.md](docs/capture-modes.md) | Packet capture modes (UDP, pcap, AF_PACKET, WinDivert), multi-interface behavior |
-| [docs/testing.md](docs/testing.md) | Test categories, running tests, CI |
+| [docs/testing.md](docs/testing.md) | Test categories, running tests, CI workflow, Build workflow, Release workflow |
 
 ## Runtime Requirements
 

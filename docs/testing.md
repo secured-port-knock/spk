@@ -89,30 +89,24 @@ Tests cover the following areas:
 
 ## Continuous Integration
 
-The GitHub Actions workflow (`.github/workflows/ci.yml`) runs automatically on push and pull requests:
+The project uses three GitHub Actions workflows. For build and release workflow documentation, see [compilation.md](compilation.md).
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+Runs on every push and pull request to `main`/`master`.
 
 | Job | Platform(s) | Description |
 |---|---|---|
 | **unit-tests** | Ubuntu, Windows, macOS | All unit tests |
-| **coverage** | Ubuntu | Coverage report uploaded as artifact + Codecov |
+| **coverage** | Ubuntu | Coverage report uploaded as artifact |
 | **integration-tests** | Ubuntu, Windows, macOS | End-to-end knock flow tests |
 | **sniffer-tests-linux** | Ubuntu | Sniffer tests with libpcap + AF_PACKET (requires sudo) |
 | **sniffer-tests-windows** | Windows | Non-pcap sniffer tests (Npcap unavailable in CI) |
 | **sniffer-tests-macos** | macOS | Sniffer tests with built-in libpcap (requires sudo) |
-| **build-scripts-linux** | Ubuntu | Cross-compile all 6 targets with zig; deb+rpm packaging |
-| **build-scripts-macos** | macOS | Cross-compile all 6 targets with zig; deb+rpm packaging |
-| **build-scripts-windows** | Windows | Cross-compile all 6 targets with zig; deb+rpm packaging |
-| **build-scripts-linux-nozig** | Ubuntu | Build all targets without zig; verify expected pcap/no-pcap output |
-| **build-scripts-macos-nozig** | macOS | Build all targets without zig; verify expected pcap/no-pcap output |
-| **build-scripts-windows-nozig** | Windows | Build all targets without zig; verify expected pcap/no-pcap output |
 | **vet** | Ubuntu | `go vet ./...` static analysis |
 | **govulncheck** | Ubuntu | Vulnerability scanning (informational, non-blocking) |
 
-### No-zig build verification
-
-The `build-scripts-*-nozig` jobs ensure that the build scripts behave correctly when zig is absent. Each job builds all 6 platform/arch targets and then asserts the expected pcap/no-pcap outcome per target.
-
-To run locally what CI runs:
+To run locally what the CI workflow runs:
 
 ```bash
 go test ./... -count=1 -timeout 120s

@@ -36,18 +36,32 @@
 set -e
 
 BINARY="spk"
-VERSION="${VERSION:-1.0.0}"
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
 
-# Auto-increment build number
-BUILD_NUMBER_FILE="$(dirname "$0")/build_number.txt"
-BUILD_NUMBER=0
-if [ -f "${BUILD_NUMBER_FILE}" ]; then
-  BUILD_NUMBER=$(head -1 "${BUILD_NUMBER_FILE}" 2>/dev/null | tr -cd '0-9')
-  [ -z "${BUILD_NUMBER}" ] && BUILD_NUMBER=0
+# Read base version from version/version_base.txt (env VERSION overrides)
+VERSION_BASE_FILE="$(dirname "$0")/version/version_base.txt"
+if [ -z "${VERSION}" ] && [ -f "${VERSION_BASE_FILE}" ]; then
+  VERSION=$(head -1 "${VERSION_BASE_FILE}" 2>/dev/null | tr -cd '0-9.')
 fi
-BUILD_NUMBER=$((BUILD_NUMBER + 1))
-printf '%s\n' "${BUILD_NUMBER}" > "${BUILD_NUMBER_FILE}"
+VERSION="${VERSION:-1.0.0}"
+
+# Auto-increment build number (or use BUILD_NUMBER env var to pin an exact value)
+# When BUILD_NUMBER is set externally, the file is NOT written -- callers manage versioning.
+BUILD_NUMBER_FILE="$(dirname "$0")/version/build_number.txt"
+SKIP_BUILD_NUMBER_BUMP=false
+if [ -n "${BUILD_NUMBER}" ]; then
+  SKIP_BUILD_NUMBER_BUMP=true
+else
+  BUILD_NUMBER=0
+  if [ -f "${BUILD_NUMBER_FILE}" ]; then
+    BUILD_NUMBER=$(head -1 "${BUILD_NUMBER_FILE}" 2>/dev/null | tr -cd '0-9')
+    [ -z "${BUILD_NUMBER}" ] && BUILD_NUMBER=0
+  fi
+  BUILD_NUMBER=$((BUILD_NUMBER + 1))
+fi
+if ! $SKIP_BUILD_NUMBER_BUMP; then
+  printf '%s\n' "${BUILD_NUMBER}" > "${BUILD_NUMBER_FILE}"
+fi
 
 FULL_VERSION="${VERSION}.${BUILD_NUMBER}"
 LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildNumber=${BUILD_NUMBER} -s -w"

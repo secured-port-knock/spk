@@ -50,12 +50,27 @@ func fullVersion() string {
 	return fmt.Sprintf("%s.%s", version, buildNumber)
 }
 
+// versionTag returns the version string used in binary filenames.
+// Pcap-capable builds append "p" (e.g. "1.0.3.1004p").
 func versionTag() string {
 	v := fullVersion()
 	if pcapBuild == "1" {
 		v += "p"
 	}
 	return v
+}
+
+// pcapLabel returns a human-readable PCAP capability label.
+func pcapLabel() string {
+	if pcapBuild == "1" {
+		return "[With PCAP]"
+	}
+	return "[No PCAP]"
+}
+
+// versionString returns the full application version string shown to users.
+func versionString() string {
+	return fmt.Sprintf("SPK - Secured Port Knock - %s (%s) %s", fullVersion(), commit, pcapLabel())
 }
 
 // isPrivileged checks whether the process is running with elevated privileges
@@ -93,7 +108,7 @@ func main() {
 	svcName := flag.String("service-name", "", "Windows service name (set automatically by --install, do not use manually)")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "SPK %s (%s) - PQC Port Knocking with ML-KEM-1024\n\n", versionTag(), commit)
+		fmt.Fprintf(os.Stderr, "%s\n\n", versionString())
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  Server:\n")
 		fmt.Fprintf(os.Stderr, "    spk --server --setup     First-time setup (generates keys & config)\n")
@@ -155,7 +170,7 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("spk %s (%s)\n", versionTag(), commit)
+		fmt.Println(versionString())
 		os.Exit(0)
 	}
 
@@ -266,7 +281,7 @@ func main() {
 				server.RunSetup()
 				return
 			}
-			fmt.Fprintf(os.Stderr, "SPK %s (%s)\n", versionTag(), commit)
+			fmt.Fprintf(os.Stderr, "%s\n", versionString())
 			if !isPrivileged() {
 				fmt.Fprintln(os.Stderr, "")
 				fmt.Fprintln(os.Stderr, "===========================================================")

@@ -2,6 +2,10 @@
 
 The activation bundle is required to set up an SPK client. It contains the server's ML-KEM encapsulation key, listen port (or dynamic port seed), timeout defaults, and policy flags -- everything a client needs to construct valid knock packets. Without activation, the client has no key material and cannot communicate with the server.
 
+> **Security Warning:** The activation bundle contains the server's public key (encapsulation key). Treat it with the same care as a private key. Anyone who obtains this bundle can construct valid knock packets and open your firewall ports (unless TOTP is also enabled as a second factor). After importing the bundle on the client, delete it from any intermediate storage (email, USB, shared drives, clipboard history). SPK supports storing the imported key in your operating system's credential manager (Windows Credential Manager / DPAPI, macOS Keychain, Linux Secret Service) to prevent accidental exposure. See [security.md - Secure Key Storage](security.md#secure-key-storage) for details.
+>
+> **Encrypted bundles for safe transport:** When exporting (`spk --server --export`), SPK prompts for an optional password. If a password is set, the bundle is AES-256-GCM encrypted before being saved or displayed. This is strongly recommended when transporting the bundle over insecure channels (email, messaging apps, shared storage). The recipient must supply the same password during `spk --client --setup` to decrypt and import the bundle.
+
 During server setup (`spk --server --setup`), the activation bundle is generated automatically and saved as `activation.b64` (text) and `activation_qr.png` (QR code). Transfer either to the client machine and run `spk --client --setup` to import it.
 
 - **activation.b64**: `"SK"` prefix + zlib-compressed binary, then base64-encoded
@@ -31,7 +35,9 @@ Total uncompressed: ~1200-1585 bytes depending on KEM size. After zlib + raw bin
 
 ## Encrypted Bundles
 
-When a password is set during server setup, bundles use an encrypted wrapper:
+When a password is set during server export (`spk --server --export`), bundles use an encrypted wrapper. This is recommended whenever the bundle must travel over an untrusted channel. The recipient provides the password at import time (`spk --client --setup`).
+
+> **Important:** If the password is forgotten before the client imports the bundle, there is no recovery path for that export. Re-run `spk --server --export` on the server to generate a new bundle. The server keypair is unchanged -- only the export needs to be repeated. SPK never stores the bundle password.
 
 ```
 "SKE"          (3 bytes)  -- encrypted bundle magic
