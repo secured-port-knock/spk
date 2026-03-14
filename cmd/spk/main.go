@@ -179,7 +179,10 @@ func main() {
 		config.SetConfigDir(*cfgDir)
 	}
 	if *logDir != "" {
-		logging.SetLogDir(*logDir)
+		if err := logging.SetLogDir(*logDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to set log directory: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Handle service install/uninstall (independent of mode flags)

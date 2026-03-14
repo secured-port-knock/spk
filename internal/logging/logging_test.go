@@ -204,7 +204,9 @@ func TestSetLogDirOverride(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	if LogDir() != dir {
 		t.Errorf("LogDir() = %q, want %q", LogDir(), dir)
 	}
@@ -216,7 +218,9 @@ func TestSetLogDirCreatesDirectory(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
@@ -242,7 +246,9 @@ func TestNewLoggerWithCustomDir(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	cfg := DefaultConfig()
 	l, err := New("test_custom_dir.log", cfg, "test")
 	if err != nil {
@@ -285,7 +291,9 @@ func TestLoggerWritesToFileEvenIfStdoutFails(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	cfg := DefaultConfig()
 	l, err := New("test_file_first.log", cfg, "test")
 	if err != nil {
@@ -315,7 +323,9 @@ func TestLoggerFileWriteOrder(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	cfg := DefaultConfig()
 	l, err := New("test_order.log", cfg, "test")
 	if err != nil {
@@ -358,7 +368,9 @@ func TestLoggerWarnf(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	l, err := New("test_warn.log", DefaultConfig(), "test")
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -381,7 +393,9 @@ func TestLoggerErrorf(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	l, err := New("test_error.log", DefaultConfig(), "test")
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -404,7 +418,9 @@ func TestLoggerConcurrentWrites(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
 
-	SetLogDir(dir)
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
 	cfg := DefaultConfig()
 	cfg.FloodLimitPS = 0 // disable flood protection for concurrency test
 	l, err := New("test_concurrent.log", cfg, "test")

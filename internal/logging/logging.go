@@ -61,9 +61,14 @@ var logDirFallback bool
 
 // SetLogDir overrides the default log directory.
 // Creates the directory if it does not exist.
-func SetLogDir(dir string) {
-	os.MkdirAll(dir, 0750)
+// Returns an error if the directory cannot be created; customLogDir is only
+// updated on success so that a failed call leaves the previous value intact.
+func SetLogDir(dir string) error {
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create log directory %s: %w", dir, err)
+	}
 	customLogDir = dir
+	return nil
 }
 
 // UsingFallbackLogDir returns true when LogDir fell back to an
@@ -95,7 +100,10 @@ func LogDir() string {
 		return "."
 	}
 	dir := filepath.Join(filepath.Dir(exe), "log")
-	os.MkdirAll(dir, 0750) //nolint:errcheck
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR | [logging] failed to create log directory %s: %v\n", dir, err)
+		return "."
+	}
 	return dir
 }
 
@@ -308,16 +316,22 @@ func (l *Logger) rotate() {
 	for i := l.config.MaxBackups - 1; i >= 1; i-- {
 		src := fmt.Sprintf("%s.%d", l.filePath, i)
 		dst := fmt.Sprintf("%s.%d", l.filePath, i+1)
-		os.Rename(src, dst)
+		if err := os.Rename(src, dst); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "ERROR | [%s] failed to rotate log backup %s -> %s: %v\n", l.module, src, dst, err)
+		}
 	}
 
 	// Rename current log to .1
-	os.Rename(l.filePath, l.filePath+".1")
+	if err := os.Rename(l.filePath, l.filePath+".1"); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "ERROR | [%s] failed to rename log file %s: %v\n", l.module, l.filePath, err)
+	}
 
 	// Remove backups exceeding max
 	for i := l.config.MaxBackups + 1; i <= l.config.MaxBackups+5; i++ {
 		path := fmt.Sprintf("%s.%d", l.filePath, i)
-		os.Remove(path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "ERROR | [%s] failed to remove excess log backup %s: %v\n", l.module, path, err)
+		}
 	}
 
 	// Clean old backups by age
@@ -355,7 +369,10 @@ func (l *Logger) cleanOldBackups() {
 			continue
 		}
 		if info.ModTime().Before(cutoff) {
-			os.Remove(filepath.Join(dir, entry.Name()))
+			path := filepath.Join(dir, entry.Name())
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "WARN  | [%s] failed to remove old log backup %s: %v\n", l.module, path, err)
+			}
 		}
 	}
 }
