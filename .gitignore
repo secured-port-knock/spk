@@ -1,0 +1,58 @@
+# Binaries (root-level only -- /spk avoids matching cmd/spk/)
+/spk
+/spk.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Keys and config (sensitive)
+server.key
+server.crt
+activation.b64
+activation_qr.png
+totp_qr.png
+public.b64
+public_qr.png
+state.json
+config.json
+*.pem
+
+# Config files (generated per-instance)
+spk_server.toml
+spk_client.toml
+spk_server.json
+spk_client.json
+
+# Test binary
+*.test
+*.test.exe
+
+# Output of go coverage
+*.out
+coverage.html
+coverage_report.txt
+cover
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+# Log files
+*.log
+spk_server.log*
