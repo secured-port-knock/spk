@@ -7,7 +7,7 @@ the BSD-3-Clause license for golang.org/x packages, which requires reproduction
 of the copyright notice and license text in binary distributions).
 
 -------------------------------------------------------------------------------
-github.com/BurntSushi/toml v1.6.0
+github.com/BurntSushi/toml
 https://github.com/BurntSushi/toml
 License: MIT
 -------------------------------------------------------------------------------
@@ -35,7 +35,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 -------------------------------------------------------------------------------
-github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+github.com/skip2/go-qrcode
 https://github.com/skip2/go-qrcode
 License: MIT
 -------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 -------------------------------------------------------------------------------
-golang.org/x/crypto v0.35.0
+golang.org/x/crypto
 https://pkg.go.dev/golang.org/x/crypto
 License: BSD-3-Clause
 -------------------------------------------------------------------------------
@@ -95,7 +95,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 -------------------------------------------------------------------------------
-golang.org/x/sys v0.30.0
+golang.org/x/sys
 https://pkg.go.dev/golang.org/x/sys
 License: BSD-3-Clause
 -------------------------------------------------------------------------------

@@ -323,10 +323,10 @@ The full copyright notices and license texts for all third-party dependencies ar
 provided in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES), as required by the
 BSD-3-Clause license terms of the golang.org/x packages.
 
-| Dependency | Version | License |
-|---|---|---|
-| [BurntSushi/toml](https://github.com/BurntSushi/toml) | v1.6.0 | MIT |
-| [skip2/go-qrcode](https://github.com/skip2/go-qrcode) | v0.0.0-20200617195104 | MIT |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | v0.35.0 | BSD-3-Clause |
-| [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | v0.30.0 | BSD-3-Clause |
+| Dependency | License |
+|---|---|
+| [BurntSushi/toml](https://github.com/BurntSushi/toml) | MIT |
+| [skip2/go-qrcode](https://github.com/skip2/go-qrcode) | MIT |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | BSD-3-Clause |
+| [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | BSD-3-Clause |
 
