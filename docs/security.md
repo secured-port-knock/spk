@@ -1,127 +1,8 @@
 # Security
 
-> **Security Policy:** We take security seriously. If you discover a security vulnerability or flaw in SPK, please report it immediately by opening an issue in the [Issues](../../issues) section. Include as much detail as possible to help us reproduce and fix the problem.
+> **Security Policy:** We take security seriously. If you discover a security vulnerability or flaw in SPK, please report it immediately by opening an issue in the [Security](../../security) section. Include as much detail as possible to help us reproduce and fix the problem.
 
 This document covers SPK's security architecture, threat model, and defense mechanisms.
-
-## Dynamic Port Rotation
-
-SPK can rotate its listen port automatically using a shared seed, making port scanning ineffective.
-
-During server setup, a random 8-byte seed is generated. Both server and client derive the current port from:
-
-```
-port = HMAC-SHA256(seed, floor(unix_time / window)) mod 55000 + 10000
-```
-
-- The rotation period is **configurable** (default 600 seconds / 10 minutes, range 60-86400)
-- Both sides compute the same port independently - no communication needed
-- Port range: 10000-64999
-- The seed and window are included in the exported bundle so clients learn them automatically
-- Server wakes up precisely at each window boundary (within 1s), so client and server switch ports in sync
-
-The rotation period can be changed in config (`dynamic_port_window`) and is embedded in the client bundle. Both sides must use the same window or the ports won't match.
-
-Disable dynamic port by answering "no" during setup; the server will listen on a fixed port instead.
-
-## Anti-Replay Mechanism
-
-SPK uses a **three-layer** anti-replay defense:
-
-### Layer 1: Authenticated Encryption (AES-256-GCM)
-
-The nonce is **inside** the encrypted payload, not outside. An attacker cannot:
-
-- **Flip bits** in the ciphertext to change the nonce - GCM authentication fails immediately
-- **Re-encrypt** with a different nonce - they don't have the shared secret
-- **Re-encapsulate** with a new KEM - produces a different shared secret, decryption fails
-
-Even a single bit flip anywhere in the packet causes complete decryption failure.
-
-### Layer 2: Nonce Tracking
-
-After successful decryption, the server records the 32-byte hex nonce. Any packet with a previously-seen nonce is rejected. This catches exact-copy replay attacks.
-
-The nonce cache has a configurable maximum size (`max_nonce_cache`, default 10,000 entries). When full, expired entries are swept first, then the oldest entries are evicted to make room. This prevents memory exhaustion under sustained traffic.
-
-### Layer 3: Timestamp Validation
-
-The packet timestamp must be within `timestamp_tolerance` (default 30s) of the server's clock. Packets outside this window are rejected regardless of nonce.
-
-### Gap Analysis
-
-The system enforces `nonce_expiry >= timestamp_tolerance` on startup (auto-corrected if misconfigured). This ensures there is **no gap** where a replayed packet could pass:
-
-| Time since original packet | Timestamp check | Nonce check | Result |
-|---|---|---|---|
-| 0-30s (within tolerance) | PASS | **REJECT** (seen before) | Replay blocked |
-| 30s-2min (past tolerance) | **REJECT** (too old) | Would also reject | Double-blocked |
-| 2min+ (nonce expired) | **REJECT** (too old) | Would also reject | Still blocked |
-
-**Bottom line**: An attacker with a captured packet can never replay it. The authenticated encryption prevents modification, nonce tracking prevents exact replay, and the timestamp window eventually makes the packet unusable.
-
-## Client IP Detection
-
-The knock payload includes the client's IP address for anti-spoofing verification. SPK automatically detects the correct IP:
-
-### LAN Targets (Private IP)
-
-When the server is on a private network (10.x.x.x, 172.16-31.x.x, 192.168.x.x, loopback, link-local), the client uses the OS routing table to select the correct local interface. This works correctly with multiple network interfaces - the OS picks the interface that would route to the server.
-
-### WAN Targets (Public IP)
-
-When the server is on a public IP, the client uses **STUN** (Session Traversal Utilities for NAT, RFC 5389) to detect its own public IP:
-
-1. Sends a lightweight UDP Binding Request to configurable STUN servers (default: Cloudflare, Google)
-2. Falls back to additional STUN servers if unavailable
-3. Parses the XOR-MAPPED-ADDRESS from the response
-4. Uses the discovered WAN IP in the knock packet
-
-This handles NAT transparently - the client learns the same IP that the server will see.
-
-STUN servers are configured in the client config (`stun_servers` setting) with sensible defaults:
-```toml
-stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.google.com:19302"]
-```
-
-### CGNAT Detection
-
-SPK automatically detects Carrier-Grade NAT (CGNAT) environments (100.64.0.0/10). When the target server is on a CGNAT IP, the client recognizes this as a private/LAN target and uses the local interface IP rather than performing STUN discovery.
-
-### Manual Override
-
-Use `--ip` to specify a fixed client IP (useful for static WAN IPs or VPN setups):
-
-```bash
-./spk --client --cmd open-t22 --ip 203.0.113.50
-./spk --client --cmd open-t22 --ip 2001:db8::1    # IPv6
-```
-
-### NAT Environments
-
-When `match_incoming_ip = false` is set, the server does not verify that the UDP source IP matches the IP embedded in the knock payload. The IP supplied by the client in the encrypted payload is taken as-is and used to open firewall ports. The authenticated encryption still prevents all packet modification, so the security reduction is minimal -- only relay attacks from a compromised network path become possible.
-
-This also helps scenarios where an admin wants to manually authorize a remote user -- simply pass the remote IP using the `--ip` flag with `match_incoming_ip = false`.
-
-## Secure Key Storage
-
-The server's ML-KEM public key (encapsulation key) and the activation bundle are the most sensitive client-side assets. Anyone who possesses the server public key can construct valid knock packets (unless TOTP is also enabled). **Treat the activation bundle and the server public key exactly like a private key** -- if either is leaked, an attacker can open your firewall ports.
-
-**Recommended practices:**
-
-1. **Encrypt the bundle for transport.** When exporting (`spk --server --export`), set a password. The bundle is then AES-256-GCM encrypted and safe to transfer over untrusted channels. Remember the password: if it is forgotten before the client imports the bundle, you must re-export.
-2. **Delete after import.** Once `spk --client --setup` has imported the bundle, delete the file and any copies from email, USB drives, and clipboard history.
-3. **Store the imported key in the OS credential manager.** SPK supports the following backends -- chosen during client setup:
-
-| Platform | Storage Backend | Method |
-|---|---|---|
-| Windows | Credential Manager + DPAPI | `cmdkey` + `ProtectedData.Protect()` |
-| macOS | Keychain | `security add-generic-password` |
-| Linux | Secret Service | `secret-tool store` |
-
-The setup wizard tests the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you are prompted to choose file-based storage instead.
-
-Keys stored in credential managers are encrypted with your OS user credentials -- they can only be accessed by the same user account on the same machine. This prevents accidental leakage through backups, screenshots, or other programs reading config directories.
 
 ## Security Analysis
 
@@ -178,6 +59,125 @@ The server's ML-KEM public key is **never transmitted over the network** during 
 - **Key compromise**: If the private key is stolen, an attacker can decrypt new packets. Rotate keys using `--server --setup`.
 - **Network-level DoS**: A sustained UDP flood can consume the server's network bandwidth or CPU. Dynamic port rotation is the primary defense (attackers must discover the port before flooding). Bandwidth saturation requires upstream filtering (cloud firewall, ISP null-routing, etc.).
 - **Physical access**: An attacker with root access to the server can read the private key.
+
+### Secure Key Storage
+
+The server's ML-KEM public key (encapsulation key) and the activation bundle are the most sensitive client-side assets. Anyone who possesses the server public key can construct valid knock packets (unless TOTP is also enabled). **Treat the activation bundle and the server public key exactly like a private key** -- if either is leaked, an attacker can open your firewall ports.
+
+**Recommended practices:**
+
+1. **Encrypt the bundle for transport.** When exporting (`spk --server --export`), set a password. The bundle is then AES-256-GCM encrypted and safe to transfer over untrusted channels. Remember the password: if it is forgotten before the client imports the bundle, you must re-export.
+2. **Delete after import.** Once `spk --client --setup` has imported the bundle, delete the file and any copies from email, USB drives, and clipboard history.
+3. **Store the imported key in the OS credential manager.** SPK supports the following backends -- chosen during client setup:
+
+| Platform | Storage Backend | Method |
+|---|---|---|
+| Windows | Credential Manager + DPAPI | `cmdkey` + `ProtectedData.Protect()` |
+| macOS | Keychain | `security add-generic-password` |
+| Linux | Secret Service | `secret-tool store` |
+
+The setup wizard tests the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you are prompted to choose file-based storage instead.
+
+Keys stored in credential managers are encrypted with your OS user credentials -- they can only be accessed by the same user account on the same machine. This prevents accidental leakage through backups, screenshots, or other programs reading config directories.
+
+### Anti-Replay Mechanism
+
+SPK uses a **three-layer** anti-replay defense:
+
+#### Layer 1: Authenticated Encryption (AES-256-GCM)
+
+The nonce is **inside** the encrypted payload, not outside. An attacker cannot:
+
+- **Flip bits** in the ciphertext to change the nonce - GCM authentication fails immediately
+- **Re-encrypt** with a different nonce - they don't have the shared secret
+- **Re-encapsulate** with a new KEM - produces a different shared secret, decryption fails
+
+Even a single bit flip anywhere in the packet causes complete decryption failure.
+
+#### Layer 2: Nonce Tracking
+
+After successful decryption, the server records the 32-byte hex nonce. Any packet with a previously-seen nonce is rejected. This catches exact-copy replay attacks.
+
+The nonce cache has a configurable maximum size (`max_nonce_cache`, default 10,000 entries). When full, expired entries are swept first, then the oldest entries are evicted to make room. This prevents memory exhaustion under sustained traffic.
+
+#### Layer 3: Timestamp Validation
+
+The packet timestamp must be within `timestamp_tolerance` (default 30s) of the server's clock. Packets outside this window are rejected regardless of nonce.
+
+#### Gap Analysis
+
+The system enforces `nonce_expiry >= timestamp_tolerance` on startup (auto-corrected if misconfigured). This ensures there is **no gap** where a replayed packet could pass:
+
+| Time since original packet | Timestamp check | Nonce check | Result |
+|---|---|---|---|
+| 0-30s (within tolerance) | PASS | **REJECT** (seen before) | Replay blocked |
+| 30s-2min (past tolerance) | **REJECT** (too old) | Would also reject | Double-blocked |
+| 2min+ (nonce expired) | **REJECT** (too old) | Would also reject | Still blocked |
+
+**Bottom line**: An attacker with a captured packet can never replay it. The authenticated encryption prevents modification, nonce tracking prevents exact replay, and the timestamp window eventually makes the packet unusable.
+
+### Client IP Detection
+
+The knock payload includes the client's IP address for anti-spoofing verification. SPK automatically detects the correct IP:
+
+#### LAN Targets (Private IP)
+
+When the server is on a private network (10.x.x.x, 172.16-31.x.x, 192.168.x.x, loopback, link-local), the client uses the OS routing table to select the correct local interface. This works correctly with multiple network interfaces - the OS picks the interface that would route to the server.
+
+#### WAN Targets (Public IP)
+
+When the server is on a public IP, the client uses **STUN** (Session Traversal Utilities for NAT, RFC 5389) to detect its own public IP:
+
+1. Sends a lightweight UDP Binding Request to configurable STUN servers (default: Cloudflare, Google)
+2. Falls back to additional STUN servers if unavailable
+3. Parses the XOR-MAPPED-ADDRESS from the response
+4. Uses the discovered WAN IP in the knock packet
+
+This handles NAT transparently - the client learns the same IP that the server will see.
+
+STUN servers are configured in the client config (`stun_servers` setting) with sensible defaults:
+```toml
+stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.google.com:19302"]
+```
+
+#### CGNAT Detection
+
+SPK automatically detects Carrier-Grade NAT (CGNAT) environments (100.64.0.0/10). When the target server is on a CGNAT IP, the client recognizes this as a private/LAN target and uses the local interface IP rather than performing STUN discovery.
+
+#### Manual Override
+
+Use `--ip` to specify a fixed client IP (useful for static WAN IPs or VPN setups):
+
+```bash
+./spk --client --cmd open-t22 --ip 203.0.113.50
+./spk --client --cmd open-t22 --ip 2001:db8::1    # IPv6
+```
+
+#### NAT Environments
+
+When `match_incoming_ip = false` is set, the server does not verify that the UDP source IP matches the IP embedded in the knock payload. The IP supplied by the client in the encrypted payload is taken as-is and used to open firewall ports. The authenticated encryption still prevents all packet modification, so the security reduction is minimal -- only relay attacks from a compromised network path become possible.
+
+This also helps scenarios where an admin wants to manually authorize a remote user -- simply pass the remote IP using the `--ip` flag with `match_incoming_ip = false`.
+
+### Dynamic Port Rotation
+
+SPK can rotate its listen port automatically using a shared seed, making port scanning ineffective.
+
+During server setup, a random 8-byte seed is generated. Both server and client derive the current port from:
+
+```
+port = HMAC-SHA256(seed, floor(unix_time / window)) mod 55000 + 10000
+```
+
+- The rotation period is **configurable** (default 600 seconds / 10 minutes, range 60-86400)
+- Both sides compute the same port independently - no communication needed
+- Port range: 10000-64999
+- The seed and window are included in the exported bundle so clients learn them automatically
+- Server wakes up precisely at each window boundary (within 1s), so client and server switch ports in sync
+
+The rotation period can be changed in config (`dynamic_port_window`) and is embedded in the client bundle. Both sides must use the same window or the ports won't match.
+
+Disable dynamic port by answering "no" during setup; the server will listen on a fixed port instead.
 
 ### CPU DoS Mitigation
 

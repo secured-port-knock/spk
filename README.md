@@ -4,6 +4,9 @@
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/ci.yml)
 [![Build](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/build.yml)
+[![CodeQL](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/github-code-scanning/codeql)
+[![Dependency Graph](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/Secured-Port-Knock/Secured-Port-Knock/actions/workflows/dependabot/update-graph)
+
 
 > **Development Status**
 >
