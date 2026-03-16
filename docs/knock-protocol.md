@@ -74,8 +74,8 @@ The optional padding field adds random bytes inside the encrypted payload. Becau
 Client config controls:
 ```toml
 padding_enabled = true
-padding_min_bytes = 2      # Minimum random bytes (default: 2)
-padding_max_bytes = 96     # Maximum random bytes (default: 96, max: 2048)
+padding_min_bytes = 64     # Minimum random bytes (default: 64)
+padding_max_bytes = 96     # Maximum random bytes (default: 512, use <=96 with KEM-768 to stay within MTU; max: 2048)
 ```
 
 ## Security Checks (server side)
