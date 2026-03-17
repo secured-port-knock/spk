@@ -129,7 +129,7 @@ func saveWindowsCredential(name, value string) error {
 
 func loadWindowsCredential(name string) (string, error) {
 	// Try DPAPI file first (stored in config directory)
-	dpapiPath := filepath.Join(config.ConfigDir(), name+".dpapi")
+	dpapiPath := filepath.Join(config.ClientConfigDir(), name+".dpapi")
 	if _, err := os.Stat(dpapiPath); err == nil {
 		return loadWindowsDPAPI(name)
 	}
@@ -150,8 +150,8 @@ func loadWindowsCredential(name string) (string, error) {
 func saveWindowsDPAPI(name, value string) error {
 	// DPAPI encrypts data using the current user's credentials.
 	// Key material is passed via stdin to avoid leaking it in the process command line.
-	// The encrypted file is stored in the config directory.
-	dpapiPath := filepath.Join(config.ConfigDir(), name+".dpapi")
+	// The encrypted file is stored in the client config directory.
+	dpapiPath := filepath.Join(config.ClientConfigDir(), name+".dpapi")
 	psCmd := fmt.Sprintf(
 		`Add-Type -AssemblyName System.Security;`+
 			`$raw = [Console]::In.ReadToEnd();`+
@@ -168,7 +168,7 @@ func saveWindowsDPAPI(name, value string) error {
 }
 
 func loadWindowsDPAPI(name string) (string, error) {
-	dpapiPath := filepath.Join(config.ConfigDir(), name+".dpapi")
+	dpapiPath := filepath.Join(config.ClientConfigDir(), name+".dpapi")
 	psCmd := fmt.Sprintf(
 		`Add-Type -AssemblyName System.Security;`+
 			`$enc = [System.IO.File]::ReadAllBytes('%s');`+

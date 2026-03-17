@@ -88,13 +88,10 @@ func RunSetup() {
 
 	var bundle *crypto.ExportBundle
 
-	// Check if activation.b64 exists in current dir or config dir
+	// Check if activation.b64 exists in the exe directory or client config directory.
+	// Never search the server config directory (e.g. /etc/spk on Linux).
 	var bundleFile string
-	for _, candidate := range []string{
-		"activation.b64",
-		filepath.Join(config.ConfigDir(), "activation.b64"),
-		"public.b64", // legacy name
-	} {
+	for _, candidate := range ActivationBundleCandidates() {
 		if _, err := os.Stat(candidate); err == nil {
 			bundleFile = candidate
 			break
@@ -155,7 +152,7 @@ func RunSetup() {
 		Type:  pemType,
 		Bytes: ekBytes,
 	}
-	certPath := filepath.Join(config.ConfigDir(), "server.crt")
+	certPath := filepath.Join(config.ClientConfigDir(), "server.crt")
 	pemData := pem.EncodeToMemory(pemBlock)
 
 	// Ensure the config directory exists before writing any file into it.
@@ -297,6 +294,45 @@ func tryParseBundle(reader *bufio.Reader, b64Data string) *crypto.ExportBundle {
 	}
 	fmt.Printf("  -> Key size: %s\n", kemLabel)
 	return bundle
+}
+
+// ActivationBundleCandidates returns the ordered list of paths where the
+// client setup wizard will look for an activation bundle file.
+//
+// Search order:
+//  1. <exe_dir>/activation.b64
+//  2. <client_config_dir>/activation.b64  (respects --cfgdir)
+//
+// The server config directory (e.g. /etc/spk on Linux) is never searched.
+// Duplicate paths (e.g. when exe_dir == client_config_dir) are omitted.
+func ActivationBundleCandidates() []string {
+	var candidates []string
+	seen := make(map[string]bool)
+
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
+
+	cfgDir := config.ClientConfigDir()
+
+	add := func(path string) {
+		// Normalise to an absolute path so duplicate detection is reliable.
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		if !seen[path] {
+			seen[path] = true
+			candidates = append(candidates, path)
+		}
+	}
+
+	if exeDir != "" {
+		add(filepath.Join(exeDir, "activation.b64"))
+	}
+	add(filepath.Join(cfgDir, "activation.b64"))
+
+	return candidates
 }
 
 func getKeyStorageOptions() []string {

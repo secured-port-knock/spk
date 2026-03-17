@@ -13,7 +13,6 @@ server.crt
 activation.b64
 activation_qr.png
 totp_qr.png
-public.b64
 public_qr.png
 state.json
 config.json

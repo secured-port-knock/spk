@@ -140,7 +140,7 @@ func loadClientState(hostOverride string) (*config.Config, crypto.EncapsulationK
 	}
 
 	// Load public key
-	certPath := filepath.Join(config.ConfigDir(), "server.crt")
+	certPath := filepath.Join(config.ClientConfigDir(), "server.crt")
 
 	// If using credential manager and file doesn't exist, restore from secure storage
 	if cfg.KeyStorageMode == "credential_manager" {

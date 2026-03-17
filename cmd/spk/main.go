@@ -70,7 +70,7 @@ func pcapLabel() string {
 
 // versionString returns the full application version string shown to users.
 func versionString() string {
-	return fmt.Sprintf("SPK - Secured Port Knock - %s (%s) %s", fullVersion(), commit, pcapLabel())
+	return fmt.Sprintf("SPK - Secured Port Knock - %s (%s) %s\nCopyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)\nGithub Repository: https://github.com/Secured-Port-Knock/Secured-Port-Knock", fullVersion(), commit, pcapLabel())
 }
 
 // isPrivileged checks whether the process is running with elevated privileges

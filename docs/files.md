@@ -13,15 +13,24 @@
 | `totp_qr.png` | TOTP QR code for authenticator apps (when TOTP enabled) |
 | `state.json` | Server state for crash recovery |
 | `spk_server.log` | Server log (rotated, max 10 MB x 5 backups) |
-| `spk_client.log` | Client log |
-| `SPK_ServerKey.dpapi` | DPAPI-encrypted server key (Windows only, stored in config directory) |
+| `spk_client.log` | Client log (only written when --logdir is specified) |
+| `SPK_ServerKey.dpapi` | DPAPI-encrypted server key (Windows only, stored in client config directory) |
 
 ## Default Paths
 
-| Platform | Config & Keys | Logs |
+### Server (requires root / Administrator)
+
+| Platform | Config and Keys | Logs |
 |---|---|---|
-| Linux / macOS | `/etc/spk/` | `/var/log/spk/` |
+| Linux / macOS | `/etc/spk/` (falls back to `<exe_dir>/config/` if not writable) | `/var/log/spk/` (falls back to `<exe_dir>/log/`) |
 | Windows | `<exe_dir>\config\` | `<exe_dir>\log\` |
+
+### Client (no elevated privileges required)
+
+| Platform | Config and Keys | Logs |
+|---|---|---|
+| Linux / macOS | `~/.config/spk/` (respects `$XDG_CONFIG_HOME`) | Disabled by default; enabled only when `--logdir` is specified |
+| Windows | `<exe_dir>\config\` | Disabled by default; enabled only when `--logdir` is specified |
 
 Use `--cfgdir` and `--logdir` to override these defaults on any platform.
 

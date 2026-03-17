@@ -77,7 +77,7 @@ func UsingFallbackLogDir() bool {
 	return logDirFallback
 }
 
-// LogDir returns the platform-appropriate log directory.
+// LogDir returns the platform-appropriate server log directory.
 // If SetLogDir was called, returns that override.
 // Linux/macOS: /var/log/spk (falls back to <exe_dir>/log if no permission)
 // Windows: <exe_dir>/log
@@ -105,6 +105,76 @@ func LogDir() string {
 		return "."
 	}
 	return dir
+}
+
+// ClientLogDir returns the platform-appropriate client log directory.
+// Only meaningful when --logdir was explicitly specified (IsCustomLogDir returns true).
+// Linux/macOS: $XDG_STATE_HOME/spk/logs  (default: ~/.local/state/spk/logs)
+// Windows:     <exe_dir>\log
+func ClientLogDir() string {
+	if customLogDir != "" {
+		return customLogDir
+	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		base := os.Getenv("XDG_STATE_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				base = filepath.Join(home, ".local", "state")
+			}
+		}
+		if base != "" {
+			dir := filepath.Join(base, "spk", "logs")
+			if err := os.MkdirAll(dir, 0750); err == nil {
+				return dir
+			}
+		}
+		// Fall through to exe-relative log/ as last resort
+	}
+	// Windows and fallback: same exe-relative layout as server.
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	dir := filepath.Join(filepath.Dir(exe), "log")
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR | [logging] failed to create log directory %s: %v\n", dir, err)
+		return "."
+	}
+	return dir
+}
+
+// IsCustomLogDir reports whether a custom log directory was set via SetLogDir
+// (i.e. the user passed --logdir on the command line).
+func IsCustomLogDir() bool {
+	return customLogDir != ""
+}
+
+// NewStdoutOnly creates a logger that writes only to stdout with no log file.
+// Useful for client mode when no --logdir is specified.
+func NewStdoutOnly(cfg Config, module ...string) *Logger {
+	mod := "main"
+	if len(module) > 0 && module[0] != "" {
+		mod = module[0]
+	}
+	l := &Logger{
+		config:      cfg,
+		module:      mod,
+		floodWindow: time.Now(),
+	}
+	l.writer = os.Stdout
+	l.logger = log.New(os.Stdout, "", 0)
+	return l
+}
+
+// NewClientLogger creates a logger for client mode.
+// If --logdir was not specified, logs go to stdout only (no file written).
+// If --logdir was specified, a log file is created in that directory.
+func NewClientLogger(filename string, cfg Config, module ...string) (*Logger, error) {
+	if !IsCustomLogDir() {
+		return NewStdoutOnly(cfg, module...), nil
+	}
+	return New(filename, cfg, module...)
 }
 
 // New creates a new Logger that writes to the specified log file with rotation.

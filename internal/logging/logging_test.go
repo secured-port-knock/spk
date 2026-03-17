@@ -478,3 +478,95 @@ func TestDefaultConfigValues(t *testing.T) {
 		t.Errorf("MaxAgeDays = %d, want > 0", cfg.MaxAgeDays)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Client logging: stdout-only and NewClientLogger
+// ---------------------------------------------------------------------------
+
+// TestNewStdoutOnlyReturnsNonNil verifies NewStdoutOnly returns a usable logger.
+func TestNewStdoutOnlyReturnsNonNil(t *testing.T) {
+	l := NewStdoutOnly(DefaultConfig(), "test")
+	if l == nil {
+		t.Fatal("NewStdoutOnly returned nil")
+	}
+	// FilePath should be empty -- no file is associated.
+	if l.FilePath() != "" {
+		t.Errorf("FilePath() = %q, want empty string for stdout-only logger", l.FilePath())
+	}
+	// Methods must not panic.
+	l.Infof("stdout-only info %d", 1)
+	l.Warnf("stdout-only warn")
+	l.Errorf("stdout-only error")
+	l.Printf("stdout-only printf")
+	l.Println("stdout-only println")
+	l.Close()
+}
+
+// TestNewClientLoggerNoLogDirReturnStdoutOnly verifies that when no custom
+// log directory is set, NewClientLogger returns a stdout-only logger.
+func TestNewClientLoggerNoLogDirReturnStdoutOnly(t *testing.T) {
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = "" // ensure no custom dir
+
+	l, err := NewClientLogger("spk_client.log", DefaultConfig(), "client")
+	if err != nil {
+		t.Fatalf("NewClientLogger: %v", err)
+	}
+	if l == nil {
+		t.Fatal("NewClientLogger returned nil")
+	}
+	// No file should be created.
+	if l.FilePath() != "" {
+		t.Errorf("expected no file path when logdir not set, got %q", l.FilePath())
+	}
+	l.Infof("client stdout message")
+	l.Close()
+}
+
+// TestNewClientLoggerWithLogDirCreatesFile verifies that when a custom log
+// directory is set (via --logdir), NewClientLogger creates a log file.
+func TestNewClientLoggerWithLogDirCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+
+	l, err := NewClientLogger("spk_client.log", DefaultConfig(), "client")
+	if err != nil {
+		t.Fatalf("NewClientLogger: %v", err)
+	}
+	defer l.Close()
+
+	l.Infof("client file message")
+
+	expected := filepath.Join(dir, "spk_client.log")
+	if l.FilePath() != expected {
+		t.Errorf("FilePath() = %q, want %q", l.FilePath(), expected)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Errorf("log file not created: %v", err)
+	}
+}
+
+// TestIsCustomLogDir verifies the flag tracks SetLogDir correctly.
+func TestIsCustomLogDir(t *testing.T) {
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+
+	customLogDir = ""
+	if IsCustomLogDir() {
+		t.Error("IsCustomLogDir() should be false when no dir is set")
+	}
+
+	dir := t.TempDir()
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+	if !IsCustomLogDir() {
+		t.Error("IsCustomLogDir() should be true after SetLogDir")
+	}
+}

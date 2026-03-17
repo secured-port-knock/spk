@@ -103,6 +103,18 @@ For sniffer-mode behavior on multi-interface systems, see [capture-modes.md](cap
 
 ## Client Config (TOML)
 
+Client configuration is stored in a user-writable location -- no root or Administrator
+privileges are required.
+
+Default config directory:
+- Linux / macOS: `~/.config/spk/spk_client.toml` (respects `$XDG_CONFIG_HOME`)
+- Windows: `<exe_dir>\config\spk_client.toml`
+
+Use `--cfgdir DIR` to override.
+
+**Logging is disabled by default in client mode.** The client outputs results directly
+to stdout. To enable file logging, pass `--logdir DIR` on the command line.
+
 ```toml
 server_host = "example.com"
 server_port = "dynamic"          # "dynamic" or a port number (e.g. 45678)
