@@ -177,7 +177,7 @@ func UsingFallbackConfigDir() bool {
 	return configDirFallback
 }
 
-// ConfigDir returns the platform-appropriate config directory.
+// ConfigDir returns the platform-appropriate server config directory.
 // If SetConfigDir was called, returns that override.
 // Linux/macOS: /etc/spk (falls back to <exe_dir>/config if no permission)
 // Windows: <exe_dir>/config
@@ -202,6 +202,41 @@ func ConfigDir() string {
 	return dir
 }
 
+// ClientConfigDir returns the platform-appropriate client config directory.
+// Does not require root/admin privileges.
+// If SetConfigDir was called, returns that override.
+// Linux/macOS: $XDG_CONFIG_HOME/spk  (default: ~/.config/spk)
+// Windows:     <exe_dir>\config
+func ClientConfigDir() string {
+	if customConfigDir != "" {
+		return customConfigDir
+	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		base := os.Getenv("XDG_CONFIG_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				base = filepath.Join(home, ".config")
+			}
+		}
+		if base != "" {
+			dir := filepath.Join(base, "spk")
+			if err := os.MkdirAll(dir, 0750); err == nil {
+				return dir
+			}
+		}
+		// Fall through to exe-relative config/ as last resort
+	}
+	// Windows and fallback: same exe-relative layout as server.
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	dir := filepath.Join(filepath.Dir(exe), "config")
+	os.MkdirAll(dir, 0750) //nolint:errcheck
+	return dir
+}
+
 // ServerConfigPath returns the path to spk_server.toml.
 func ServerConfigPath() string {
 	return filepath.Join(ConfigDir(), "spk_server.toml")
@@ -209,7 +244,7 @@ func ServerConfigPath() string {
 
 // ClientConfigPath returns the path to spk_client.toml.
 func ClientConfigPath() string {
-	return filepath.Join(ConfigDir(), "spk_client.toml")
+	return filepath.Join(ClientConfigDir(), "spk_client.toml")
 }
 
 // DetectConfigPath auto-detects which config file exists and returns
