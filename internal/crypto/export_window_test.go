@@ -31,14 +31,14 @@ func TestBundleWithWindowRoundTrip(t *testing.T) {
 	if bundle.DynPortWindow != 300 {
 		t.Errorf("DynPortWindow = %d, want 300", bundle.DynPortWindow)
 	}
-	if bundle.DefaultTimeout != 7200 {
-		t.Errorf("DefaultTimeout = %d, want 7200", bundle.DefaultTimeout)
+	if bundle.DefaultOpenDuration != 7200 {
+		t.Errorf("DefaultOpenDuration = %d, want 7200", bundle.DefaultOpenDuration)
 	}
 	if !bundle.DynamicPort {
 		t.Error("DynamicPort = false, want true")
 	}
-	if !bundle.AllowCustomTimeout {
-		t.Error("AllowCustomTimeout = false, want true")
+	if !bundle.AllowCustomOpenDuration {
+		t.Error("AllowCustomOpenDuration = false, want true")
 	}
 
 	// Verify key round-trip
@@ -166,8 +166,8 @@ func TestBundleEncryptedWithWindow(t *testing.T) {
 	if !bundle.DynamicPort {
 		t.Error("DynamicPort = false, want true")
 	}
-	if bundle.DefaultTimeout != 3600 {
-		t.Errorf("DefaultTimeout = %d, want 3600", bundle.DefaultTimeout)
+	if bundle.DefaultOpenDuration != 3600 {
+		t.Errorf("DefaultOpenDuration = %d, want 3600", bundle.DefaultOpenDuration)
 	}
 }
 

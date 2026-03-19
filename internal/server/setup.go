@@ -131,12 +131,12 @@ func RunSetup() {
 		fmt.Println("  -> Custom port: disabled (only whitelisted ports in allowed_ports)")
 	}
 
-	fmt.Print("  Allow clients to set custom timeout? (y/N): ")
+	fmt.Print("  Allow clients to set custom open duration? (y/N): ")
 	if strings.ToLower(readLine(reader)) == "y" {
-		cfg.AllowCustomTimeout = true
-		fmt.Println("  -> Custom timeout: ENABLED")
+		cfg.AllowCustomOpenDuration = true
+		fmt.Println("  -> Custom open duration: ENABLED")
 	} else {
-		fmt.Println("  -> Custom timeout: disabled (uses default_timeout)")
+		fmt.Println("  -> Custom open duration: disabled (uses default_open_duration)")
 	}
 
 	fmt.Print("  Allow 'open-all' command? (y/N): ")
@@ -151,17 +151,17 @@ func RunSetup() {
 		fmt.Println("  -> Open all: disabled")
 	}
 
-	fmt.Printf("  Default port open duration in seconds [%d]: ", cfg.DefaultTimeout)
+	fmt.Printf("  Default port open duration in seconds [%d]: ", cfg.DefaultOpenDuration)
 	dtStr := readLine(reader)
 	if dtStr != "" {
 		dt, err := strconv.Atoi(dtStr)
 		if err == nil && dt >= 1 && dt <= 604800 {
-			cfg.DefaultTimeout = dt
+			cfg.DefaultOpenDuration = dt
 		} else {
-			fmt.Printf("  Invalid (must be 1-604800), using default %ds\n", cfg.DefaultTimeout)
+			fmt.Printf("  Invalid (must be 1-604800), using default %ds\n", cfg.DefaultOpenDuration)
 		}
 	}
-	fmt.Printf("  -> Default timeout: %ds\n", cfg.DefaultTimeout)
+	fmt.Printf("  -> Default open duration: %ds\n", cfg.DefaultOpenDuration)
 	fmt.Println()
 
 	// 5. Packet capture
@@ -309,12 +309,12 @@ func RunSetup() {
 	var b64Data string
 	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
 		b64Data, err = crypto.CreateEncryptedExportBundleWithWindow(ek, cfg.ListenPort,
-			cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	} else {
 		b64Data, err = crypto.CreateExportBundleWithWindow(ek, cfg.ListenPort,
-			cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	}
 	if err != nil {
 		fmt.Printf("ERROR: Failed to create export bundle: %v\n", err)
@@ -330,8 +330,8 @@ func RunSetup() {
 
 	// Generate raw binary for QR code (more compact than base64)
 	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")
 		qrErr := crypto.GenerateQRCode(rawData, qrPath)
@@ -496,12 +496,12 @@ func exportBundle(cfg *config.Config, dk crypto.DecapsulationKey) {
 	var err error
 	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
 		b64Data, err = crypto.CreateEncryptedExportBundleWithWindow(ek, cfg.ListenPort,
-			cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	} else {
 		b64Data, err = crypto.CreateExportBundleWithWindow(ek, cfg.ListenPort,
-			cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	}
 	if err != nil {
 		fmt.Printf("Error creating export bundle: %v\n", err)
@@ -518,8 +518,8 @@ func exportBundle(cfg *config.Config, dk crypto.DecapsulationKey) {
 
 	// Generate raw binary for QR code
 	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultTimeout, cfg.DynPortWindow)
+		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")
 		qrErr := crypto.GenerateQRCode(rawData, qrPath)

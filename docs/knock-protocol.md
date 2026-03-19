@@ -24,7 +24,7 @@ Maximum packet size: **8192 bytes**. Minimum valid packet: **1118 bytes** (ML-KE
 The payload uses a compact binary format (not JSON). Fields are packed sequentially:
 
 ```
-[Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][Timeout:4][CmdLen:1][CmdType:1][CmdData:N-1][TOTP:6?][Pad:rest]
+[Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][OpenDuration:4][CmdLen:1][CmdType:1][CmdData:N-1][TOTP:6?][Pad:rest]
 ```
 
 **Flags byte (bit field):**
@@ -52,14 +52,14 @@ The payload uses a compact binary format (not JSON). Fields are packed sequentia
 | Timestamp | 8 bytes | uint64 big-endian | Unix seconds |
 | Nonce | 32 bytes | raw random bytes | Anti-replay (not hex-encoded on wire) |
 | ClientIP | 4 or 16 bytes | raw `net.IP` bytes | IPv4 (4 bytes) or IPv6 (16 bytes, see flags bit 0) |
-| Timeout | 4 bytes | uint32 big-endian | Requested timeout in seconds (0 = server default) |
+| OpenDuration | 4 bytes | uint32 big-endian | Requested open duration in seconds (0 = server default) |
 | CmdLen | 1 byte | uint8 | Total length of CmdType + CmdData (min 1, max 255) |
 | CmdType | 1 byte | uint8 | Command type (0x00=open, 0x01=close, 0x02=cust) |
 | CmdData | N-1 bytes | ASCII | Command-specific data (e.g. `t22`, `t22,u53`, `myaction`) |
 | TOTP | 6 bytes | ASCII digits | Only present if flags bit 1 is set |
 | Padding | rest | random bytes | Only present if flags bit 2 is set; fills remaining space |
 
-**Minimum payload size:** 51 bytes (version + flags + timestamp + nonce + IPv4 + timeout + cmdlen + cmdtype with no data).
+**Minimum payload size:** 51 bytes (version + flags + timestamp + nonce + IPv4 + open_duration + cmdlen + cmdtype with no data).
 
 ## Padding
 
@@ -85,14 +85,14 @@ padding_max_bytes = 96     # Maximum random bytes (default: 512, use <=96 with K
 3. **Binary decode** -- plaintext must be valid binary payload (minimum 51 bytes, correct structure)
 4. **Protocol version** -- version byte must equal `1`
 5. **Command type** -- binary command type must be 0x00 (open), 0x01 (close), or 0x02 (cust)
-6. **Field validation** -- nonce is 32 raw bytes, command <= 254 data bytes, IP is valid 4 or 16 bytes, timeout 0-604800
+6. **Field validation** -- nonce is 32 raw bytes, command <= 254 data bytes, IP is valid 4 or 16 bytes, open_duration 0-604800
 7. **Timestamp** -- must be within +/- `timestamp_tolerance` (default 30s) of server clock
 8. **IP match** -- decoded IP must equal UDP source IP (when `match_incoming_ip = true`)
 9. **Nonce uniqueness** -- nonce must not have been seen before (anti-replay)
 10. **TOTP verification** -- if TOTP is enabled, the TOTP field must contain a valid 6-digit code (+/- 30s tolerance)
 11. **Command validation** -- command must start with `open-`, `close-`, or `cust-`; port specs must be valid (t/u prefix, 1-65535); all bytes must be printable ASCII
 12. **Port allowlist** -- port must be in the `allowed_ports` list (unless custom port is enabled)
-13. **Deduplication** -- duplicate open requests for the same IP:port:proto refresh the timeout instead of creating duplicate firewall rules
+13. **Deduplication** -- duplicate open requests for the same IP:port:proto refresh the open duration instead of creating duplicate firewall rules
 
 ## UDP Packet Size
 

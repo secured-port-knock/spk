@@ -37,6 +37,7 @@ type Tracker struct {
 	logger            serverLogger
 	closePortsOnCrash bool          // Whether to execute close commands on crash recovery
 	cmdTimeout        time.Duration // Timeout for command execution
+	logCmdExec        bool          // Log each command before execution (debug)
 }
 
 // NewTracker creates a new port tracker with state persistence.
@@ -162,16 +163,23 @@ func (t *Tracker) GetAll() []*PortEntry {
 	return result
 }
 
-// StartTimeoutWatcher runs a goroutine that checks for expired ports.
-func (t *Tracker) StartTimeoutWatcher(interval time.Duration) {
+// StartExpiryWatcher runs a goroutine that checks for expired ports.
+// It sleeps adaptively: it wakes up exactly when the soonest entry expires
+// rather than on a fixed tick, so short open durations are closed promptly.
+// maxInterval is the upper bound on how long the watcher sleeps between checks
+// (used when no entries are present or all expiries are far in the future).
+func (t *Tracker) StartExpiryWatcher(maxInterval time.Duration) {
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for range ticker.C {
+		const minSleep = 100 * time.Millisecond
+		for {
+			time.Sleep(t.sleepUntilNextExpiry(maxInterval, minSleep))
 			expired := t.GetExpired()
 			for _, entry := range expired {
-				t.logger.Printf("[TIMEOUT] Closing port %s/%s for %s (expired at %s)",
+				t.logger.Printf("[EXPIRED] Closing port %s/%s for %s (open duration elapsed at %s)",
 					entry.PortNum, entry.Proto, entry.IP, entry.ExpiresAt.Format(time.RFC3339))
+				if t.logCmdExec && entry.CloseCmd != "" {
+					t.logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
+				}
 				if _, err := ExecuteCommandTimeout(entry.CloseCmd, t.cmdTimeout); err != nil {
 					t.logger.Printf("[ERROR] Failed to close port %s/%s for %s: %v",
 						entry.PortNum, entry.Proto, entry.IP, err)
@@ -182,11 +190,34 @@ func (t *Tracker) StartTimeoutWatcher(interval time.Duration) {
 	}()
 }
 
+// sleepUntilNextExpiry returns how long the expiry watcher should sleep before
+// its next check. It finds the soonest ExpiresAt across all tracked entries and
+// returns that remaining duration, bounded between minSleep and maxInterval.
+func (t *Tracker) sleepUntilNextExpiry(maxInterval, minSleep time.Duration) time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	next := maxInterval
+	for _, e := range t.entries {
+		remaining := e.ExpiresAt.Sub(now)
+		if remaining > 0 && remaining < next {
+			next = remaining
+		}
+	}
+	if next < minSleep {
+		next = minSleep
+	}
+	return next
+}
+
 // CloseAll closes all tracked ports (used for graceful shutdown).
 func (t *Tracker) CloseAll() {
 	entries := t.GetAll()
 	for _, entry := range entries {
 		t.logger.Printf("[SHUTDOWN] Closing port %s/%s for %s", entry.PortNum, entry.Proto, entry.IP)
+		if t.logCmdExec && entry.CloseCmd != "" {
+			t.logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
+		}
 		if _, err := ExecuteCommandTimeout(entry.CloseCmd, t.cmdTimeout); err != nil {
 			t.logger.Printf("[ERROR] Failed to close port %s/%s for %s during shutdown: %v",
 				entry.PortNum, entry.Proto, entry.IP, err)
@@ -245,6 +276,9 @@ func (t *Tracker) recoverState() {
 			// Port should have been closed - execute close command if configured
 			if t.closePortsOnCrash {
 				t.logger.Printf("[RECOVERY] Closing expired port %s/%s for %s", entry.PortNum, entry.Proto, entry.IP)
+				if t.logCmdExec && entry.CloseCmd != "" {
+					t.logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
+				}
 				if _, err := ExecuteCommandTimeout(entry.CloseCmd, t.cmdTimeout); err != nil {
 					t.logger.Printf("[ERROR] Recovery close failed for %s/%s %s: %v",
 						entry.PortNum, entry.Proto, entry.IP, err)

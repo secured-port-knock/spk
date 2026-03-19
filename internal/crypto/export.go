@@ -18,17 +18,17 @@ import (
 
 // ExportBundle contains server public key and metadata for client provisioning.
 type ExportBundle struct {
-	Version            int    `json:"v"`
-	EncapsulationKey   string `json:"ek"` // base64-encoded key (1184 or 1568 bytes)
-	Port               int    `json:"p"`  // Server knock port
-	AllowCustomTimeout bool   `json:"ct"` // Can client set timeout?
-	AllowCustomPort    bool   `json:"cp"` // Can client choose port?
-	AllowOpenAll       bool   `json:"oa"` // Can client open all?
-	PortSeed           []byte `json:"-"`  // 8-byte seed for dynamic port
-	DynamicPort        bool   `json:"-"`  // Dynamic port enabled
-	DefaultTimeout     int    `json:"-"`  // Default timeout seconds
-	DynPortWindow      int    `json:"-"`  // Port rotation period in seconds (0 = default 600)
-	KEMSize            int    `json:"-"`  // ML-KEM key size (768 or 1024)
+	Version                 int    `json:"v"`
+	EncapsulationKey        string `json:"ek"` // base64-encoded key (1184 or 1568 bytes)
+	Port                    int    `json:"p"`  // Server knock port
+	AllowCustomOpenDuration bool   `json:"ct"` // Can client set open duration?
+	AllowCustomPort         bool   `json:"cp"` // Can client choose port?
+	AllowOpenAll            bool   `json:"oa"` // Can client open all?
+	PortSeed                []byte `json:"-"`  // 8-byte seed for dynamic port
+	DynamicPort             bool   `json:"-"`  // Dynamic port enabled
+	DefaultOpenDuration     int    `json:"-"`  // Default open duration seconds
+	DynPortWindow           int    `json:"-"`  // Port rotation period in seconds (0 = default 600)
+	KEMSize                 int    `json:"-"`  // ML-KEM key size (768 or 1024)
 }
 
 // bundleMagic identifies a compressed binary bundle.
@@ -47,15 +47,15 @@ const (
 
 // CreateExportBundle creates a base64-encoded compact bundle for client provisioning.
 // Uses binary format with zlib compression for QR code compatibility.
-func CreateExportBundle(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool) (string, error) {
-	return CreateExportBundleWithWindow(ek, port, customTimeout, customPort, openAll, nil, false, 0, 0)
+func CreateExportBundle(ek EncapsulationKey, port int, customDuration, customPort, openAll bool) (string, error) {
+	return CreateExportBundleWithWindow(ek, port, customDuration, customPort, openAll, nil, false, 0, 0)
 }
 
 // CreateExportBundleWithWindow creates a compact binary bundle with all metadata including custom rotation window.
-func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool,
-	portSeed []byte, dynamicPort bool, defaultTimeout int, dynPortWindow int) (string, error) {
+func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) (string, error) {
 
-	raw, err := encodeV1Binary(ek, port, customTimeout, customPort, openAll, portSeed, dynamicPort, defaultTimeout, dynPortWindow)
+	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
 	if err != nil {
 		return "", err
 	}
@@ -74,10 +74,10 @@ func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customTimeout, 
 }
 
 // CreateExportBundleRawWithWindow returns the raw compressed binary with custom rotation window (for QR codes).
-func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool,
-	portSeed []byte, dynamicPort bool, defaultTimeout int, dynPortWindow int) ([]byte, error) {
+func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
 
-	raw, err := encodeV1Binary(ek, port, customTimeout, customPort, openAll, portSeed, dynamicPort, defaultTimeout, dynPortWindow)
+	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
 	if err != nil {
 		return nil, err
 	}
@@ -96,9 +96,9 @@ func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customTimeou
 }
 
 // encodeV1Binary creates the raw v1 binary bundle.
-// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2)|seed(8)] + timeout(4) + window(4) + kem_size(2) + ek(variable)
-func encodeV1Binary(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool,
-	portSeed []byte, dynamicPort bool, defaultTimeout int, dynPortWindow int) ([]byte, error) {
+// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
+func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
 
 	var buf bytes.Buffer
 
@@ -108,7 +108,7 @@ func encodeV1Binary(ek EncapsulationKey, port int, customTimeout, customPort, op
 
 	// Flags (1 byte)
 	var flags byte
-	if customTimeout {
+	if customDuration {
 		flags |= 0x01
 	}
 	if customPort {
@@ -138,9 +138,9 @@ func encodeV1Binary(ek EncapsulationKey, port int, customTimeout, customPort, op
 		buf.Write(portBytes)
 	}
 
-	// Default timeout (4 bytes big-endian)
+	// Default open duration (4 bytes big-endian)
 	toBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(toBytes, uint32(defaultTimeout))
+	binary.BigEndian.PutUint32(toBytes, uint32(defaultOpenDuration))
 	buf.Write(toBytes)
 
 	// Dynamic port window (4 bytes big-endian, 0 = default 600s)
@@ -162,9 +162,9 @@ func encodeV1Binary(ek EncapsulationKey, port int, customTimeout, customPort, op
 }
 
 // decodeBinary parses a v1 binary bundle (after decompression).
-// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2) | seed(8)] + timeout(4) + window(4) + kem_size(2) + ek(variable)
+// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
 func decodeBinary(data []byte) (*ExportBundle, error) {
-	// Minimum size: magic(2) + ver(1) + flags(1) + port(2) + timeout(4) = 10 + some EK
+	// Minimum size: magic(2) + ver(1) + flags(1) + port(2) + open_duration(4) = 10 + some EK
 	if len(data) < 10 {
 		return nil, fmt.Errorf("bundle too short: %d bytes", len(data))
 	}
@@ -191,7 +191,7 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read flags: %w", err)
 	}
-	customTimeout := flags&0x01 != 0
+	customDuration := flags&0x01 != 0
 	customPort := flags&0x02 != 0
 	openAll := flags&0x04 != 0
 	dynPort := flags&0x08 != 0
@@ -214,12 +214,12 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 		port = int(binary.BigEndian.Uint16(portBytes))
 	}
 
-	// Default timeout
+	// Default open duration
 	toBytes := make([]byte, 4)
 	if _, err := io.ReadFull(r, toBytes); err != nil {
-		return nil, fmt.Errorf("read timeout: %w", err)
+		return nil, fmt.Errorf("read open_duration: %w", err)
 	}
-	defTimeout := int(binary.BigEndian.Uint32(toBytes))
+	defOpenDuration := int(binary.BigEndian.Uint32(toBytes))
 
 	var dynWindow int
 	var kemSize int
@@ -248,17 +248,17 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	}
 
 	bundle := &ExportBundle{
-		Version:            int(ver),
-		EncapsulationKey:   base64.StdEncoding.EncodeToString(ekBytes),
-		Port:               port,
-		AllowCustomTimeout: customTimeout,
-		AllowCustomPort:    customPort,
-		AllowOpenAll:       openAll,
-		PortSeed:           seed,
-		DynamicPort:        dynPort,
-		DefaultTimeout:     defTimeout,
-		DynPortWindow:      dynWindow,
-		KEMSize:            kemSize,
+		Version:                 int(ver),
+		EncapsulationKey:        base64.StdEncoding.EncodeToString(ekBytes),
+		Port:                    port,
+		AllowCustomOpenDuration: customDuration,
+		AllowCustomPort:         customPort,
+		AllowOpenAll:            openAll,
+		PortSeed:                seed,
+		DynamicPort:             dynPort,
+		DefaultOpenDuration:     defOpenDuration,
+		DynPortWindow:           dynWindow,
+		KEMSize:                 kemSize,
 	}
 	return bundle, nil
 }
@@ -305,16 +305,16 @@ func zlibDecompress(data []byte) ([]byte, error) {
 
 // CreateEncryptedExportBundle creates a password-encrypted base64-encoded bundle.
 // Uses Argon2id for key derivation (PQC-safe symmetric algorithm) + AES-256-GCM.
-func CreateEncryptedExportBundle(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool, password string) (string, error) {
-	return CreateEncryptedExportBundleWithWindow(ek, port, customTimeout, customPort, openAll, password, nil, false, 0, 0)
+func CreateEncryptedExportBundle(ek EncapsulationKey, port int, customDuration, customPort, openAll bool, password string) (string, error) {
+	return CreateEncryptedExportBundleWithWindow(ek, port, customDuration, customPort, openAll, password, nil, false, 0, 0)
 }
 
 // CreateEncryptedExportBundleWithWindow creates a password-encrypted bundle with custom rotation window.
-func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, customTimeout, customPort, openAll bool,
-	password string, portSeed []byte, dynamicPort bool, defaultTimeout int, dynPortWindow int) (string, error) {
+func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) (string, error) {
 
 	// First create the raw v1 binary bundle
-	raw, err := encodeV1Binary(ek, port, customTimeout, customPort, openAll, portSeed, dynamicPort, defaultTimeout, dynPortWindow)
+	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
 	if err != nil {
 		return "", err
 	}

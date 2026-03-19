@@ -1,4 +1,5 @@
 //go:build !windows
+
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
 

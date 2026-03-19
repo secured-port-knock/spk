@@ -25,10 +25,10 @@ dynamic_port_min = 10000        # Minimum port in rotation range (default: 10000
 dynamic_port_max = 65000        # Maximum port in rotation range (default: 65000)
 
 # -- Security policies --
-allow_custom_port = false       # Can clients request arbitrary ports?
-allow_custom_timeout = false    # Can clients set their own timeout?
-allow_open_all = false          # Allow "open-all" command?
-allowed_ports = ["t22"]         # Whitelisted ports (t=TCP, u=UDP)
+allow_custom_port = false            # Can clients request arbitrary ports?
+allow_custom_open_duration = false   # Can clients set their own open duration?
+allow_open_all = false               # Allow "open-all" command?
+allowed_ports = ["t22"]              # Whitelisted ports (t=TCP, u=UDP)
 
 # -- Security --
 match_incoming_ip = true        # Verify knock's embedded IP matches UDP source
@@ -36,17 +36,22 @@ max_nonce_cache = 10000         # Max nonces to track (prevents memory exhaustio
 timestamp_tolerance = 30        # Seconds of clock drift allowed (default: 30)
 nonce_expiry = 120              # Seconds to remember used nonces (default: 120)
 
-# -- Timeouts --
-default_timeout = 3600          # Default port open duration (seconds)
-max_timeout = 86400             # Maximum allowed timeout
+# -- Open Duration --
+default_open_duration = 3600    # Default port open duration (seconds)
+max_open_duration = 86400       # Maximum allowed open duration
 
 # -- Firewall commands (use {{IP}} and {{PORT}} placeholders) --
+# NOTE: if a close command is left empty while the corresponding open command is set,
+# the open command still runs but no auto-close timer is set -- the port stays open
+# permanently until manually closed (a [WARN] is logged after each such open).
 open_tcp_command = "iptables -A INPUT -p tcp --dport {{PORT}} -s {{IP}} -j ACCEPT"
 close_tcp_command = "iptables -D INPUT -p tcp --dport {{PORT}} -s {{IP}} -j ACCEPT"
 open_udp_command = "iptables -A INPUT -p udp --dport {{PORT}} -s {{IP}} -j ACCEPT"
 close_udp_command = "iptables -D INPUT -p udp --dport {{PORT}} -s {{IP}} -j ACCEPT"
 # open_all_command and close_all_command run when client sends "open-all" / "close-all".
 # Used only when allow_open_all = true. Leave empty to skip.
+# NOTE: if close_all_command is empty but open_all_command is set, the open-all command
+# still runs but the port(s) will remain open permanently (no auto-close timer is set).
 open_all_command = ""
 close_all_command = ""
 
@@ -64,7 +69,7 @@ log_max_size_mb = 10            # Max log file size before rotation (MB, default
 log_max_backups = 5             # Number of rotated log files to keep (default: 5)
 log_max_age_days = 30           # Max age of rotated log files in days (default: 30)
 log_flood_limit_ps = 100        # Max log lines per second (0 = unlimited, default: 100)
-log_command_output = false      # Log stdout/stderr of executed commands
+log_command_output = false      # Log each command before execution and its stdout/stderr output
 
 # -- Crash recovery --
 close_ports_on_crash = true     # Close all opened ports on crash recovery (default: true)

@@ -49,8 +49,8 @@ func TestBuildParseKnockPacket768(t *testing.T) {
 	if payload.Command != command {
 		t.Errorf("Command = %s, want %s", payload.Command, command)
 	}
-	if payload.Timeout != timeout {
-		t.Errorf("Timeout = %d, want %d", payload.Timeout, timeout)
+	if payload.OpenDuration != timeout {
+		t.Errorf("OpenDuration = %d, want %d", payload.OpenDuration, timeout)
 	}
 	if payload.Nonce == "" {
 		t.Error("Nonce should not be empty")

@@ -126,7 +126,8 @@ func Run() {
 
 	// Initialize port tracker with state recovery
 	tracker := NewTracker(config.StatePath(), srvLog, cfg.ClosePortsOnCrash, commandTimeout(cfg))
-	tracker.StartTimeoutWatcher(10 * time.Second)
+	tracker.logCmdExec = cfg.LogCommandOutput
+	tracker.StartExpiryWatcher(10 * time.Second)
 
 	// Build allowed ports map for quick lookup
 	allowedPorts := make(map[string]bool)
@@ -215,9 +216,9 @@ func Run() {
 	logf("  Mode:    %s", cfg.SnifferMode)
 	logf("  Listen:  %v port %d/udp", cfg.ListenAddresses, listenPort)
 	logf("  Ports:   %v", cfg.AllowedPorts)
-	logf("  Custom port: %v, Custom timeout: %v, Open-all: %v",
-		cfg.AllowCustomPort, cfg.AllowCustomTimeout, cfg.AllowOpenAll)
-	logf("  Default timeout: %ds, Max timeout: %ds", cfg.DefaultTimeout, cfg.MaxTimeout)
+	logf("  Custom port: %v, Custom open duration: %v, Open-all: %v",
+		cfg.AllowCustomPort, cfg.AllowCustomOpenDuration, cfg.AllowOpenAll)
+	logf("  Default open duration: %ds, Max open duration: %ds", cfg.DefaultOpenDuration, cfg.MaxOpenDuration)
 	if cfg.TOTPEnabled {
 		logf("  TOTP: ENABLED (two-factor authentication)")
 	}
@@ -461,16 +462,16 @@ func handleKnock(
 		}
 	}
 
-	// port_timeout is the client-requested port-open duration in seconds (0 = use server default).
+	// open_duration is the client-requested port-open duration in seconds (0 = use server default).
 	// This is NOT the cmd_timeout setting for command execution.
-	logger.Printf("[KNOCK] from %s (client=%s): cmd=%s port_timeout=%d", sourceIP, clientIP, payload.Command, payload.Timeout)
+	logger.Printf("[KNOCK] from %s (client=%s): cmd=%s open_duration=%d", sourceIP, clientIP, payload.Command, payload.OpenDuration)
 
-	// Determine timeout
-	timeout := cfg.DefaultTimeout
-	if cfg.AllowCustomTimeout && payload.Timeout > 0 {
-		timeout = payload.Timeout
-		if cfg.MaxTimeout > 0 && timeout > cfg.MaxTimeout {
-			timeout = cfg.MaxTimeout
+	// Determine open duration
+	openDuration := cfg.DefaultOpenDuration
+	if cfg.AllowCustomOpenDuration && payload.OpenDuration > 0 {
+		openDuration = payload.OpenDuration
+		if cfg.MaxOpenDuration > 0 && openDuration > cfg.MaxOpenDuration {
+			openDuration = cfg.MaxOpenDuration
 		}
 	}
 
@@ -487,7 +488,7 @@ func handleKnock(
 	switch cmdType {
 	case "open":
 		if cmd == "open-all" {
-			handleOpenAll(logger, cfg, tracker, allowedPorts, clientIP, timeout)
+			handleOpenAll(logger, cfg, tracker, allowedPorts, clientIP, openDuration)
 		} else {
 			portSpecs := cmd[5:]
 			// Support batch: "open-t22,t443,u53"
@@ -495,7 +496,7 @@ func handleKnock(
 			for _, spec := range specs {
 				spec = strings.TrimSpace(spec)
 				if spec != "" {
-					handleOpen(logger, cfg, tracker, allowedPorts, clientIP, spec, timeout)
+					handleOpen(logger, cfg, tracker, allowedPorts, clientIP, spec, openDuration)
 				}
 			}
 		}
@@ -527,7 +528,7 @@ func handleOpen(
 	tracker *Tracker,
 	allowedPorts map[string]bool,
 	ip, portSpec string,
-	timeout int,
+	openDuration int,
 ) {
 	proto, portNum, err := parsePortSpec(portSpec)
 	if err != nil {
@@ -572,8 +573,31 @@ func handleOpen(
 		return
 	}
 
+	// When no close command is configured, execute the open command but skip
+	// the tracker -- there is nothing to close at expiry so no timer is needed.
+	// The port will remain open until manually closed.
+	if closeCmd == "" {
+		logger.Printf("[OPEN] %s/%s for %s (permanent - no close command configured)", portNum, proto, ip)
+		if cfg.LogCommandOutput {
+			logger.Printf("[CMD-EXEC] %s", openCmd)
+		}
+		output, err := ExecuteCommandTimeout(openCmd, commandTimeout(cfg))
+		if err != nil {
+			logger.Printf("[ERROR] Open command failed for %s/%s %s: %v", portNum, proto, ip, err)
+			if cfg.LogCommandOutput && output != "" {
+				logger.Printf("[CMD-OUTPUT] %s", output)
+			}
+			return
+		}
+		if cfg.LogCommandOutput && output != "" {
+			logger.Printf("[CMD-OUTPUT] %s", output)
+		}
+		logger.Printf("[WARN] No close command configured for %s/%s - port will remain open permanently", portNum, proto)
+		return
+	}
+
 	// Build entry and attempt atomic reservation
-	expiry := time.Now().Add(time.Duration(timeout) * time.Second)
+	expiry := time.Now().Add(time.Duration(openDuration) * time.Second)
 	entry := &PortEntry{
 		IP:        ip,
 		Port:      portSpec,
@@ -589,20 +613,26 @@ func handleOpen(
 	if !reserved {
 		// Port already open for this IP -- just refresh the timeout
 		tracker.RefreshExpiry(ip, portNum, proto, expiry)
-		logger.Printf("[REFRESH] %s/%s for %s (timeout extended to %ds)", portNum, proto, ip, timeout)
+		logger.Printf("[REFRESH] %s/%s for %s (open duration extended to %ds)", portNum, proto, ip, openDuration)
 		return
 	}
 
 	// Execute open command
-	logger.Printf("[OPEN] %s/%s for %s (timeout: %ds)", portNum, proto, ip, timeout)
+	logger.Printf("[OPEN] %s/%s for %s (open duration: %ds)", portNum, proto, ip, openDuration)
+	if cfg.LogCommandOutput {
+		logger.Printf("[CMD-EXEC] %s", openCmd)
+	}
 	output, err := ExecuteCommandTimeout(openCmd, commandTimeout(cfg))
 	if err != nil {
 		logger.Printf("[ERROR] Open command failed for %s/%s %s: %v", portNum, proto, ip, err)
 		if cfg.LogCommandOutput && output != "" {
 			logger.Printf("[CMD-OUTPUT] %s", output)
 		}
-		// Roll back the reservation so the entry does not linger
-		tracker.Remove(ip, portNum, proto)
+		// Keep the tracker entry so the expiry watcher executes the close command
+		// at the normal open-duration timeout. The open command may have partially
+		// succeeded, so we must still close at the scheduled time.
+		logger.Printf("[WARN] Open failed for %s/%s %s - close command will run at expiry (%s)",
+			portNum, proto, ip, entry.ExpiresAt.Format("15:04:05"))
 		return
 	}
 	if cfg.LogCommandOutput && output != "" {
@@ -655,6 +685,9 @@ func handleClose(
 	}
 
 	logger.Printf("[CLOSE] %s/%s for %s", portNum, proto, ip)
+	if cfg.LogCommandOutput {
+		logger.Printf("[CMD-EXEC] %s", closeCmd)
+	}
 	output, err := ExecuteCommandTimeout(closeCmd, commandTimeout(cfg))
 	if err != nil {
 		logger.Printf("[ERROR] Close command failed for %s/%s %s: %v", portNum, proto, ip, err)
@@ -671,7 +704,7 @@ func handleOpenAll(
 	tracker *Tracker,
 	allowedPorts map[string]bool,
 	ip string,
-	timeout int,
+	openDuration int,
 ) {
 	if !cfg.AllowOpenAll {
 		logger.Printf("[DENY] from %s: open-all not allowed", ip)
@@ -689,8 +722,30 @@ func handleOpenAll(
 			closeCmd = BuildCommand(cfg.CloseAllCommand, ip, "", "")
 		}
 
+		// When no close-all command is configured, execute the open-all command but
+		// skip the tracker -- no expiry timer is needed since nothing can be closed.
+		if closeCmd == "" {
+			logger.Printf("[OPEN-ALL] for %s (permanent - no close-all command configured)", ip)
+			if cfg.LogCommandOutput {
+				logger.Printf("[CMD-EXEC] %s", cmd)
+			}
+			output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
+			if err != nil {
+				logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
+				if cfg.LogCommandOutput && output != "" {
+					logger.Printf("[CMD-OUTPUT] %s", output)
+				}
+				return
+			}
+			if cfg.LogCommandOutput && output != "" {
+				logger.Printf("[CMD-OUTPUT] %s", output)
+			}
+			logger.Printf("[WARN] No close-all command configured - all ports will remain open permanently")
+			return
+		}
+
 		// Atomic reservation -- avoid duplicate open-all rules
-		expiry := time.Now().Add(time.Duration(timeout) * time.Second)
+		expiry := time.Now().Add(time.Duration(openDuration) * time.Second)
 		entry := &PortEntry{
 			IP:        ip,
 			Port:      "all",
@@ -705,18 +760,24 @@ func handleOpenAll(
 		reserved, _ := tracker.TryReserve(entry)
 		if !reserved {
 			tracker.RefreshExpiry(ip, "all", "all", expiry)
-			logger.Printf("[REFRESH] open-all for %s (timeout extended to %ds)", ip, timeout)
+			logger.Printf("[REFRESH] open-all for %s (open duration extended to %ds)", ip, openDuration)
 			return
 		}
 
-		logger.Printf("[OPEN-ALL] for %s (timeout: %ds) via open_all_command", ip, timeout)
+		logger.Printf("[OPEN-ALL] for %s (open duration: %ds)", ip, openDuration)
+		if cfg.LogCommandOutput {
+			logger.Printf("[CMD-EXEC] %s", cmd)
+		}
 		output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
 		if err != nil {
 			logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
 			if cfg.LogCommandOutput && output != "" {
 				logger.Printf("[CMD-OUTPUT] %s", output)
 			}
-			tracker.Remove(ip, "all", "all")
+			// Keep the tracker entry so the expiry watcher executes the close-all
+			// command at the normal open-duration timeout.
+			logger.Printf("[WARN] Open-all failed for %s - close-all command will run at expiry (%s)",
+				ip, entry.ExpiresAt.Format("15:04:05"))
 			return
 		}
 		if cfg.LogCommandOutput && output != "" {
@@ -727,7 +788,7 @@ func handleOpenAll(
 
 	// Otherwise open each allowed port individually
 	for portKey := range allowedPorts {
-		handleOpen(logger, cfg, tracker, allowedPorts, ip, portKey, timeout)
+		handleOpen(logger, cfg, tracker, allowedPorts, ip, portKey, openDuration)
 	}
 }
 
@@ -746,6 +807,9 @@ func handleCloseAll(
 
 	for _, entry := range entries {
 		logger.Printf("[CLOSE] %s/%s for %s", entry.PortNum, entry.Proto, ip)
+		if cfg.LogCommandOutput && entry.CloseCmd != "" {
+			logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
+		}
 		output, err := ExecuteCommandTimeout(entry.CloseCmd, commandTimeout(cfg))
 		if err != nil {
 			logger.Printf("[ERROR] Close command failed for %s/%s %s: %v", entry.PortNum, entry.Proto, ip, err)
@@ -785,6 +849,9 @@ func handleCustomCommand(
 
 	logger.Printf("[CUSTOM] from %s: executing '%s'", ip, safeKey)
 	cmd := BuildCommand(command, ip, "", "")
+	if cfg.LogCommandOutput && cmd != "" {
+		logger.Printf("[CMD-EXEC] %s", cmd)
+	}
 	output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
 	if err != nil {
 		logger.Printf("[ERROR] Custom command '%s' failed for %s: %v", safeKey, ip, err)
@@ -860,8 +927,8 @@ func autoRegenerateBundle(dk crypto.DecapsulationKey, cfg *config.Config, logf f
 	// Auto-regenerated bundles are always unencrypted.
 	// Use --export for encrypted bundles with an interactive password prompt.
 	b64Data, err = crypto.CreateExportBundleWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultTimeout, dynWindow)
+		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, dynWindow)
 	if err != nil {
 		logf("[WARN] Failed to regenerate bundle: %v", err)
 		return
@@ -884,8 +951,8 @@ func autoRegenerateBundle(dk crypto.DecapsulationKey, cfg *config.Config, logf f
 
 	// Generate raw binary for QR code
 	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomTimeout, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultTimeout, dynWindow)
+		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, dynWindow)
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")
 		qrErr := crypto.GenerateQRCode(rawData, qrPath)

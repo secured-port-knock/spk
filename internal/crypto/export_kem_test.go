@@ -35,8 +35,8 @@ func TestExportBundleV1WithKEM768(t *testing.T) {
 	if bundle.Port != 12345 {
 		t.Errorf("Port = %d, want 12345", bundle.Port)
 	}
-	if !bundle.AllowCustomTimeout {
-		t.Error("AllowCustomTimeout should be true")
+	if !bundle.AllowCustomOpenDuration {
+		t.Error("AllowCustomOpenDuration should be true")
 	}
 	if bundle.AllowCustomPort {
 		t.Error("AllowCustomPort should be false")
@@ -92,8 +92,8 @@ func TestExportBundleV1WithKEM1024(t *testing.T) {
 	if bundle.Port != 54321 {
 		t.Errorf("Port = %d, want 54321", bundle.Port)
 	}
-	if bundle.AllowCustomTimeout {
-		t.Error("AllowCustomTimeout should be false")
+	if bundle.AllowCustomOpenDuration {
+		t.Error("AllowCustomOpenDuration should be false")
 	}
 	if !bundle.AllowCustomPort {
 		t.Error("AllowCustomPort should be true")
@@ -126,19 +126,19 @@ func TestExportBundleVersionRejected(t *testing.T) {
 	ek := dk.EncapsulationKey()
 
 	// Build a binary bundle with unsupported version 2:
-	// "SK" + ver(2) + flags(0) + port(2) + timeout(4) + window(4) + ek(1568)
+	// "SK" + ver(2) + flags(0) + port(2) + open_duration(4) + window(4) + ek(1568)
 	var raw []byte
 	raw = append(raw, 'S', 'K') // magic
 	raw = append(raw, 2)        // version 2 (unsupported)
-	raw = append(raw, 0x01)     // flags: allowCustomTimeout
+	raw = append(raw, 0x01)     // flags: allowCustomOpenDuration
 
 	portBytes := make([]byte, 2)
 	binary.BigEndian.PutUint16(portBytes, 11111)
 	raw = append(raw, portBytes...)
 
-	timeoutBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(timeoutBytes, 3600)
-	raw = append(raw, timeoutBytes...)
+	openDurationBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(openDurationBytes, 3600)
+	raw = append(raw, openDurationBytes...)
 
 	windowBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(windowBytes, 600)
@@ -180,10 +180,10 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 	if port != 22222 {
 		t.Errorf("port = %d, want 22222", port)
 	}
-	// timeout(4) at offset 6
-	timeout := binary.BigEndian.Uint32(raw[6:10])
-	if timeout != 1800 {
-		t.Errorf("timeout = %d, want 1800", timeout)
+	// open_duration(4) at offset 6
+	openDuration := binary.BigEndian.Uint32(raw[6:10])
+	if openDuration != 1800 {
+		t.Errorf("open_duration = %d, want 1800", openDuration)
 	}
 	// window(4) at offset 10
 	window := binary.BigEndian.Uint32(raw[10:14])

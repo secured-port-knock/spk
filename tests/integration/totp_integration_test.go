@@ -400,8 +400,8 @@ func TestKnockOptionsBothTOTPAndPadding(t *testing.T) {
 	if payload.Command != "open-t22" {
 		t.Errorf("command = %s, want open-t22", payload.Command)
 	}
-	if payload.Timeout != 3600 {
-		t.Errorf("timeout = %d, want 3600", payload.Timeout)
+	if payload.OpenDuration != 3600 {
+		t.Errorf("open duration = %d, want 3600", payload.OpenDuration)
 	}
 }
 

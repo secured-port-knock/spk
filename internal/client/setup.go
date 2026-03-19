@@ -188,15 +188,15 @@ func RunSetup() {
 	if bundle.Port > 0 {
 		cfg.ServerPort = bundle.Port
 	}
-	cfg.AllowCustomTimeout = bundle.AllowCustomTimeout
+	cfg.AllowCustomOpenDuration = bundle.AllowCustomOpenDuration
 	cfg.AllowCustomPort = bundle.AllowCustomPort
 	cfg.AllowOpenAll = bundle.AllowOpenAll
 	if bundle.DynamicPort && len(bundle.PortSeed) > 0 {
 		cfg.DynamicPort = true
 		cfg.PortSeed = fmt.Sprintf("%x", bundle.PortSeed)
 	}
-	if bundle.DefaultTimeout > 0 {
-		cfg.DefaultTimeout = bundle.DefaultTimeout
+	if bundle.DefaultOpenDuration > 0 {
+		cfg.DefaultOpenDuration = bundle.DefaultOpenDuration
 	}
 	if bundle.DynPortWindow > 0 {
 		cfg.DynPortWindow = bundle.DynPortWindow
@@ -243,9 +243,13 @@ func RunSetup() {
 	fmt.Println()
 	fmt.Println("  Usage:")
 	fmt.Println("    spk --client --cmd open-t22")
-	fmt.Println("    spk --client --cmd open-t22 --timeout 7200")
+	fmt.Println("    spk --client --cmd open-t22 --duration 7200")
+	fmt.Println("    spk --client --cmd open-t22,t443,u53        # Batch open in one packet")
 	fmt.Println("    spk --client --cmd close-t22")
+	fmt.Println("    spk --client --cmd close-t22,t443           # Batch close in one packet")
 	fmt.Println("    spk --client --cmd cust-1")
+	fmt.Println("    spk open-t22                                # Shorthand (auto-detect)")
+	fmt.Println("    spk open-t22,t443,u53                       # Batch shorthand")
 	fmt.Println("========================================")
 
 	// Offer to delete the activation bundle if it was used from a file
@@ -282,7 +286,7 @@ func tryParseBundle(reader *bufio.Reader, b64Data string) *crypto.ExportBundle {
 	}
 
 	fmt.Printf("  -> Server port: %d\n", bundle.Port)
-	fmt.Printf("  -> Custom timeout: %v\n", bundle.AllowCustomTimeout)
+	fmt.Printf("  -> Custom open duration: %v\n", bundle.AllowCustomOpenDuration)
 	fmt.Printf("  -> Custom port: %v\n", bundle.AllowCustomPort)
 	fmt.Printf("  -> Open all: %v\n", bundle.AllowOpenAll)
 	if bundle.DynamicPort {

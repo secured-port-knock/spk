@@ -55,8 +55,8 @@ func TestPaddedPacketDecryption(t *testing.T) {
 	if payload.ClientIP != "10.0.0.1" {
 		t.Errorf("IP = %q, want 10.0.0.1", payload.ClientIP)
 	}
-	if payload.Timeout != 3600 {
-		t.Errorf("timeout = %d, want 3600", payload.Timeout)
+	if payload.OpenDuration != 3600 {
+		t.Errorf("open duration = %d, want 3600", payload.OpenDuration)
 	}
 	if payload.Padding == "" {
 		t.Error("padding should be present in decrypted payload")

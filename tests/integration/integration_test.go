@@ -85,8 +85,8 @@ func TestFullKnockCycle(t *testing.T) {
 	if p.Command != "open-t22" {
 		t.Errorf("command = %s, want open-t22", p.Command)
 	}
-	if p.Timeout != 3600 {
-		t.Errorf("timeout = %d, want 3600", p.Timeout)
+	if p.OpenDuration != 3600 {
+		t.Errorf("open duration = %d, want 3600", p.OpenDuration)
 	}
 	if p.ClientIP != localIP {
 		t.Errorf("clientIP = %s, want %s", p.ClientIP, localIP)
@@ -148,8 +148,8 @@ func TestExportImportCycle(t *testing.T) {
 	if payload.Command != "open-t443" {
 		t.Errorf("command = %s, want open-t443", payload.Command)
 	}
-	if payload.Timeout != 7200 {
-		t.Errorf("timeout = %d, want 7200", payload.Timeout)
+	if payload.OpenDuration != 7200 {
+		t.Errorf("open duration = %d, want 7200", payload.OpenDuration)
 	}
 }
 
@@ -275,8 +275,8 @@ func TestBatchCommandE2E(t *testing.T) {
 	if result.payload.Command != "open-t22,t443,u53" {
 		t.Errorf("command = %s, want open-t22,t443,u53", result.payload.Command)
 	}
-	if result.payload.Timeout != 1800 {
-		t.Errorf("timeout = %d, want 1800", result.payload.Timeout)
+	if result.payload.OpenDuration != 1800 {
+		t.Errorf("open duration = %d, want 1800", result.payload.OpenDuration)
 	}
 }
 
@@ -397,8 +397,8 @@ func TestExportImportWithBatchCapability(t *testing.T) {
 	if payload.Command != "open-t22,t443,t8080,u53" {
 		t.Errorf("command = %s, want open-t22,t443,t8080,u53", payload.Command)
 	}
-	if payload.Timeout != 7200 {
-		t.Errorf("timeout = %d, want 7200", payload.Timeout)
+	if payload.OpenDuration != 7200 {
+		t.Errorf("open duration = %d, want 7200", payload.OpenDuration)
 	}
 }
 

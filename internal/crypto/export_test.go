@@ -37,8 +37,8 @@ func TestCreateParseExportBundle(t *testing.T) {
 	if bundle.Port != 12345 {
 		t.Errorf("port = %d, want 12345", bundle.Port)
 	}
-	if !bundle.AllowCustomTimeout {
-		t.Error("AllowCustomTimeout = false, want true")
+	if !bundle.AllowCustomOpenDuration {
+		t.Error("AllowCustomOpenDuration = false, want true")
 	}
 	if bundle.AllowCustomPort {
 		t.Error("AllowCustomPort = true, want false")

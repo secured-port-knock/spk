@@ -109,16 +109,19 @@ To build from source, see [docs/compilation.md](docs/compilation.md).
 
 # Send commands:
 ./spk --client --cmd open-t22
-./spk --client --cmd open-t22 --timeout 7200
+./spk --client --cmd open-t22 --duration 7200
+./spk --client --cmd open-t22,t443,u53      # Batch open in one packet
 ./spk --client --cmd close-t22
+./spk --client --cmd close-t22,t443         # Batch close in one packet
 ./spk --client --cmd open-all
 ./spk --client --cmd cust-1
 
 # Shorthand (auto-detects client mode from config):
 ./spk open-t22
-./spk open-t22 --timeout 3600
+./spk open-t22 --duration 3600
 ./spk open-t22 --ip 203.0.113.50
-./spk open-t22,t443              # Batch: multiple ports in one packet
+./spk open-t22,t443,u53                     # Batch open shorthand
+./spk close-t22,t443                        # Batch close shorthand
 
 # With TOTP (when server has TOTP enabled):
 ./spk --client --cmd open-t22 --totp 123456
@@ -197,7 +200,7 @@ During `--uninstall`, SPK discovers all installed SPK-related services, lists th
 | `--client` | Run in client mode |
 | `--setup` | Interactive first-time setup |
 | `--cmd CMD` | Send command (e.g., `open-t22`, `close-all`) |
-| `--timeout N` | Custom timeout in seconds |
+| `--duration N` | Custom open duration in seconds (open- commands only) |
 | `--host ADDR` | Override server address |
 | `--ip ADDR` | Client IP override (IPv4 or IPv6, auto-detected if empty) |
 | `--totp CODE` | TOTP 6-digit code from authenticator app (required if server has TOTP enabled) |
@@ -215,6 +218,7 @@ During `--uninstall`, SPK discovers all installed SPK-related services, lists th
 | `open-all` | Open all allowed ports |
 | `close-all` | Close all ports opened by this client |
 | `open-t<p1>,t<p2>,...` | Batch open multiple ports (e.g., `open-t22,t443,u53`) |
+| `close-t<p1>,t<p2>,...` | Batch close multiple ports (e.g., `close-t22,t443`) |
 | `cust-<id>` | Execute custom command (e.g., `cust-1`, `cust-ping`) |
 
 ## Configuration

@@ -28,16 +28,16 @@ type Config struct {
 	SnifferMode     string   `toml:"sniffer_mode,omitempty" json:"sniffer_mode"`         // "udp", "afpacket", etc.
 
 	// Security policies
-	AllowCustomPort    bool     `toml:"allow_custom_port" json:"allow_custom_port"`       // Clients can request arbitrary ports
-	AllowCustomTimeout bool     `toml:"allow_custom_timeout" json:"allow_custom_timeout"` // Clients can set their own timeout
-	AllowOpenAll       bool     `toml:"allow_open_all" json:"allow_open_all"`             // Allow "open-all" command
-	AllowedPorts       []string `toml:"allowed_ports" json:"allowed_ports"`               // Whitelisted ports, e.g. ["t22","t443","u53"]
+	AllowCustomPort         bool     `toml:"allow_custom_port" json:"allow_custom_port"`                   // Clients can request arbitrary ports
+	AllowCustomOpenDuration bool     `toml:"allow_custom_open_duration" json:"allow_custom_open_duration"` // Clients can set their own open duration
+	AllowOpenAll            bool     `toml:"allow_open_all" json:"allow_open_all"`                         // Allow "open-all" command
+	AllowedPorts            []string `toml:"allowed_ports" json:"allowed_ports"`                           // Whitelisted ports, e.g. ["t22","t443","u53"]
 
-	// Timeouts (seconds)
-	DefaultTimeout     int `toml:"default_timeout" json:"default_timeout"`         // Default port open duration
-	MaxTimeout         int `toml:"max_timeout" json:"max_timeout"`                 // Maximum allowed timeout
-	TimestampTolerance int `toml:"timestamp_tolerance" json:"timestamp_tolerance"` // Knock timestamp window (anti-replay)
-	NonceExpiry        int `toml:"nonce_expiry" json:"nonce_expiry"`               // How long to remember nonces
+	// Open duration (seconds)
+	DefaultOpenDuration int `toml:"default_open_duration" json:"default_open_duration"` // Default port open duration
+	MaxOpenDuration     int `toml:"max_open_duration" json:"max_open_duration"`         // Maximum allowed open duration
+	TimestampTolerance  int `toml:"timestamp_tolerance" json:"timestamp_tolerance"`     // Knock timestamp window (anti-replay)
+	NonceExpiry         int `toml:"nonce_expiry" json:"nonce_expiry"`                   // How long to remember nonces
 
 	// Export
 	ExportEncrypted bool   `toml:"export_encrypted" json:"export_encrypted"` // Encrypt activation.b64 exports
@@ -101,7 +101,7 @@ type Config struct {
 	LogMaxBackups    int  `toml:"log_max_backups,omitempty" json:"log_max_backups,omitempty"`       // Max rotated log files to keep (default: 5)
 	LogMaxAgeDays    int  `toml:"log_max_age_days,omitempty" json:"log_max_age_days,omitempty"`     // Max age of rotated logs in days (default: 30)
 	LogFloodLimit    int  `toml:"log_flood_limit_ps,omitempty" json:"log_flood_limit_ps,omitempty"` // Max log lines per second (0 = unlimited, default: 100)
-	LogCommandOutput bool `toml:"log_command_output,omitempty" json:"log_command_output,omitempty"` // Log stdout/stderr of executed commands (default: false)
+	LogCommandOutput bool `toml:"log_command_output,omitempty" json:"log_command_output,omitempty"` // Log each command before execution and its stdout/stderr output (default: false)
 
 	// Crash recovery
 	ClosePortsOnCrash bool `toml:"close_ports_on_crash" json:"close_ports_on_crash"` // Close all opened ports on crash recovery (default: true)
@@ -115,27 +115,27 @@ func RandomPort() int {
 // DefaultServerConfig returns a server config with sensible defaults.
 func DefaultServerConfig() *Config {
 	return &Config{
-		Mode:               "server",
-		ListenPort:         RandomPort(),
-		ListenAddresses:    []string{"0.0.0.0", "::"},
-		SnifferMode:        "udp",
-		AllowCustomPort:    false,
-		AllowCustomTimeout: false,
-		AllowOpenAll:       false,
-		AllowedPorts:       []string{"t22"},
-		DefaultTimeout:     3600,
-		MaxTimeout:         86400,
-		TimestampTolerance: 30,
-		NonceExpiry:        120,
-		CustomCommands:     map[string]string{},
-		DynPortWindow:      600,
-		DynPortMin:         10000,
-		DynPortMax:         65000,
-		MatchIncomingIP:    true,
-		MaxNonceCache:      10000,
-		ClosePortsOnCrash:  true,
-		CommandTimeout:     0.5,
-		KEMSize:            768,
+		Mode:                    "server",
+		ListenPort:              RandomPort(),
+		ListenAddresses:         []string{"0.0.0.0", "::"},
+		SnifferMode:             "udp",
+		AllowCustomPort:         false,
+		AllowCustomOpenDuration: false,
+		AllowOpenAll:            false,
+		AllowedPorts:            []string{"t22"},
+		DefaultOpenDuration:     3600,
+		MaxOpenDuration:         86400,
+		TimestampTolerance:      30,
+		NonceExpiry:             120,
+		CustomCommands:          map[string]string{},
+		DynPortWindow:           600,
+		DynPortMin:              10000,
+		DynPortMax:              65000,
+		MatchIncomingIP:         true,
+		MaxNonceCache:           10000,
+		ClosePortsOnCrash:       true,
+		CommandTimeout:          0.5,
+		KEMSize:                 768,
 	}
 }
 
@@ -329,15 +329,15 @@ func (c *Config) Validate() []string {
 		}
 	}
 
-	// Timeout validation
-	if c.DefaultTimeout < 0 {
-		errs = append(errs, "default_timeout must be >= 0")
+	// Open duration validation
+	if c.DefaultOpenDuration < 0 {
+		errs = append(errs, "default_open_duration must be >= 0")
 	}
-	if c.MaxTimeout < 0 {
-		errs = append(errs, "max_timeout must be >= 0")
+	if c.MaxOpenDuration < 0 {
+		errs = append(errs, "max_open_duration must be >= 0")
 	}
-	if c.DefaultTimeout > 0 && c.MaxTimeout > 0 && c.DefaultTimeout > c.MaxTimeout {
-		errs = append(errs, fmt.Sprintf("default_timeout (%d) exceeds max_timeout (%d)", c.DefaultTimeout, c.MaxTimeout))
+	if c.DefaultOpenDuration > 0 && c.MaxOpenDuration > 0 && c.DefaultOpenDuration > c.MaxOpenDuration {
+		errs = append(errs, fmt.Sprintf("default_open_duration (%d) exceeds max_open_duration (%d)", c.DefaultOpenDuration, c.MaxOpenDuration))
 	}
 
 	// Timestamp tolerance
@@ -531,9 +531,9 @@ func WriteServerConfigWithComments(path string, cfg *Config) error {
 	content.WriteString("# allow_custom_port: if true, clients can request any port (e.g. open-t8080).\n")
 	content.WriteString("#   If false, only ports listed in allowed_ports are accepted.\n")
 	content.WriteString(fmt.Sprintf("allow_custom_port = %v\n", cfg.AllowCustomPort))
-	content.WriteString("# allow_custom_timeout: if true, clients can set their own port-open duration.\n")
-	content.WriteString("#   If false, all ports use default_timeout.\n")
-	content.WriteString(fmt.Sprintf("allow_custom_timeout = %v\n", cfg.AllowCustomTimeout))
+	content.WriteString("# allow_custom_open_duration: if true, clients can set their own port-open duration.\n")
+	content.WriteString("#   If false, all ports use default_open_duration.\n")
+	content.WriteString(fmt.Sprintf("allow_custom_open_duration = %v\n", cfg.AllowCustomOpenDuration))
 	content.WriteString("# allow_open_all: if true, clients can send 'open-all' to open every allowed port.\n")
 	content.WriteString("#   When allow_custom_port is also true, 'open-all' opens ALL system ports (tcp+udp).\n")
 	content.WriteString(fmt.Sprintf("allow_open_all = %v\n", cfg.AllowOpenAll))
@@ -541,13 +541,13 @@ func WriteServerConfigWithComments(path string, cfg *Config) error {
 	content.WriteString("# NOTE: This list is ignored when allow_custom_port = true (any port is allowed).\n")
 	content.WriteString(fmt.Sprintf("allowed_ports = %s\n", tomlStringArray(cfg.AllowedPorts)))
 
-	content.WriteString("\n# ========== TIMEOUTS (seconds) ==========\n")
-	content.WriteString("# default_timeout: how long a port stays open before being automatically closed.\n")
-	content.WriteString("#   Used when the client does not specify a custom timeout (or custom timeout is disabled).\n")
-	content.WriteString(fmt.Sprintf("default_timeout = %d\n", cfg.DefaultTimeout))
-	content.WriteString("# max_timeout: upper limit for port-open duration. Clients cannot exceed this even\n")
-	content.WriteString("#   with allow_custom_timeout = true.\n")
-	content.WriteString(fmt.Sprintf("max_timeout = %d\n", cfg.MaxTimeout))
+	content.WriteString("\n# ========== OPEN DURATION (seconds) ==========\n")
+	content.WriteString("# default_open_duration: how long a port stays open before being automatically closed.\n")
+	content.WriteString("#   Used when the client does not specify a custom duration (or custom duration is disabled).\n")
+	content.WriteString(fmt.Sprintf("default_open_duration = %d\n", cfg.DefaultOpenDuration))
+	content.WriteString("# max_open_duration: upper limit for port-open duration. Clients cannot exceed this even\n")
+	content.WriteString("#   with allow_custom_open_duration = true.\n")
+	content.WriteString(fmt.Sprintf("max_open_duration = %d\n", cfg.MaxOpenDuration))
 	content.WriteString("# timestamp_tolerance: how many seconds of clock drift to allow between client and\n")
 	content.WriteString("#   server. Knock packets with a timestamp outside +/- this window are rejected.\n")
 	content.WriteString("#   Increase if client/server clocks are not synchronized (e.g. no NTP).\n")
@@ -822,11 +822,11 @@ func WriteClientConfigWithComments(path string, cfg *Config) error {
 
 	content.WriteString("\n# ========== SERVER POLICIES (from bundle, read-only) ==========\n")
 	content.WriteString("# These reflect what the server allows. Changing them has no effect.\n")
-	content.WriteString(fmt.Sprintf("allow_custom_timeout = %v\n", cfg.AllowCustomTimeout))
+	content.WriteString(fmt.Sprintf("allow_custom_open_duration = %v\n", cfg.AllowCustomOpenDuration))
 	content.WriteString(fmt.Sprintf("allow_custom_port = %v\n", cfg.AllowCustomPort))
 	content.WriteString(fmt.Sprintf("allow_open_all = %v\n", cfg.AllowOpenAll))
-	if cfg.DefaultTimeout > 0 {
-		content.WriteString(fmt.Sprintf("default_timeout = %d\n", cfg.DefaultTimeout))
+	if cfg.DefaultOpenDuration > 0 {
+		content.WriteString(fmt.Sprintf("default_open_duration = %d\n", cfg.DefaultOpenDuration))
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {

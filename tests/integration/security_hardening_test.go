@@ -167,33 +167,33 @@ func TestConfigValidateRejectsInvalidPort(t *testing.T) {
 	}
 }
 
-// TestConfigValidateRejectsNegativeTimeout verifies Validate catches negatives.
-func TestConfigValidateRejectsNegativeTimeout(t *testing.T) {
-	cfg := &config.Config{DefaultTimeout: -1}
+// TestConfigValidateRejectsNegativeOpenDuration verifies Validate catches negatives.
+func TestConfigValidateRejectsNegativeOpenDuration(t *testing.T) {
+	cfg := &config.Config{DefaultOpenDuration: -1}
 	errs := cfg.Validate()
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e, "default_timeout") {
+		if strings.Contains(e, "default_open_duration") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected default_timeout error, got: %v", errs)
+		t.Errorf("expected default_open_duration error, got: %v", errs)
 	}
 }
 
-// TestConfigValidateRejectsTimeoutExceedsMax verifies default > max is caught.
-func TestConfigValidateRejectsTimeoutExceedsMax(t *testing.T) {
-	cfg := &config.Config{DefaultTimeout: 7200, MaxTimeout: 3600}
+// TestConfigValidateRejectsOpenDurationExceedsMax verifies default > max is caught.
+func TestConfigValidateRejectsOpenDurationExceedsMax(t *testing.T) {
+	cfg := &config.Config{DefaultOpenDuration: 7200, MaxOpenDuration: 3600}
 	errs := cfg.Validate()
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e, "exceeds max_timeout") {
+		if strings.Contains(e, "exceeds max_open_duration") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected timeout ordering error, got: %v", errs)
+		t.Errorf("expected open duration ordering error, got: %v", errs)
 	}
 }
 

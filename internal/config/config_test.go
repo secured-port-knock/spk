@@ -18,8 +18,8 @@ func TestDefaultServerConfig(t *testing.T) {
 	if cfg.ListenPort < 10000 || cfg.ListenPort >= 65000 {
 		t.Errorf("listen port %d out of expected range [10000, 65000)", cfg.ListenPort)
 	}
-	if cfg.DefaultTimeout != 3600 {
-		t.Errorf("default timeout = %d, want 3600", cfg.DefaultTimeout)
+	if cfg.DefaultOpenDuration != 3600 {
+		t.Errorf("default open duration = %d, want 3600", cfg.DefaultOpenDuration)
 	}
 	if cfg.TimestampTolerance != 30 {
 		t.Errorf("timestamp tolerance = %d, want 30", cfg.TimestampTolerance)
@@ -233,11 +233,11 @@ listen_port = 42000
 listen_addresses = ["0.0.0.0"]
 sniffer_mode = "udp"
 allow_custom_port = true
-allow_custom_timeout = false
+allow_custom_open_duration = false
 allow_open_all = true
 allowed_ports = ["t22", "t443"]
-default_timeout = 7200
-max_timeout = 86400
+default_open_duration = 7200
+max_open_duration = 86400
 timestamp_tolerance = 30
 nonce_expiry = 120
 export_encrypted = false
@@ -381,7 +381,7 @@ func TestWriteClientConfigWithComments(t *testing.T) {
 	cfg.DynamicPort = true
 	cfg.PortSeed = "aabbccdd11223344"
 	cfg.DynPortWindow = 300
-	cfg.AllowCustomTimeout = true
+	cfg.AllowCustomOpenDuration = true
 	cfg.AllowOpenAll = true
 
 	path := filepath.Join(t.TempDir(), "client.toml")
@@ -831,19 +831,19 @@ func TestValidatePortSeedValid(t *testing.T) {
 	}
 }
 
-func TestValidateDefaultTimeoutExceedsMax(t *testing.T) {
+func TestValidateDefaultOpenDurationExceedsMax(t *testing.T) {
 	cfg := DefaultServerConfig()
-	cfg.DefaultTimeout = 100000
-	cfg.MaxTimeout = 50000
+	cfg.DefaultOpenDuration = 100000
+	cfg.MaxOpenDuration = 50000
 	errs := cfg.Validate()
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e, "default_timeout") && strings.Contains(e, "exceeds") {
+		if strings.Contains(e, "default_open_duration") && strings.Contains(e, "exceeds") {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("should report error when default_timeout > max_timeout")
+		t.Error("should report error when default_open_duration > max_open_duration")
 	}
 }
 

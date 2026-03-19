@@ -23,7 +23,7 @@ const (
 	flagTOTP    = 1 << 1 // 6-byte TOTP code follows command
 	flagPadding = 1 << 2 // Random padding fills remaining bytes
 
-	// Minimum binary payload: version(1) + flags(1) + timestamp(8) + nonce(32) + ipv4(4) + timeout(4) + cmdlen(1) = 51
+	// Minimum binary payload: version(1) + flags(1) + timestamp(8) + nonce(32) + ipv4(4) + open_duration(4) + cmdlen(1) = 51
 	minPayloadSize = 51
 )
 
@@ -50,14 +50,14 @@ const (
 // KnockPayload is the plaintext content of a knock packet.
 // Wire format is compact binary, not JSON.
 type KnockPayload struct {
-	Version   int    // Protocol version
-	Timestamp int64  // Unix timestamp (seconds)
-	Nonce     string // Random hex nonce (anti-replay)
-	ClientIP  string // Client's own IP address (anti-spoofing)
-	Command   string // Command: "open-t22", "close-u53", "open-all", "close-all", "restart_ssh"
-	Timeout   int    // Requested timeout in seconds (0 = use default)
-	TOTP      string // TOTP code for two-factor authentication
-	Padding   string // Random hex padding (variable-size packets)
+	Version      int    // Protocol version
+	Timestamp    int64  // Unix timestamp (seconds)
+	Nonce        string // Random hex nonce (anti-replay)
+	ClientIP     string // Client's own IP address (anti-spoofing)
+	Command      string // Command: "open-t22", "close-u53", "open-all", "close-all", "restart_ssh"
+	OpenDuration int    // Requested open duration in seconds (0 = use default)
+	TOTP         string // TOTP code for two-factor authentication
+	Padding      string // Random hex padding (variable-size packets)
 }
 
 // PaddingConfig controls packet padding.
@@ -186,7 +186,7 @@ func decodeCommandBinary(cmdType byte, cmdData string) (string, error) {
 
 // BuildKnockPacket creates an encrypted knock packet for sending to the server.
 // Options include padding for variable packet sizes and TOTP for two-factor auth.
-func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, timeout int, opts ...KnockOptions) ([]byte, error) {
+func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, openDuration int, opts ...KnockOptions) ([]byte, error) {
 	// Generate random nonce
 	nonceBytes := make([]byte, NonceBytes)
 	if _, err := io.ReadFull(rand.Reader, nonceBytes); err != nil {
@@ -194,12 +194,12 @@ func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, time
 	}
 
 	payload := KnockPayload{
-		Version:   ProtocolVersion,
-		Timestamp: time.Now().Unix(),
-		Nonce:     hex.EncodeToString(nonceBytes),
-		ClientIP:  clientIP,
-		Command:   command,
-		Timeout:   timeout,
+		Version:      ProtocolVersion,
+		Timestamp:    time.Now().Unix(),
+		Nonce:        hex.EncodeToString(nonceBytes),
+		ClientIP:     clientIP,
+		Command:      command,
+		OpenDuration: openDuration,
 	}
 
 	// Apply options
@@ -288,8 +288,8 @@ func ParseKnockPacket(dk crypto.DecapsulationKey, packet []byte, sourceIP string
 	if len(payload.ClientIP) > 45 { // max IPv6 string length
 		return nil, fmt.Errorf("client IP too long: %d", len(payload.ClientIP))
 	}
-	if payload.Timeout < 0 || payload.Timeout > 604800 { // max 7 days
-		return nil, fmt.Errorf("timeout out of range: %d", payload.Timeout)
+	if payload.OpenDuration < 0 || payload.OpenDuration > 604800 { // max 7 days
+		return nil, fmt.Errorf("open duration out of range: %d", payload.OpenDuration)
 	}
 
 	// Verify timestamp (anti-replay)
@@ -327,7 +327,7 @@ func ParseKnockPacket(dk crypto.DecapsulationKey, packet []byte, sourceIP string
 
 // encodePayload serializes a KnockPayload to compact binary format.
 //
-// Wire format: [Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][Timeout:4][CmdLen:1][Cmd:N][TOTP:6?][Pad:rest]
+// Wire format: [Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][OpenDuration:4][CmdLen:1][Cmd:N][TOTP:6?][Pad:rest]
 func encodePayload(p *KnockPayload) ([]byte, error) {
 	var flags byte
 
@@ -402,7 +402,7 @@ func encodePayload(p *KnockPayload) ([]byte, error) {
 	buf = append(buf, ipBytes...)
 
 	var toBuf [4]byte
-	binary.BigEndian.PutUint32(toBuf[:], uint32(p.Timeout))
+	binary.BigEndian.PutUint32(toBuf[:], uint32(p.OpenDuration))
 	buf = append(buf, toBuf[:]...)
 
 	buf = append(buf, byte(totalCmdLen))
@@ -457,11 +457,11 @@ func decodePayload(data []byte) (*KnockPayload, error) {
 	p.ClientIP = net.IP(data[pos : pos+ipLen]).String()
 	pos += ipLen
 
-	// Timeout
+	// OpenDuration
 	if pos+4 > len(data) {
-		return nil, fmt.Errorf("truncated timeout at offset %d", pos)
+		return nil, fmt.Errorf("truncated open_duration at offset %d", pos)
 	}
-	p.Timeout = int(binary.BigEndian.Uint32(data[pos : pos+4]))
+	p.OpenDuration = int(binary.BigEndian.Uint32(data[pos : pos+4]))
 	pos += 4
 
 	// Command (binary type byte + data)

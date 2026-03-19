@@ -163,10 +163,10 @@ func TestValidatePaddingConfig(t *testing.T) {
 	}
 }
 
-func TestValidateTimeoutValues(t *testing.T) {
+func TestValidateOpenDurationValues(t *testing.T) {
 	cfg := DefaultServerConfig()
-	cfg.DefaultTimeout = -1
-	cfg.MaxTimeout = -1
+	cfg.DefaultOpenDuration = -1
+	cfg.MaxOpenDuration = -1
 	errs := cfg.Validate()
 	if len(errs) < 2 {
 		t.Errorf("expected at least 2 errors, got %d: %v", len(errs), errs)

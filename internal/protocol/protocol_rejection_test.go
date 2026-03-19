@@ -167,7 +167,7 @@ func TestCommandLengthLimit(t *testing.T) {
 	}
 }
 
-func TestTimeoutRangeValidation(t *testing.T) {
+func TestOpenDurationRangeValidation(t *testing.T) {
 	dk, _ := crypto.GenerateKeyPair()
 	ek := dk.EncapsulationKey()
 
@@ -175,14 +175,14 @@ func TestTimeoutRangeValidation(t *testing.T) {
 	pkt, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604800)
 	_, err := ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
 	if err != nil {
-		t.Fatalf("max timeout should be valid: %v", err)
+		t.Fatalf("max open duration should be valid: %v", err)
 	}
 
 	// Valid: 0
 	pkt2, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
 	_, err = ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
 	if err != nil {
-		t.Fatalf("zero timeout should be valid: %v", err)
+		t.Fatalf("zero open duration should be valid: %v", err)
 	}
 }
 

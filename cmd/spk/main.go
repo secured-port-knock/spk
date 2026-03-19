@@ -12,16 +12,19 @@
 //	spk --server --export             # Re-export activation bundle
 //	spk --client --setup              # First-time client setup
 //	spk --client --cmd open-t22       # Open TCP port 22
+//	spk --client --cmd open-t22,t443,u53  # Batch open in one packet
 //	spk --client --cmd close-t22      # Close TCP port 22
+//	spk --client --cmd close-t22,t443 # Batch close in one packet
 //	spk --client --cmd open-all       # Open all allowed ports
-//	spk --client --cmd open-t22 --timeout 7200  # Open with custom timeout
+//	spk --client --cmd open-t22 --duration 7200  # Open with custom open duration
 //	spk --client --cmd open-t22 --ip 2001:db8::1  # With explicit IPv6
 //	spk --client --cmd cust-1         # Run custom command "1"
 //
 // Shorthand (auto-detects client mode from config):
 //
 //	spk open-t22                      # Send command (auto-detect)
-//	spk open-t22 --timeout 3600 --ip 1.2.3.4
+//	spk open-t22,t443,u53             # Batch open (auto-detect)
+//	spk open-t22 --duration 3600 --ip 1.2.3.4
 package main
 
 import (
@@ -96,7 +99,7 @@ func main() {
 	setup := flag.Bool("setup", false, "Run interactive first-time setup")
 	export := flag.Bool("export", false, "Export activation bundle (server only)")
 	cmd := flag.String("cmd", "", "Command to send (see command formats below)")
-	timeout := flag.Int("timeout", 0, "Custom timeout in seconds (client only, if allowed)")
+	duration := flag.Int("duration", 0, "Custom open duration in seconds (client only, if allowed)")
 	host := flag.String("host", "", "Server host override (client only)")
 	clientIP := flag.String("ip", "", "Client IP override (IPv4/IPv6, auto-detected if empty)")
 	totpCode := flag.String("totp", "", "TOTP code for two-factor authentication (client only)")
@@ -125,17 +128,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "  Shorthand (auto-detects client mode from config):\n")
 		fmt.Fprintf(os.Stderr, "    spk open-t22             Open TCP 22 (auto-detect client)\n")
-		fmt.Fprintf(os.Stderr, "    spk open-t22 --timeout 3600 --ip 1.2.3.4\n")
+		fmt.Fprintf(os.Stderr, "    spk open-t22 --duration 3600 --ip 1.2.3.4\n")
+		fmt.Fprintf(os.Stderr, "    spk open-t22,t443,u53    Batch open in one packet\n")
+		fmt.Fprintf(os.Stderr, "    spk close-t22,t443       Batch close in one packet\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "  Command formats:\n")
-		fmt.Fprintf(os.Stderr, "    open-t<port>    Open TCP port      (e.g., open-t22, open-t443)\n")
-		fmt.Fprintf(os.Stderr, "    open-u<port>    Open UDP port      (e.g., open-u53)\n")
-		fmt.Fprintf(os.Stderr, "    close-t<port>   Close TCP port\n")
-		fmt.Fprintf(os.Stderr, "    close-u<port>   Close UDP port\n")
-		fmt.Fprintf(os.Stderr, "    open-all        Open all allowed ports\n")
-		fmt.Fprintf(os.Stderr, "    close-all       Close all your open ports\n")
-		fmt.Fprintf(os.Stderr, "    open-t22,t443   Batch: comma-separated port specs in one packet\n")
-		fmt.Fprintf(os.Stderr, "    cust-<id>       Run custom command (e.g., cust-1, cust-ping)\n")
+		fmt.Fprintf(os.Stderr, "    open-t<port>          Open TCP port       (e.g., open-t22, open-t443)\n")
+		fmt.Fprintf(os.Stderr, "    open-u<port>          Open UDP port       (e.g., open-u53)\n")
+		fmt.Fprintf(os.Stderr, "    close-t<port>         Close TCP port\n")
+		fmt.Fprintf(os.Stderr, "    close-u<port>         Close UDP port\n")
+		fmt.Fprintf(os.Stderr, "    open-all              Open all allowed ports\n")
+		fmt.Fprintf(os.Stderr, "    close-all             Close all your open ports\n")
+		fmt.Fprintf(os.Stderr, "    open-t22,t443,u53     Batch open (comma-separated port specs)\n")
+		fmt.Fprintf(os.Stderr, "    close-t22,t443        Batch close (comma-separated port specs)\n")
+		fmt.Fprintf(os.Stderr, "    cust-<id>             Run custom command (e.g., cust-1, cust-ping)\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "  Options:\n")
 		fmt.Fprintf(os.Stderr, "    --server        Run in server mode\n")
@@ -143,7 +149,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "    --setup         Run interactive first-time setup\n")
 		fmt.Fprintf(os.Stderr, "    --export        Export activation bundle (server only)\n")
 		fmt.Fprintf(os.Stderr, "    --cmd CMD       Command to send (see command formats above)\n")
-		fmt.Fprintf(os.Stderr, "    --timeout N     Custom timeout in seconds (client only)\n")
+		fmt.Fprintf(os.Stderr, "    --duration N    Custom open duration in seconds (client only, open- commands)\n")
 		fmt.Fprintf(os.Stderr, "    --host ADDR     Server host override (client only)\n")
 		fmt.Fprintf(os.Stderr, "    --ip ADDR       Client IP override, IPv4 or IPv6 (auto-detected if empty)\n")
 		fmt.Fprintf(os.Stderr, "    --totp CODE     6-digit TOTP code for two-factor auth (client only)\n")
@@ -160,7 +166,7 @@ func main() {
 
 	flag.Parse()
 
-	// Support positional command: spk open-t22 [--timeout ...]
+	// Support positional command: spk open-t22 [--duration ...]
 	if *cmd == "" && len(flag.Args()) > 0 {
 		arg := flag.Args()[0]
 		if strings.HasPrefix(arg, "open-") || strings.HasPrefix(arg, "close-") ||
@@ -319,7 +325,7 @@ func main() {
 		case *setup:
 			client.RunSetup()
 		case *cmd != "":
-			client.RunCommand(*host, *cmd, *timeout, *clientIP, *totpCode)
+			client.RunCommand(*host, *cmd, *duration, *clientIP, *totpCode)
 		default:
 			// Auto-detect: if no client config exists, run setup first
 			if _, err := os.Stat(config.ClientConfigPath()); os.IsNotExist(err) {

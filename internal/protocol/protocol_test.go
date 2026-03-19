@@ -50,8 +50,8 @@ func TestBuildParseKnockPacket(t *testing.T) {
 	if payload.Command != command {
 		t.Errorf("command = %s, want %s", payload.Command, command)
 	}
-	if payload.Timeout != timeout {
-		t.Errorf("timeout = %d, want %d", payload.Timeout, timeout)
+	if payload.OpenDuration != timeout {
+		t.Errorf("open duration = %d, want %d", payload.OpenDuration, timeout)
 	}
 	if payload.Nonce == "" {
 		t.Error("nonce is empty")
@@ -229,12 +229,69 @@ func TestBatchCommandPacket(t *testing.T) {
 	}
 }
 
-// TestLargeTimeout tests that extreme timeout values are handled.
-func TestLargeTimeout(t *testing.T) {
+// TestBatchCloseCommandPacket tests that batch close commands like "close-t22,t443" round-trip
+// through the protocol correctly.
+func TestBatchCloseCommandPacket(t *testing.T) {
 	dk, _ := crypto.GenerateKeyPair()
 	ek := dk.EncapsulationKey()
 
-	// Valid max timeout (7 days = 604800)
+	cases := []string{
+		"close-t22,t443",
+		"close-t22,t443,u53",
+		"close-u53,u123",
+		"close-all",
+	}
+
+	for _, batchCmd := range cases {
+		packet, err := BuildKnockPacket(ek, "10.0.0.1", batchCmd, 0)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket(%q): %v", batchCmd, err)
+		}
+		payload, err := ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+		if err != nil {
+			t.Fatalf("ParseKnockPacket(%q): %v", batchCmd, err)
+		}
+		if payload.Command != batchCmd {
+			t.Errorf("command = %q, want %q", payload.Command, batchCmd)
+		}
+		if payload.OpenDuration != 0 {
+			t.Errorf("close command should have OpenDuration=0, got %d", payload.OpenDuration)
+		}
+	}
+}
+
+// TestValidateCommandBatchClose verifies batch close commands are accepted by ValidateCommand
+// and various malformed batch close commands are rejected.
+func TestValidateCommandBatchClose(t *testing.T) {
+	tests := []struct {
+		cmd     string
+		wantErr bool
+	}{
+		{"close-t22,t443", false},
+		{"close-t22,t443,u53", false},
+		{"close-u53,u123", false},
+		{"close-all", false},
+		// Malformed
+		{"close-t22,", false},      // trailing comma: empty spec is skipped
+		{"close-,t22", false},      // leading comma: empty spec is skipped
+		{"close-t22,,t443", false}, // double comma: empty spec is skipped
+		{"close-t99999,t22", true}, // port > 65535
+		{"close-x22,t443", true},   // unknown protocol prefix
+	}
+	for _, tc := range tests {
+		err := ValidateCommand(tc.cmd)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("ValidateCommand(%q) err=%v, wantErr=%v", tc.cmd, err, tc.wantErr)
+		}
+	}
+}
+
+// TestLargeOpenDuration tests that extreme open duration values are handled.
+func TestLargeOpenDuration(t *testing.T) {
+	dk, _ := crypto.GenerateKeyPair()
+	ek := dk.EncapsulationKey()
+
+	// Valid max open duration (7 days = 604800)
 	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604800)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket: %v", err)
@@ -245,8 +302,8 @@ func TestLargeTimeout(t *testing.T) {
 		t.Fatalf("ParseKnockPacket: %v", err)
 	}
 
-	if payload.Timeout != 604800 {
-		t.Errorf("timeout = %d, want 604800", payload.Timeout)
+	if payload.OpenDuration != 604800 {
+		t.Errorf("open duration = %d, want 604800", payload.OpenDuration)
 	}
 }
 

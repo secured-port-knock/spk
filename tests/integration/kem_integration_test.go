@@ -234,7 +234,7 @@ func TestDefaultConfigProducesMTUSafePackets(t *testing.T) {
 	dk, _ := crypto.GenerateKeyPair(crypto.KEMSize(cfg.KEMSize))
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "1.2.3.4", "open-t22", cfg.DefaultTimeout)
+	packet, _ := protocol.BuildKnockPacket(ek, "1.2.3.4", "open-t22", cfg.DefaultOpenDuration)
 
 	maxPayload := 1500 - 28 // IP + UDP
 	if len(packet) > maxPayload {
@@ -509,8 +509,8 @@ dynamic_port_min = 10000
 dynamic_port_max = 65000
 sniffer_mode = "udp"
 listen_addresses = ["127.0.0.1"]
-default_timeout = 3600
-max_timeout = 86400
+default_open_duration = 3600
+max_open_duration = 86400
 timestamp_tolerance = 30
 nonce_expiry = 120
 `

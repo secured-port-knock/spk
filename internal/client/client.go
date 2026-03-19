@@ -16,7 +16,7 @@ import (
 )
 
 // RunCommand sends a knock command to the server (CLI mode).
-func RunCommand(host, command string, timeout int, clientIP string, totp string) {
+func RunCommand(host, command string, openDuration int, clientIP string, totp string) {
 	cfg, ek, err := loadClientState(host)
 	if err != nil {
 		fmt.Printf("Error: %v\nRun: spk --client --setup\n", err)
@@ -65,6 +65,12 @@ func RunCommand(host, command string, timeout int, clientIP string, totp string)
 		opts.TOTP = totp
 	}
 
+	// --duration is only meaningful for open- commands; reject it early for close/cust
+	if err := validateDurationForCommand(command, openDuration); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Early validation: command length (binary protocol CmdLen is 1 byte = max 255)
 	if len(command) > 255 {
 		fmt.Printf("Error: command too long (%d bytes, max 255).\n", len(command))
@@ -81,7 +87,7 @@ func RunCommand(host, command string, timeout int, clientIP string, totp string)
 	}
 
 	// Build and send knock packet
-	packet, err := protocol.BuildKnockPacket(ek, localIP, command, timeout, opts)
+	packet, err := protocol.BuildKnockPacket(ek, localIP, command, openDuration, opts)
 	if err != nil {
 		fmt.Printf("Error building knock packet: %v\n", err)
 		os.Exit(1)
@@ -105,8 +111,8 @@ func RunCommand(host, command string, timeout int, clientIP string, totp string)
 	} else {
 		fmt.Printf("Knock sent to %s : %s", serverAddr, command)
 	}
-	if timeout > 0 {
-		fmt.Printf(" (timeout: %ds)", timeout)
+	if openDuration > 0 {
+		fmt.Printf(" (open duration: %ds)", openDuration)
 	}
 	fmt.Println()
 	if cfg.DynamicPort {
@@ -114,6 +120,17 @@ func RunCommand(host, command string, timeout int, clientIP string, totp string)
 	}
 	fmt.Printf("(Client IP: %s)\n", localIP)
 	fmt.Println("(Server does not send a response. Check server logs for status.)")
+}
+
+// validateDurationForCommand returns an error when a non-zero openDuration is
+// paired with a command that is not an open- command.  close- and cust-
+// commands do not use a custom open duration.
+func validateDurationForCommand(command string, openDuration int) error {
+	if openDuration > 0 && !strings.HasPrefix(strings.ToLower(command), "open-") {
+		return fmt.Errorf("--duration is only valid with open- commands (e.g., open-t22, open-all); " +
+			"commands like close- and cust- do not use a custom open duration")
+	}
+	return nil
 }
 
 // loadClientState loads config and encryption key for the client.

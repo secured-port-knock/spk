@@ -30,12 +30,12 @@ func TestEncodePayloadInvalidIP(t *testing.T) {
 func TestEncodePayloadIPv6ZoneIDStripped(t *testing.T) {
 	nonce := hex.EncodeToString(make([]byte, 32))
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1000000,
-		Nonce:     nonce,
-		ClientIP:  "fe80::1%eth0",
-		Command:   "open-t22",
-		Timeout:   60,
+		Version:      1,
+		Timestamp:    1000000,
+		Nonce:        nonce,
+		ClientIP:     "fe80::1%eth0",
+		Command:      "open-t22",
+		OpenDuration: 60,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -150,11 +150,11 @@ func TestDecodePayloadTruncatedIPv6(t *testing.T) {
 	}
 }
 
-func TestDecodePayloadTruncatedTimeout(t *testing.T) {
-	// Need: ver(1)+flags(1)+ts(8)+nonce(32)+ipv4(4) = 46, then need 4 for timeout
+func TestDecodePayloadTruncatedOpenDuration(t *testing.T) {
+	// Need: ver(1)+flags(1)+ts(8)+nonce(32)+ipv4(4) = 46, then need 4 for open_duration
 	// But must be >= 51 (minPayloadSize) to pass the first check
-	// minPayloadSize already requires timeout bytes, so a buffer at exactly 50
-	// will fail with "payload too short" not "truncated timeout".
+	// minPayloadSize already requires open_duration bytes, so a buffer at exactly 50
+	// will fail with "payload too short" not "truncated open_duration".
 	// Test that the too-short check is working:
 	buf := make([]byte, 50) // under minPayloadSize of 51
 	buf[0] = 1              // version
@@ -169,7 +169,7 @@ func TestDecodePayloadTruncatedTimeout(t *testing.T) {
 }
 
 func TestDecodePayloadTruncatedCommand(t *testing.T) {
-	// Build valid header through timeout, then cmdLen=10 but only 5 bytes
+	// Build valid header through open_duration, then cmdLen=10 but only 5 bytes
 	buf := make([]byte, 51+5) // 51 = min payload (with cmdlen=0) + 5
 	buf[0] = 1                // version
 	buf[50] = 10              // cmdLen = 10, but only 5 bytes remain
@@ -190,7 +190,7 @@ func TestDecodePayloadTruncatedTOTP(t *testing.T) {
 	buf = append(buf, make([]byte, 8)...) // timestamp
 	buf = append(buf, nonce...)
 	buf = append(buf, ipv4...)
-	buf = append(buf, 0, 0, 0, 60) // timeout = 60
+	buf = append(buf, 0, 0, 0, 60) // open_duration = 60
 	buf = append(buf, 1)           // cmdLen = 1 (type byte only)
 	buf = append(buf, CmdTypeOpen) // command type = open
 	// No TOTP bytes follow
@@ -206,12 +206,12 @@ func TestDecodePayloadTruncatedTOTP(t *testing.T) {
 func TestEncodeDecodeRoundTripIPv4(t *testing.T) {
 	nonce := hex.EncodeToString(make([]byte, 32))
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     nonce,
-		ClientIP:  "192.168.1.100",
-		Command:   "open-t22",
-		Timeout:   3600,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        nonce,
+		ClientIP:     "192.168.1.100",
+		Command:      "open-t22",
+		OpenDuration: 3600,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -233,20 +233,20 @@ func TestEncodeDecodeRoundTripIPv4(t *testing.T) {
 	if decoded.Command != "open-t22" {
 		t.Errorf("Command = %q, want %q", decoded.Command, "open-t22")
 	}
-	if decoded.Timeout != 3600 {
-		t.Errorf("Timeout = %d, want 3600", decoded.Timeout)
+	if decoded.OpenDuration != 3600 {
+		t.Errorf("OpenDuration = %d, want 3600", decoded.OpenDuration)
 	}
 }
 
 func TestEncodeDecodeRoundTripIPv6(t *testing.T) {
 	nonce := hex.EncodeToString(make([]byte, 32))
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     nonce,
-		ClientIP:  "2001:db8::1",
-		Command:   "close-all",
-		Timeout:   0,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        nonce,
+		ClientIP:     "2001:db8::1",
+		Command:      "close-all",
+		OpenDuration: 0,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -264,14 +264,14 @@ func TestEncodeDecodeRoundTripIPv6(t *testing.T) {
 func TestEncodeDecodeWithTOTPAndPadding(t *testing.T) {
 	nonce := hex.EncodeToString(make([]byte, 32))
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     nonce,
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t443",
-		Timeout:   7200,
-		TOTP:      "482901",
-		Padding:   hex.EncodeToString(make([]byte, 100)),
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        nonce,
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t443",
+		OpenDuration: 7200,
+		TOTP:         "482901",
+		Padding:      hex.EncodeToString(make([]byte, 100)),
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -313,12 +313,12 @@ func TestEncodePayloadBatchCommand(t *testing.T) {
 		t.Fatalf("test command is %d bytes, should be < 255", len(cmd))
 	}
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   cmd,
-		Timeout:   3600,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      cmd,
+		OpenDuration: 3600,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -364,12 +364,12 @@ func TestEncodePayloadCustomCommand(t *testing.T) {
 
 func TestEncodePayloadEmptyCommand(t *testing.T) {
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "",
-		Timeout:   60,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "",
+		OpenDuration: 60,
 	}
 	_, err := encodePayload(p)
 	if err == nil {
@@ -377,14 +377,14 @@ func TestEncodePayloadEmptyCommand(t *testing.T) {
 	}
 }
 
-func TestEncodePayloadTimeoutMaxValue(t *testing.T) {
+func TestEncodePayloadOpenDurationMaxValue(t *testing.T) {
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t22",
-		Timeout:   604800, // max 7 days
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 604800, // max 7 days
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -394,19 +394,19 @@ func TestEncodePayloadTimeoutMaxValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if decoded.Timeout != 604800 {
-		t.Errorf("Timeout = %d, want 604800", decoded.Timeout)
+	if decoded.OpenDuration != 604800 {
+		t.Errorf("OpenDuration = %d, want 604800", decoded.OpenDuration)
 	}
 }
 
-func TestEncodePayloadTimeoutZero(t *testing.T) {
+func TestEncodePayloadOpenDurationZero(t *testing.T) {
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t22",
-		Timeout:   0,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 0,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -416,8 +416,8 @@ func TestEncodePayloadTimeoutZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if decoded.Timeout != 0 {
-		t.Errorf("Timeout = %d, want 0", decoded.Timeout)
+	if decoded.OpenDuration != 0 {
+		t.Errorf("OpenDuration = %d, want 0", decoded.OpenDuration)
 	}
 }
 
@@ -445,12 +445,12 @@ func TestEncodePayloadAllFlagCombinations(t *testing.T) {
 				ip = "2001:db8::1"
 			}
 			p := &KnockPayload{
-				Version:   1,
-				Timestamp: 1700000000,
-				Nonce:     hex.EncodeToString(make([]byte, 32)),
-				ClientIP:  ip,
-				Command:   "open-t22",
-				Timeout:   60,
+				Version:      1,
+				Timestamp:    1700000000,
+				Nonce:        hex.EncodeToString(make([]byte, 32)),
+				ClientIP:     ip,
+				Command:      "open-t22",
+				OpenDuration: 60,
 			}
 			if tt.totp {
 				p.TOTP = "123456"
@@ -483,14 +483,14 @@ func TestEncodePayloadAllFlagCombinations(t *testing.T) {
 }
 
 func TestBinaryPayloadSizeIPv4Minimal(t *testing.T) {
-	// Minimum: version(1) + flags(1) + ts(8) + nonce(32) + ipv4(4) + timeout(4) + cmdlen(1) + cmdType(1) = 52
+	// Minimum: version(1) + flags(1) + ts(8) + nonce(32) + ipv4(4) + open_duration(4) + cmdlen(1) + cmdType(1) = 52
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "open-",
-		Timeout:   0,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-",
+		OpenDuration: 0,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -502,14 +502,14 @@ func TestBinaryPayloadSizeIPv4Minimal(t *testing.T) {
 }
 
 func TestBinaryPayloadSizeIPv6Minimal(t *testing.T) {
-	// IPv6 minimum: version(1) + flags(1) + ts(8) + nonce(32) + ipv6(16) + timeout(4) + cmdlen(1) + cmdType(1) = 64
+	// IPv6 minimum: version(1) + flags(1) + ts(8) + nonce(32) + ipv6(16) + open_duration(4) + cmdlen(1) + cmdType(1) = 64
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "2001:db8::1",
-		Command:   "open-",
-		Timeout:   0,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "2001:db8::1",
+		Command:      "open-",
+		OpenDuration: 0,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -523,12 +523,12 @@ func TestBinaryPayloadSizeIPv6Minimal(t *testing.T) {
 func TestBinaryPayloadSizeTypical(t *testing.T) {
 	// Typical: IPv4 + "open-t22" -> type(1) + "t22"(3) = 4 cmdLen -> 51 + 4 = 55
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "192.168.1.1",
-		Command:   "open-t22",
-		Timeout:   3600,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "192.168.1.1",
+		Command:      "open-t22",
+		OpenDuration: 3600,
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -544,13 +544,13 @@ func TestBinaryPayloadSizeTypical(t *testing.T) {
 func TestBinaryPayloadSizeWithTOTP(t *testing.T) {
 	// TOTP adds 6 bytes
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t22",
-		Timeout:   60,
-		TOTP:      "482901",
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 60,
+		TOTP:         "482901",
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -566,13 +566,13 @@ func TestBinaryPayloadSizeWithTOTP(t *testing.T) {
 func TestBinaryPayloadSizeWithPadding(t *testing.T) {
 	padLen := 100
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t22",
-		Timeout:   60,
-		Padding:   hex.EncodeToString(make([]byte, padLen)),
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 60,
+		Padding:      hex.EncodeToString(make([]byte, padLen)),
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -590,14 +590,14 @@ func TestBinaryPayloadSizeMax(t *testing.T) {
 	padLen := 2048
 	cmd := "cust-" + strings.Repeat("x", 249)
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     hex.EncodeToString(make([]byte, 32)),
-		ClientIP:  "2001:db8::1",
-		Command:   cmd,
-		Timeout:   604800,
-		TOTP:      "999999",
-		Padding:   hex.EncodeToString(make([]byte, padLen)),
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "2001:db8::1",
+		Command:      cmd,
+		OpenDuration: 604800,
+		TOTP:         "999999",
+		Padding:      hex.EncodeToString(make([]byte, padLen)),
 	}
 	data, err := encodePayload(p)
 	if err != nil {
@@ -795,12 +795,12 @@ func TestBinaryProtocolDeterministic(t *testing.T) {
 	// Same inputs must produce identical binary output
 	nonce := hex.EncodeToString(make([]byte, 32))
 	p := &KnockPayload{
-		Version:   1,
-		Timestamp: 1700000000,
-		Nonce:     nonce,
-		ClientIP:  "10.0.0.1",
-		Command:   "open-t22",
-		Timeout:   100,
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        nonce,
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 100,
 	}
 	data1, err := encodePayload(p)
 	if err != nil {

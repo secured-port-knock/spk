@@ -1,6 +1,6 @@
 # Activation Bundle Format
 
-The activation bundle is required to set up an SPK client. It contains the server's ML-KEM encapsulation key, listen port (or dynamic port seed), timeout defaults, and policy flags -- everything a client needs to construct valid knock packets. Without activation, the client has no key material and cannot communicate with the server.
+The activation bundle is required to set up an SPK client. It contains the server's ML-KEM encapsulation key, listen port (or dynamic port seed), open duration defaults, and policy flags -- everything a client needs to construct valid knock packets. Without activation, the client has no key material and cannot communicate with the server.
 
 > **Security Warning:** The activation bundle contains the server's public key (encapsulation key). Treat it with the same care as a private key. Anyone who obtains this bundle can construct valid knock packets and open your firewall ports (unless TOTP is also enabled as a second factor). After importing the bundle on the client, delete it from any intermediate storage (email, USB, shared drives, clipboard history). SPK supports storing the imported key in your operating system's credential manager (Windows Credential Manager / DPAPI, macOS Keychain, Linux Secret Service) to prevent accidental exposure. See [security.md - Secure Key Storage](security.md#secure-key-storage) for details.
 >
@@ -19,13 +19,13 @@ Both encode the same logical content; QR uses raw binary for better space utiliz
 "SK"           (2 bytes)  -- magic / version identifier
 Version        (1 byte)   -- bundle version (1)
 Flags          (1 byte)   -- bit field:
-                             bit 0: custom timeout allowed
+                             bit 0: custom open duration allowed
                              bit 1: custom port allowed
                              bit 2: open-all allowed
                              bit 3: dynamic port enabled
 [Port]         (2 bytes)  -- static listen port (only if dynamic=0)
 [Seed]         (8 bytes)  -- dynamic port seed (only if dynamic=1)
-Timeout        (4 bytes)  -- default timeout in seconds (big-endian)
+OpenDuration   (4 bytes)  -- default open duration in seconds (big-endian)
 Window         (4 bytes)  -- dynamic port rotation period in seconds (0 = default 600)
 KEM Size       (2 bytes)  -- ML-KEM key size: 768 or 1024 (big-endian)
 Encapsulation Key (variable) -- ML-KEM public key (1184 bytes for 768, 1568 bytes for 1024)
@@ -82,7 +82,7 @@ raw                = zlib_decompress(compressed_data)
 raw[0:2]   = "SK"        // magic (2 bytes)
 raw[2]     = 0x01        // version byte (must be 1)
 raw[3]     = flags       // bit field (1 byte)
-                         //   bit 0 (0x01): allow custom timeout
+                         //   bit 0 (0x01): allow custom open duration
                          //   bit 1 (0x02): allow custom port
                          //   bit 2 (0x04): allow open-all
                          //   bit 3 (0x08): dynamic port enabled
@@ -94,7 +94,7 @@ else:             // static port
     raw[4:6]   = port              // uint16 big-endian, static listen port
     offset = 6
 
-raw[offset : offset+4]   = timeout   // uint32 big-endian, default timeout seconds
+raw[offset : offset+4]   = open_duration   // uint32 big-endian, default open duration in seconds
 raw[offset+4 : offset+8] = window    // uint32 big-endian, port rotation period (0 = default 600s)
 raw[offset+8 : offset+10] = kem_size // uint16 big-endian, 768 or 1024
 
@@ -114,7 +114,7 @@ raw[offset+10 : offset+10+ek_size] = encapsulation_key
 | `flags` | byte | Policy bit field |
 | `seed` | 8 bytes | Dynamic port seed (only if dynamic) |
 | `port` | uint16 | Static listen port (only if not dynamic) |
-| `timeout` | uint32 | Default timeout in seconds |
+| `open_duration` | uint32 | Default open duration in seconds |
 | `window` | uint32 | Port rotation period in seconds (0 = 600) |
 | `kem_size` | uint16 | ML-KEM key size: 768 or 1024 |
 | `encapsulation_key` | 1184 or 1568 bytes | ML-KEM public (encapsulation) key |

@@ -6,6 +6,7 @@
 *.dll
 *.so
 *.dylib
+*.sys
 
 # Keys and config (sensitive)
 server.key
@@ -33,6 +34,7 @@ spk_client.json
 coverage.html
 coverage_report.txt
 cover
+cover/
 
 # Dependency directories
 vendor/
@@ -47,6 +49,7 @@ vendor/
 # OS files
 .DS_Store
 Thumbs.db
+Desktop.ini
 
 # Build output
 dist/

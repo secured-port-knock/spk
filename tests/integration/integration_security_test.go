@@ -166,9 +166,9 @@ func TestUDPPacketSizeAnalysis(t *testing.T) {
 
 	// Test various command and IP combinations
 	tests := []struct {
-		ip      string
-		command string
-		timeout int
+		ip           string
+		command      string
+		openDuration int
 	}{
 		{"192.168.1.1", "open-t22", 3600},
 		{"10.0.0.1", "open-t22,t443,u53,t8080", 7200},
@@ -178,13 +178,13 @@ func TestUDPPacketSizeAnalysis(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		packet, err := protocol.BuildKnockPacket(ek, tt.ip, tt.command, tt.timeout)
+		packet, err := protocol.BuildKnockPacket(ek, tt.ip, tt.command, tt.openDuration)
 		if err != nil {
 			t.Fatalf("BuildKnockPacket(%s, %s): %v", tt.ip, tt.command, err)
 		}
 
-		t.Logf("Packet size for IP=%s cmd=%s timeout=%d: %d bytes",
-			tt.ip, tt.command, tt.timeout, len(packet))
+		t.Logf("Packet size for IP=%s cmd=%s openDuration=%d: %d bytes",
+			tt.ip, tt.command, tt.openDuration, len(packet))
 
 		// ML-KEM-1024 ciphertext: 1568 bytes
 		// AES-GCM nonce: 12 bytes
