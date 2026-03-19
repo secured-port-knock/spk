@@ -128,17 +128,24 @@ When the server is on a private network (10.x.x.x, 172.16-31.x.x, 192.168.x.x, l
 
 When the server is on a public IP, the client uses **STUN** (Session Traversal Utilities for NAT, RFC 5389) to detect its own public IP:
 
-1. Sends a lightweight UDP Binding Request to configurable STUN servers (default: Cloudflare, Google)
-2. Falls back to additional STUN servers if unavailable
-3. Parses the XOR-MAPPED-ADDRESS from the response
-4. Uses the discovered WAN IP in the knock packet
+1. Sends a lightweight UDP Binding Request to each configured STUN server in turn
+2. Uses the first successful response (XOR-MAPPED-ADDRESS)
+3. Uses the discovered WAN IP in the knock packet
 
 This handles NAT transparently - the client learns the same IP that the server will see.
 
-STUN servers are configured in the client config (`stun_servers` setting) with sensible defaults:
+STUN servers are configured in the client config via `stun_servers`:
 ```toml
 stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.google.com:19302"]
 ```
+
+**Disabling STUN:** Set `stun_servers` to an empty array or comment it out entirely to disable STUN:
+```toml
+# stun_servers = [...]   # commented out -- STUN disabled
+# or:
+stun_servers = []
+```
+When STUN is disabled, the client uses the local network interface IP selected by the OS routing table and prints a warning at connect time. This is the correct behaviour for LAN or VPN setups where the server can already see your local IP. It will likely cause IP mismatch failures if you are behind internet NAT -- use `--ip` or re-enable `stun_servers` in those cases.
 
 #### CGNAT Detection
 

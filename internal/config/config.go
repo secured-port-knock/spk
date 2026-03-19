@@ -78,7 +78,7 @@ type Config struct {
 	ServerHost     string   `toml:"server_host,omitempty" json:"server_host,omitempty"`
 	ServerPort     int      `toml:"server_port,omitempty" json:"server_port,omitempty"`
 	KeyStorageMode string   `toml:"key_storage_mode,omitempty" json:"key_storage_mode,omitempty"` // "file","keychain","credential_manager"
-	StunServers    []string `toml:"stun_servers,omitempty" json:"stun_servers,omitempty"`         // STUN servers for WAN IP detection
+	StunServers    []string `toml:"stun_servers,omitempty" json:"stun_servers,omitempty"`         // STUN servers for WAN IP detection. Empty or omitted disables STUN (uses local interface IP instead).
 
 	// ML-KEM key size (768 or 1024). Default: 768 (fits within 1500 MTU).
 	// 1024 provides higher security margin but packets exceed MTU and require IP fragmentation.
@@ -805,7 +805,14 @@ func WriteClientConfigWithComments(path string, cfg *Config) error {
 
 	content.WriteString("\n# ========== STUN SERVERS ==========\n")
 	content.WriteString("# Used for WAN IP auto-detection when --ip is not specified.\n")
+	content.WriteString("# The client tries each server in order and uses the first successful response.\n")
 	content.WriteString("# Override to use your preferred STUN servers.\n")
+	content.WriteString("#\n")
+	content.WriteString("# Leave empty or comment out to DISABLE STUN. When disabled, the client uses\n")
+	content.WriteString("# the local interface IP selected by the OS routing table instead of the public\n")
+	content.WriteString("# WAN IP. This is correct for LAN/VPN setups where the server can see your\n")
+	content.WriteString("# local IP directly, but will likely fail if you are behind NAT on the internet.\n")
+	content.WriteString("# When STUN is disabled a warning is printed at connect time.\n")
 	content.WriteString("#\n")
 	content.WriteString("# Public STUN servers:\n")
 	content.WriteString("#   stun.cloudflare.com:3478        (Cloudflare - default, fast)\n")

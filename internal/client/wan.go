@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// DefaultStunServers are used for WAN IP detection when no custom servers are configured.
-// These are also set as defaults in the client config TOML file.
-// Cloudflare is fast and privacy-friendly. Google is a reliable fallback.
+// DefaultStunServers are the built-in STUN servers written into new client configs.
+// They are NOT used as a runtime fallback -- if stunServers is nil or empty, STUN is
+// disabled and a warning is printed instead.
 var DefaultStunServers = []string{
 	"stun.cloudflare.com:3478",
 	"stun.l.google.com:19302",
@@ -24,10 +24,10 @@ var stunMagicCookie = []byte{0x21, 0x12, 0xA4, 0x42}
 
 // detectWANIP tries to determine the client's public (WAN) IP address.
 // Uses STUN Binding Request - a lightweight, no-dependency UDP protocol.
-// Returns empty string and error if all servers fail.
+// Returns empty string and error if all servers fail or none are provided.
 func detectWANIP(servers []string) (string, error) {
 	if len(servers) == 0 {
-		servers = DefaultStunServers
+		return "", fmt.Errorf("no STUN servers configured")
 	}
 	var lastErr error
 	for _, server := range servers {
@@ -224,7 +224,8 @@ func isPrivateIP(ip net.IP) bool {
 // The manualIP override takes priority over auto-detection.
 // If manualIP is a non-public address, the local interface IP is used
 // instead and STUN is never contacted.
-// stunServers can be nil to use defaults.
+// stunServers nil or empty disables STUN; the OS-selected local interface IP
+// is used instead and a warning is printed.
 func resolveClientIP(host string, port int, manualIP string, stunServers []string) (string, error) {
 	// Manual override always wins
 	if manualIP != "" {
@@ -238,6 +239,20 @@ func resolveClientIP(host string, port int, manualIP string, stunServers []strin
 	// For private/LAN targets, the local interface IP is correct -- skip STUN entirely
 	if isPrivateTarget(host) {
 		return getLocalIPForHost(host, port)
+	}
+
+	// If no STUN servers are configured (nil or empty), respect that decision:
+	// use the local interface IP selected by the OS routing table and warn the user.
+	// getLocalIPForHost uses a UDP dial so the kernel picks the right adapter even
+	// with multiple physical NICs, virtual adapters (VMware/Docker/Hyper-V), etc.
+	if len(stunServers) == 0 {
+		localIP, err := getLocalIPForHost(host, port)
+		if err != nil {
+			return "", fmt.Errorf("cannot determine local IP: %w", err)
+		}
+		fmt.Printf("[WARN] No STUN servers configured. Using local network interface IP %s.\n", localIP)
+		fmt.Printf("[WARN] If connecting over the internet, add stun_servers to your config or use the --ip flag.\n")
+		return localIP, nil
 	}
 
 	// For WAN targets, try STUN to detect the public IP

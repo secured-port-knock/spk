@@ -28,6 +28,11 @@ type PcapSniffer struct {
 	handles []uintptr // one pcap_t* per captured device
 	done    chan struct{}
 	mu      sync.Mutex
+	// wg tracks active captureLoop goroutines so Stop() can wait for them
+	// to finish before calling pcap_close(), preventing concurrent use of a
+	// pcap handle (pcap_next_ex running while pcap_close is called) that
+	// corrupts Npcap's internal state and causes a crash on process exit.
+	wg sync.WaitGroup
 }
 
 // NewPcapSniffer creates a new pcap-based packet sniffer.
@@ -265,15 +270,15 @@ func (s *PcapSniffer) Start(handler PacketHandler) error {
 	}
 
 	// Capture on all devices concurrently; block until all goroutines exit.
-	var wg sync.WaitGroup
+	// s.wg is also used by Stop() to wait before calling pcap_close().
 	for _, c := range caps {
-		wg.Add(1)
+		s.wg.Add(1)
 		go func(dc devCapture) {
-			defer wg.Done()
+			defer s.wg.Done()
 			s.captureLoop(dc.handle, handler, dc.linkType, dc.linkHdrLen) //nolint:errcheck
 		}(c)
 	}
-	wg.Wait()
+	s.wg.Wait()
 	return nil
 }
 
@@ -391,10 +396,24 @@ func (s *PcapSniffer) Stop() error {
 	s.handles = nil
 	s.mu.Unlock()
 
+	// Signal each capture loop to break out of pcap_next_ex.
 	if pcapLoaded {
 		for _, h := range handles {
 			if h != 0 {
 				procPcapBreakloop.Call(h)
+			}
+		}
+	}
+
+	// Wait for all captureLoop goroutines to finish before closing handles.
+	// Calling pcap_close() while pcap_next_ex() is still executing on another
+	// goroutine corrupts Npcap's internal DLL state, which causes an access
+	// violation (0xc0000005) during ExitProcess when DllMain(DETACH) runs.
+	s.wg.Wait()
+
+	if pcapLoaded {
+		for _, h := range handles {
+			if h != 0 {
 				procPcapClose.Call(h)
 			}
 		}

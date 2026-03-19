@@ -292,6 +292,10 @@ type PcapSniffer struct {
 	handle  unsafe.Pointer // pcap_t* opaque handle
 	done    chan struct{}
 	mu      sync.Mutex
+	// wg tracks the active Start() goroutine so Stop() can wait for it to
+	// exit before calling pcap_close(), preventing concurrent pcap_close /
+	// pcap_next_ex use that corrupts libpcap's internal state.
+	wg sync.WaitGroup
 }
 
 // NewPcapSniffer creates a new pcap-based packet sniffer.
@@ -325,6 +329,10 @@ func (s *PcapSniffer) Start(handler PacketHandler) error {
 	if err := loadPcapLibrary(); err != nil {
 		return fmt.Errorf("libpcap: %w", err)
 	}
+
+	// Track this goroutine so Stop() can wait before calling pcap_close().
+	s.wg.Add(1)
+	defer s.wg.Done()
 
 	dev, err := s.findDevice()
 	if err != nil {
@@ -434,8 +442,17 @@ func (s *PcapSniffer) Stop() error {
 	s.handle = nil
 	s.mu.Unlock()
 
+	// Signal the capture loop to return from pcap_next_ex.
 	if h != nil {
 		C.wrap_pcap_breakloop(h)
+	}
+
+	// Wait for Start() to fully exit before calling pcap_close().
+	// pcap_close() frees the pcap_t; calling it while pcap_next_ex() is
+	// still running on another goroutine is a use-after-free.
+	s.wg.Wait()
+
+	if h != nil {
 		C.wrap_pcap_close(h)
 	}
 	return nil

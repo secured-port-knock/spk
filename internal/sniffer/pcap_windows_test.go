@@ -514,3 +514,54 @@ func TestFindWpcapDLLNonStandardSystemRoot(t *testing.T) {
 	dllPath2, _ := findWpcapDLL()
 	t.Logf("With restored SystemRoot: dllPath=%q", dllPath2)
 }
+
+// TestPcapStopWaitsForCaptureLoop verifies that Stop() does not close pcap
+// handles while captureLoop goroutines are still running inside pcap_next_ex.
+//
+// Regression test for: calling pcap_close() concurrently with pcap_next_ex()
+// corrupts Npcap's internal DLL state and causes an access violation
+// (Exception 0xc0000005) during ExitProcess / DllMain(DLL_PROCESS_DETACH).
+//
+// The test starts the sniffer so capture goroutines enter their pcap_next_ex
+// loop (200 ms timeout), then immediately calls Stop(). With the old code,
+// pcap_close was called while goroutines were still inside pcap_next_ex,
+// reproducing the state corruption.  With the fix, Stop() calls wg.Wait()
+// first, ensuring pcap_close is only called after all goroutines have exited.
+func TestPcapStopWaitsForCaptureLoop(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows only")
+	}
+	if err := loadPcapLibrary(); err != nil {
+		t.Skipf("Npcap not available: %v", err)
+	}
+
+	sniff := NewPcapSniffer("0.0.0.0", 49876)
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- sniff.Start(func(_ []byte, _ string) {})
+	}()
+
+	// Allow capture goroutines to enter pcap_next_ex before calling Stop().
+	// The 200 ms pcap timeout means they are guaranteed to be inside pcap_next_ex
+	// for at most 200 ms per iteration, so a 150 ms wait is sufficient for them
+	// to have entered the call at least once.
+	time.Sleep(150 * time.Millisecond)
+
+	// Stop() must block until all captureLoop goroutines have exited, then
+	// call pcap_close. If it races (old behaviour), the DLL state is corrupted
+	// and this process would crash when it exits after the test.
+	if err := sniff.Stop(); err != nil {
+		t.Errorf("Stop() returned unexpected error: %v", err)
+	}
+
+	// Start() should return promptly after Stop() completes.
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Errorf("Start() returned unexpected error after Stop(): %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Start() did not return within 2 s after Stop()")
+	}
+}

@@ -131,6 +131,10 @@ dynamic_port_max = 65000         # Must match server's dynamic_port_max
 key_storage_mode = "file"        # "file" or "credential_manager"
 
 # -- STUN servers for WAN IP detection (client-only) --
+# Servers are tried in order; the first successful response is used.
+# Set to an empty array or comment out to disable STUN. When disabled, the
+# client uses the local interface IP chosen by the OS routing table and prints
+# a warning. Suitable for LAN/VPN use; likely wrong if you are behind internet NAT.
 stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.google.com:19302"]
 
 # -- Padding (optional, default: disabled) --

@@ -90,6 +90,38 @@ func TestGetLocalIPForHost(t *testing.T) {
 	}
 }
 
+func TestResolveClientIPNoSTUN_WANTarget(t *testing.T) {
+	// When stun_servers is nil or empty, resolveClientIP must NOT contact STUN,
+	// must return the local interface IP chosen by the OS routing table, and
+	// must not error. This covers the case where a user comments out stun_servers.
+	for _, stunServers := range [][]string{nil, {}} {
+		ip, err := resolveClientIP("8.8.8.8", 12345, "", stunServers)
+		if err != nil {
+			t.Fatalf("resolveClientIP (no STUN, stunServers=%v): %v", stunServers, err)
+		}
+		if ip == "" {
+			t.Error("resolveClientIP should return non-empty IP when STUN is disabled")
+		}
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			t.Errorf("resolveClientIP returned non-IP string %q", ip)
+		}
+	}
+}
+
+func TestDetectWANIPNoServersReturnsError(t *testing.T) {
+	// detectWANIP must return an error when called with no servers instead of
+	// silently falling back to built-in defaults.
+	_, err := detectWANIP(nil)
+	if err == nil {
+		t.Error("detectWANIP(nil) should return error, not fall back to defaults")
+	}
+	_, err = detectWANIP([]string{})
+	if err == nil {
+		t.Error("detectWANIP([]) should return error, not fall back to defaults")
+	}
+}
+
 func TestParseSTUNResponseValid(t *testing.T) {
 	// Build a valid STUN Binding Success Response with XOR-MAPPED-ADDRESS
 	txID := [12]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}

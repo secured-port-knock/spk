@@ -279,6 +279,54 @@ func TestPcapSnifferIntegration(t *testing.T) {
 	}
 }
 
+// TestPcapStopWaitsForCaptureLoop is the Linux/macOS equivalent of the same
+// test in pcap_windows_test.go.
+//
+// Regression test for: calling pcap_close() concurrently with pcap_next_ex()
+// is a use-after-free. Stop() must wait for Start() to exit the libpcap capture
+// loop before calling pcap_close(). Without the fix a crash or memory corruption
+// occurs when libpcap cleans up its internal state (visible under ASAN/TSAN or
+// when the process exits under memory pressure).
+func TestPcapStopWaitsForCaptureLoop(t *testing.T) {
+	if !pcapImplemented() {
+		t.Skip("pcap not implemented in this build (CGO_ENABLED=0)")
+	}
+
+	sniff := NewPcapSniffer("0.0.0.0", 49876)
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- sniff.Start(func(_ []byte, _ string) {})
+	}()
+
+	// Allow Start() to enter pcap_next_ex (200 ms read timeout) at least once.
+	time.Sleep(150 * time.Millisecond)
+
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Skipf("Start() failed (may need root/CAP_NET_RAW): %v", err)
+		}
+		return // Start returned early — library not available, skip
+	default:
+	}
+
+	// Stop() must call pcap_breakloop, then wait for Start() to return from
+	// pcap_next_ex, and only then call pcap_close(). The old code raced.
+	if err := sniff.Stop(); err != nil {
+		t.Errorf("Stop() returned unexpected error: %v", err)
+	}
+
+	select {
+	case err := <-startErr:
+		if err != nil {
+			t.Errorf("Start() returned unexpected error after Stop(): %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Start() did not return within 2 s after Stop()")
+	}
+}
+
 // classifyEthertype returns a human-readable protocol name from a raw frame.
 func classifyEthertype(raw []byte, linkType int) string {
 	hdrLen := linkHeaderLen(linkType)
