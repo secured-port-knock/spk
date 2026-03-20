@@ -34,7 +34,7 @@
 
 Use `--cfgdir` and `--logdir` to override these defaults on any platform.
 
-> **Auto-regeneration**: The server automatically re-exports `activation.b64` and `activation_qr.png` on startup if the config has changed since last export.
+> **Re-export**: Run `spk --server --export` to regenerate `activation.b64` and `activation_qr.png` after config changes.
 
 ## Project Source Structure
 

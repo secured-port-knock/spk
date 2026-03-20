@@ -163,9 +163,6 @@ func Run() {
 		Stop() // signal the main loop to exit
 	}()
 
-	// Auto-regenerate bundle on load (re-exports if config changes)
-	autoRegenerateBundle(dk, cfg, logf)
-
 	// Determine listen port (dynamic or static)
 	listenPort := cfg.ListenPort
 	var portSeed []byte
@@ -907,61 +904,6 @@ func parsePortSpec(spec string) (string, string, error) {
 	}
 
 	return proto, portNum, nil
-}
-
-// autoRegenerateBundle re-exports activation.b64 and QR code on server load
-// if the config has potentially changed since last export.
-func autoRegenerateBundle(dk crypto.DecapsulationKey, cfg *config.Config, logf func(string, ...interface{})) {
-	ek := dk.EncapsulationKey()
-
-	var portSeed []byte
-	if cfg.PortSeed != "" {
-		portSeed, _ = hexDecodePortSeed(cfg.PortSeed)
-	}
-
-	dynWindow := cfg.DynPortWindow
-
-	var b64Data string
-	var err error
-	// Export settings (password) are not persisted in config for security.
-	// Auto-regenerated bundles are always unencrypted.
-	// Use --export for encrypted bundles with an interactive password prompt.
-	b64Data, err = crypto.CreateExportBundleWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, dynWindow)
-	if err != nil {
-		logf("[WARN] Failed to regenerate bundle: %v", err)
-		return
-	}
-
-	cfgDir := config.ConfigDir()
-	activationPath := filepath.Join(cfgDir, "activation.b64")
-
-	// Check if bundle changed
-	existing, _ := crypto.ImportFromFile(activationPath)
-	if existing == b64Data {
-		return // no change
-	}
-
-	if writeErr := crypto.ExportToFile(activationPath, b64Data); writeErr != nil {
-		logf("[WARN] Failed to write activation.b64: %v", writeErr)
-	} else {
-		logf("Auto-regenerated activation.b64 (config changed)")
-	}
-
-	// Generate raw binary for QR code
-	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, dynWindow)
-	if rawErr == nil {
-		qrPath := filepath.Join(cfgDir, "activation_qr.png")
-		qrErr := crypto.GenerateQRCode(rawData, qrPath)
-		if qrErr != nil {
-			logf("[WARN] QR code: %v", qrErr)
-		} else {
-			logf("Auto-regenerated activation_qr.png")
-		}
-	}
 }
 
 // hexDecodePortSeed decodes a hex-encoded port seed string.
