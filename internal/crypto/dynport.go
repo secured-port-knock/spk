@@ -46,6 +46,8 @@ func DynPortSecondsUntilChange() int {
 }
 
 // DynPortSecondsUntilChangeWithWindow returns seconds until next rotation for a custom window.
+// The result is capped at MaxDynPortWaitSeconds to prevent integer overflow
+// when converting to time.Duration (nanoseconds).
 func DynPortSecondsUntilChangeWithWindow(windowSeconds int) int {
 	if windowSeconds <= 0 {
 		windowSeconds = DynPortWindowSeconds
@@ -53,5 +55,18 @@ func DynPortSecondsUntilChangeWithWindow(windowSeconds int) int {
 	now := time.Now().Unix()
 	ws := int64(windowSeconds)
 	nextWindow := ((now / ws) + 1) * ws
-	return int(nextWindow - now)
+	secs := nextWindow - now
+	if secs > MaxDynPortWaitSeconds {
+		secs = MaxDynPortWaitSeconds
+	}
+	if secs < 60 {
+		secs = 60
+	}
+	return int(secs)
 }
+
+// MaxDynPortWaitSeconds is the maximum seconds DynPortSecondsUntilChangeWithWindow
+// will return. This prevents integer overflow when the value is converted to
+// time.Duration (nanoseconds). Capped at ~24 hours which is well beyond any
+// reasonable rotation window.
+const MaxDynPortWaitSeconds = 86400

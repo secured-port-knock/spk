@@ -711,3 +711,114 @@ func TestHexDecodePortSeed(t *testing.T) {
 		t.Error("hexDecodePortSeed invalid hex should error")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// maxConcurrentKnocks constant validation
+// ---------------------------------------------------------------------------
+
+func TestMaxConcurrentKnocksValue(t *testing.T) {
+	if maxConcurrentKnocks < 1 {
+		t.Errorf("maxConcurrentKnocks = %d, must be >= 1", maxConcurrentKnocks)
+	}
+	if maxConcurrentKnocks != 9999 {
+		t.Errorf("maxConcurrentKnocks = %d, want 9999", maxConcurrentKnocks)
+	}
+}
+
+func TestKnockSemaphoreBehavior(t *testing.T) {
+	// Verify semaphore pattern works: fill pool, verify overflow is non-blocking
+	sem := make(chan struct{}, 3)
+	// Fill the semaphore
+	for i := 0; i < 3; i++ {
+		sem <- struct{}{}
+	}
+	// Next send should not block (select with default)
+	dropped := false
+	select {
+	case sem <- struct{}{}:
+		t.Error("should not be able to send to full semaphore")
+	default:
+		dropped = true
+	}
+	if !dropped {
+		t.Error("overflow should have been dropped")
+	}
+	// Drain one slot
+	<-sem
+	// Now should accept
+	select {
+	case sem <- struct{}{}:
+		// ok
+	default:
+		t.Error("should accept after draining one slot")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// validateCommandServer tests
+// ---------------------------------------------------------------------------
+
+func TestValidateCommandServerOpen(t *testing.T) {
+	cmdType, data, err := validateCommandServer("open-t22")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdType != "open" || data != "t22" {
+		t.Errorf("got type=%q data=%q, want open/t22", cmdType, data)
+	}
+}
+
+func TestValidateCommandServerClose(t *testing.T) {
+	cmdType, data, err := validateCommandServer("close-t22,u53")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdType != "close" || data != "t22,u53" {
+		t.Errorf("got type=%q data=%q, want close/t22,u53", cmdType, data)
+	}
+}
+
+func TestValidateCommandServerCustom(t *testing.T) {
+	cmdType, data, err := validateCommandServer("cust-reboot")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdType != "cust" || data != "reboot" {
+		t.Errorf("got type=%q data=%q, want cust/reboot", cmdType, data)
+	}
+}
+
+func TestValidateCommandServerUnsupportedPrefix(t *testing.T) {
+	_, _, err := validateCommandServer("invalid-cmd")
+	if err == nil {
+		t.Error("expected error for unsupported command type")
+	}
+}
+
+func TestValidateCommandServerInjection(t *testing.T) {
+	// Port spec with injection attempt
+	_, _, err := validateCommandServer("open-t22;rm -rf /")
+	if err == nil {
+		t.Error("expected error for injection in port spec")
+	}
+}
+
+func TestSanitizeForLogReplacesNonPrintable(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello", "hello"},
+		{"test\x00inject", "test?inject"},
+		{"line\nbreak", "line?break"},
+		{"tab\there", "tab?here"},
+		{"\x7fDEL", "?DEL"},
+		{"normal ASCII 123!", "normal ASCII 123!"},
+	}
+	for _, tt := range tests {
+		got := sanitizeForLog(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeForLog(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}

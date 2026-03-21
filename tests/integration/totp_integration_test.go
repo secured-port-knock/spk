@@ -56,6 +56,11 @@ func TestTOTPKnockRoundTrip(t *testing.T) {
 	if payload.Command != "open-t22" {
 		t.Errorf("command = %s, want open-t22", payload.Command)
 	}
+
+	// Verify the TOTP code would pass server-side validation
+	if !crypto.ValidateTOTP(secret, payload.TOTP) {
+		t.Error("TOTP code should pass server-side validation after round-trip")
+	}
 }
 
 // TestTOTPKnockValidation verifies that the server-side TOTP validation

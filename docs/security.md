@@ -195,6 +195,8 @@ Every received packet requires ML-KEM decapsulation + AES-256-GCM decryption bef
 3. **No response** -- the server never replies, so attackers get no feedback about whether packets are reaching the correct port.
 4. **No state or allocation before authentication** -- invalid packets are rejected quickly with minimal memory allocation.
 5. **Fast rejection path** -- packets that fail size validation, KEM decapsulation, or GCM authentication are discarded immediately with no further processing.
+6. **Concurrency limiter** -- the server caps concurrent knock-processing goroutines at 9999. When the pool is exhausted, additional packets are dropped with a warning log rather than spawning unbounded goroutines.
+7. **IPv6 extension header cap** -- packet parsers limit IPv6 extension header traversal to 10 headers. Crafted packets with excessive extension header chains are discarded, preventing parser-level CPU waste.
 
 For deployments facing sustained high-volume attacks, combine dynamic port rotation with upstream network-level filtering (cloud firewall rules, ISP null-routing, or kernel-level rate limiting via `iptables -m hashlimit`).
 

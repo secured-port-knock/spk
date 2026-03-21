@@ -299,9 +299,10 @@ func (s *WinDivertSniffer) processIPv6(ipData []byte, handler PacketHandler) {
 
 	nextHeader := ipData[6]
 
-	// Skip extension headers to find UDP
+	// Skip extension headers to find UDP.
+	// Cap iterations to prevent DoS from crafted packets.
 	offset := 40
-	for nextHeader != 17 {
+	for i := 0; i < maxIPv6ExtHeaders && nextHeader != 17; i++ {
 		switch nextHeader {
 		case 0, 43, 60: // Hop-by-Hop, Routing, Destination Options
 			if len(ipData) < offset+2 {
@@ -324,6 +325,9 @@ func (s *WinDivertSniffer) processIPv6(ipData []byte, handler PacketHandler) {
 		if offset > len(ipData) {
 			return
 		}
+	}
+	if nextHeader != 17 {
+		return
 	}
 
 	if len(ipData) < offset+8 {

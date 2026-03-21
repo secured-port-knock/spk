@@ -236,3 +236,28 @@ func TestDynPortConsistencyAcrossCalls(t *testing.T) {
 		t.Errorf("ComputeDynamicPort=%d vs ComputeDynamicPortWithWindow(600)=%d", p1, p2)
 	}
 }
+
+func TestDynPortSecondsUntilChangeCapped(t *testing.T) {
+	// A very large window should be capped at MaxDynPortWaitSeconds
+	// to prevent integer overflow when multiplied by time.Second (nanoseconds).
+	hugeWindow := MaxDynPortWaitSeconds * 100
+	result := DynPortSecondsUntilChangeWithWindow(hugeWindow)
+	if result > MaxDynPortWaitSeconds {
+		t.Errorf("DynPortSecondsUntilChangeWithWindow(%d) = %d, want <= %d", hugeWindow, result, MaxDynPortWaitSeconds)
+	}
+	if result < 0 {
+		t.Errorf("DynPortSecondsUntilChangeWithWindow(%d) = %d, want >= 0", hugeWindow, result)
+	}
+}
+
+func TestDynPortSecondsUntilChangeNoOverflow(t *testing.T) {
+	// Verify that (secsUntil + 1) * time.Second does not overflow int64
+	// for any valid return value from DynPortSecondsUntilChangeWithWindow.
+	for _, ws := range []int{1, 60, 600, 3600, 86400, MaxDynPortWaitSeconds * 10} {
+		secs := DynPortSecondsUntilChangeWithWindow(ws)
+		dur := time.Duration(secs+1) * time.Second
+		if dur <= 0 {
+			t.Errorf("window=%d: (secsUntil=%d + 1) * time.Second overflowed to %v", ws, secs, dur)
+		}
+	}
+}

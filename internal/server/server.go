@@ -31,6 +31,12 @@ var (
 	shutdownCh   = make(chan struct{})
 )
 
+// maxConcurrentKnocks limits the number of knock packets being processed
+// simultaneously. This prevents resource exhaustion if an attacker floods
+// the server with packets. When the pool is fully utilized, excess packets
+// are dropped with a warning log.
+const maxConcurrentKnocks = 9999
+
 // Stop signals the server to shut down gracefully.
 // Safe to call multiple times; only the first call has any effect.
 func Stop() {
@@ -221,10 +227,21 @@ func Run() {
 	}
 	logf("  Listening for knock packets...")
 
-	// Packet handler -- each knock is dispatched in its own goroutine so
-	// that a slow or stuck command never blocks the sniffer receive loop.
+	// Packet handler -- each knock is dispatched via a semaphore-bounded
+	// goroutine pool (maxConcurrentKnocks) so that a slow or stuck command
+	// never blocks the sniffer receive loop, while preventing resource
+	// exhaustion from packet floods.
+	knockSem := make(chan struct{}, maxConcurrentKnocks)
 	knockHandler := func(data []byte, sourceIP string) {
-		go handleKnock(srvLog, dk, cfg, nonceTracker, tracker, allowedPorts, timestampTolerance, data, sourceIP)
+		select {
+		case knockSem <- struct{}{}:
+			go func() {
+				defer func() { <-knockSem }()
+				handleKnock(srvLog, dk, cfg, nonceTracker, tracker, allowedPorts, timestampTolerance, data, sourceIP)
+			}()
+		default:
+			logf("[WARN] knock processing pool exhausted (%d concurrent) -- dropping packet from %s", maxConcurrentKnocks, sourceIP)
+		}
 	}
 
 	// Dynamic port rotation: wake up precisely at each window boundary, then re-check
@@ -259,7 +276,36 @@ func Run() {
 					// Try to re-listen on old port
 					fallback, fErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, currentPort)
 					if fErr != nil {
-						logf("[FATAL] Cannot re-bind to old port %d either: %v -- server is deaf!", currentPort, fErr)
+						logf("[ERROR] Cannot re-bind to old port %d either: %v -- server cannot receive knocks", currentPort, fErr)
+						logf("[INFO] Will retry binding every 60s until a port becomes available or the next rotation window")
+						// Retry loop: try every 60s until we can bind to either port or the window changes
+					retryLoop:
+						for {
+							select {
+							case <-shutdownCh:
+								break rotationLoop
+							case <-time.After(60 * time.Second):
+							}
+							// Check if the dynamic port has changed (new window)
+							retryPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+							if retryPort != newPort {
+								logf("[INFO] Dynamic port changed during retry: %d -> %d, attempting new port", newPort, retryPort)
+								newPort = retryPort
+							}
+							retrySniff, rErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
+							if rErr != nil {
+								logf("[ERROR] Retry: still cannot bind to port %d: %v -- will retry in 60s", newPort, rErr)
+								continue
+							}
+							logf("[INFO] Successfully bound to port %d after retry", newPort)
+							sniff = retrySniff
+							currentPort = newPort
+							snifferMu.Lock()
+							currentSniffer = sniff
+							snifferMu.Unlock()
+							go sniff.Start(knockHandler)
+							break retryLoop
+						}
 						continue
 					}
 					sniff = fallback

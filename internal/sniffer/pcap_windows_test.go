@@ -69,9 +69,9 @@ func TestPcapEnumerateAllDevices(t *testing.T) {
 	t.Logf("Total devices: %d", count)
 }
 
-// TestPcapFindDeviceWildcard verifies that findDevices("0.0.0.0") returns at
-// least one device, including the Npcap loopback adapter so same-machine
-// traffic is captured.
+// TestPcapFindDeviceWildcard verifies that findDevices() on a PcapSniffer
+// created with address "0.0.0.0" returns at least one device, including the
+// Npcap loopback adapter so same-machine traffic is captured.
 func TestPcapFindDeviceWildcard(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows only")
@@ -83,13 +83,13 @@ func TestPcapFindDeviceWildcard(t *testing.T) {
 	ps := NewPcapSniffer("0.0.0.0", 12345).(*PcapSniffer)
 	devs, err := ps.findDevices()
 	if err != nil {
-		t.Fatalf("findDevices(0.0.0.0): %v", err)
+		t.Fatalf("findDevices (addr=0.0.0.0): %v", err)
 	}
 	if len(devs) == 0 {
-		t.Error("findDevices(0.0.0.0) returned no devices")
+		t.Error("findDevices (addr=0.0.0.0) returned no devices")
 	}
 	for i, d := range devs {
-		t.Logf("findDevices(0.0.0.0)[%d] -> %s", i, d)
+		t.Logf("findDevices (addr=0.0.0.0)[%d] -> %s", i, d)
 	}
 	// Npcap loopback adapter should be included for same-machine traffic.
 	const npcapLoopback = `\Device\NPF_Loopback`
@@ -106,6 +106,8 @@ func TestPcapFindDeviceWildcard(t *testing.T) {
 
 // TestPcapFindDeviceSpecificIP verifies that a real local IP resolves to a
 // device list that includes both the matching NIC and the loopback adapter.
+// The PcapSniffer is created with the specific IP; findDevices() reads it
+// from the struct's address field.
 func TestPcapFindDeviceSpecificIP(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows only")
@@ -123,13 +125,13 @@ func TestPcapFindDeviceSpecificIP(t *testing.T) {
 	ps := NewPcapSniffer(ip.String(), 12345).(*PcapSniffer)
 	devs, err := ps.findDevices()
 	if err != nil {
-		t.Fatalf("findDevices(%s): %v", ip, err)
+		t.Fatalf("findDevices (addr=%s): %v", ip, err)
 	}
 	if len(devs) == 0 {
-		t.Errorf("findDevices(%s) returned no devices", ip)
+		t.Errorf("findDevices (addr=%s) returned no devices", ip)
 	}
 	for i, d := range devs {
-		t.Logf("findDevices(%s)[%d] -> %s", ip, i, d)
+		t.Logf("findDevices (addr=%s)[%d] -> %s", ip, i, d)
 	}
 }
 
@@ -146,9 +148,9 @@ func TestPcapFindDeviceUnassignedIPErrors(t *testing.T) {
 	ps := NewPcapSniffer("203.0.113.1", 12345).(*PcapSniffer)
 	_, err := ps.findDevices()
 	if err == nil {
-		t.Error("findDevices(unassigned RFC5737 IP) should return error, got nil")
+		t.Error("findDevices on unassigned RFC5737 IP should return error, got nil")
 	}
-	t.Logf("findDevices(unassigned IP) error (expected): %v", err)
+	t.Logf("findDevices on unassigned IP error (expected): %v", err)
 }
 
 // TestPcapCaptureRaw opens pcap on the first device with no BPF filter

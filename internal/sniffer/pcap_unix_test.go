@@ -60,9 +60,9 @@ func TestPcapFindDeviceWildcard(t *testing.T) {
 	ps := NewPcapSniffer("0.0.0.0", 12345).(*PcapSniffer)
 	dev, err := ps.findDevice()
 	if err != nil {
-		t.Skipf("findDevice(0.0.0.0): %v (libpcap may not be installed)", err)
+		t.Skipf("findDevice (addr=0.0.0.0): %v (libpcap may not be installed)", err)
 	}
-	t.Logf("findDevice(0.0.0.0) -> %s", dev)
+	t.Logf("findDevice (addr=0.0.0.0) -> %s", dev)
 	if runtime.GOOS == "linux" && dev != "any" {
 		t.Logf("Note: expected 'any' device on Linux, got %s", dev)
 	}
@@ -81,9 +81,9 @@ func TestPcapFindDeviceSpecificIP(t *testing.T) {
 	ps := NewPcapSniffer(ip.String(), 12345).(*PcapSniffer)
 	dev, err := ps.findDevice()
 	if err != nil {
-		t.Skipf("findDevice(%s): %v (libpcap may not be installed)", ip, err)
+		t.Skipf("findDevice (addr=%s): %v (libpcap may not be installed)", ip, err)
 	}
-	t.Logf("findDevice(%s) -> %s", ip, dev)
+	t.Logf("findDevice (addr=%s) -> %s", ip, dev)
 }
 
 // TestPcapFindDeviceUnassignedIPErrors verifies that an IP from the RFC 5737
@@ -95,9 +95,9 @@ func TestPcapFindDeviceUnassignedIPErrors(t *testing.T) {
 	ps := NewPcapSniffer("203.0.113.1", 12345).(*PcapSniffer)
 	_, err := ps.findDevice()
 	if err == nil {
-		t.Error("findDevice(unassigned RFC5737 IP) should return error, got nil")
+		t.Error("findDevice on unassigned RFC5737 IP should return error, got nil")
 	}
-	t.Logf("findDevice(unassigned IP) error (expected): %v", err)
+	t.Logf("findDevice on unassigned IP error (expected): %v", err)
 }
 
 // TestPcapCaptureRaw opens pcap on the default device with no BPF filter and

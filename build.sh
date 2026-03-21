@@ -57,10 +57,9 @@ else
     BUILD_NUMBER=$(head -1 "${BUILD_NUMBER_FILE}" 2>/dev/null | tr -cd '0-9')
     [ -z "${BUILD_NUMBER}" ] && BUILD_NUMBER=0
   fi
-  BUILD_NUMBER=$((BUILD_NUMBER + 1))
 fi
 if ! $SKIP_BUILD_NUMBER_BUMP; then
-  printf '%s\n' "${BUILD_NUMBER}" > "${BUILD_NUMBER_FILE}"
+  printf '%s\n' "$((BUILD_NUMBER + 1))" > "${BUILD_NUMBER_FILE}"
 fi
 
 FULL_VERSION="${VERSION}.${BUILD_NUMBER}"

@@ -592,3 +592,81 @@ func TestParsePcapPacketRawIPv6(t *testing.T) {
 		t.Errorf("payload = %q, want R6", string(data))
 	}
 }
+
+func TestParseIPv6UDPExcessiveExtensionHeaders(t *testing.T) {
+	// Craft a packet with more extension headers than maxIPv6ExtHeaders.
+	// The parser should give up and return nil rather than looping indefinitely.
+	numHeaders := maxIPv6ExtHeaders + 5
+	extSize := 8 // each hop-by-hop ext header is 8 bytes (len field = 0)
+
+	pktSize := 40 + numHeaders*extSize + 8 + 5 // IPv6 + exts + UDP + payload
+	pkt := make([]byte, pktSize)
+	pkt[0] = 0x60 // Version=6
+	pkt[6] = 0    // Next Header = Hop-by-Hop Options
+
+	srcIPBytes := net.ParseIP("2001:db8::dead").To16()
+	copy(pkt[8:24], srcIPBytes)
+
+	// Chain extension headers: each points to Hop-by-Hop (type 0) except the last
+	offset := 40
+	for i := 0; i < numHeaders-1; i++ {
+		pkt[offset] = 0   // Next Header = Hop-by-Hop (creates a chain)
+		pkt[offset+1] = 0 // Hdr Ext Len = 0 (8 bytes)
+		offset += extSize
+	}
+	// Last extension header points to UDP
+	pkt[offset] = 17  // Next Header = UDP
+	pkt[offset+1] = 0 // Hdr Ext Len = 0
+	offset += extSize
+
+	// UDP header
+	binary.BigEndian.PutUint16(pkt[offset:offset+2], 1234)
+	binary.BigEndian.PutUint16(pkt[offset+2:offset+4], 5678)
+	binary.BigEndian.PutUint16(pkt[offset+4:offset+6], 13) // 8 + 5
+	copy(pkt[offset+8:], []byte("FLOOD"))
+
+	_, data := parseIPv6UDP(pkt)
+	if data != nil {
+		t.Error("expected nil for packet with excessive extension headers")
+	}
+}
+
+func TestParseIPv6UDPMaxExtensionHeadersBoundary(t *testing.T) {
+	// Exactly maxIPv6ExtHeaders extension headers should still work
+	numHeaders := maxIPv6ExtHeaders
+	extSize := 8
+
+	payload := []byte("MAXOK")
+	udpLen := 8 + len(payload)
+	pktSize := 40 + numHeaders*extSize + udpLen
+	pkt := make([]byte, pktSize)
+	pkt[0] = 0x60
+	pkt[6] = 0 // First ext: Hop-by-Hop
+
+	srcIPBytes := net.ParseIP("2001:db8::cafe").To16()
+	copy(pkt[8:24], srcIPBytes)
+
+	offset := 40
+	for i := 0; i < numHeaders-1; i++ {
+		pkt[offset] = 0
+		pkt[offset+1] = 0
+		offset += extSize
+	}
+	// Last ext -> UDP
+	pkt[offset] = 17
+	pkt[offset+1] = 0
+	offset += extSize
+
+	binary.BigEndian.PutUint16(pkt[offset:offset+2], 1111)
+	binary.BigEndian.PutUint16(pkt[offset+2:offset+4], 2222)
+	binary.BigEndian.PutUint16(pkt[offset+4:offset+6], uint16(udpLen))
+	copy(pkt[offset+8:], payload)
+
+	srcIP, data := parseIPv6UDP(pkt)
+	if srcIP != "2001:db8::cafe" {
+		t.Errorf("srcIP = %q, want 2001:db8::cafe", srcIP)
+	}
+	if string(data) != "MAXOK" {
+		t.Errorf("payload = %q, want MAXOK", string(data))
+	}
+}

@@ -16,6 +16,12 @@ const (
 	dltLinuxSLL = 113 // Linux cooked capture
 )
 
+// maxIPv6ExtHeaders caps the number of IPv6 extension headers
+// we will traverse before giving up. RFC 8200 does not define an
+// upper bound, but real-world packets rarely exceed 3-4 headers.
+// This prevents CPU waste on crafted packets with long header chains.
+const maxIPv6ExtHeaders = 10
+
 // linkHeaderLen returns the link-layer header length for the given DLT type.
 // Returns -1 for unsupported types.
 func linkHeaderLen(linkType int) int {
@@ -125,9 +131,11 @@ func parseIPv6UDP(ipData []byte) (string, []byte) {
 	nextHeader := ipData[6]
 	srcIP := net.IP(ipData[8:24]).String()
 
-	// Skip extension headers to find UDP (protocol 17)
+	// Skip extension headers to find UDP (protocol 17).
+	// Cap iterations to prevent DoS from crafted packets with
+	// many or circular extension header chains.
 	offset := 40
-	for nextHeader != 17 {
+	for i := 0; i < maxIPv6ExtHeaders && nextHeader != 17; i++ {
 		switch nextHeader {
 		case 0, 43, 60: // Hop-by-Hop, Routing, Destination Options
 			if len(ipData) < offset+2 {
@@ -150,6 +158,9 @@ func parseIPv6UDP(ipData []byte) (string, []byte) {
 		if offset > len(ipData) {
 			return "", nil
 		}
+	}
+	if nextHeader != 17 {
+		return "", nil
 	}
 
 	udpData := ipData[offset:]

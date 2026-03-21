@@ -76,10 +76,9 @@ if ($env:BUILD_NUMBER) {
         $raw = (Get-Content $BuildNumberFile -Raw -ErrorAction SilentlyContinue).Trim() -replace '[^0-9]', ''
         if ($raw) { $BuildNumber = [int]$raw }
     }
-    $BuildNumber++
 }
 if (-not $SkipBuildNumberBump) {
-    Set-Content $BuildNumberFile $BuildNumber
+    Set-Content $BuildNumberFile ($BuildNumber + 1)
 }
 
 $FullVersion = "$Version.$BuildNumber"
