@@ -85,7 +85,8 @@ func TestBundleSizeValidationRejectsOversized(t *testing.T) {
 func TestBundleSizeValidationJustOverLimit(t *testing.T) {
 	oversized := make([]byte, 4097)
 	oversized[0] = 'S'
-	oversized[1] = 'K'
+	oversized[1] = 'P'
+	oversized[2] = 'K'
 	b64 := base64.StdEncoding.EncodeToString(oversized)
 
 	_, err := crypto.ParseExportBundle(b64, "")
@@ -214,7 +215,9 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
 	ek := dk.EncapsulationKey()
 
-	// Build packet with maximum-length command (255 chars)
+	// Build packet with a command that stays within the binary encoding limit.
+	// Binary layout: type(1) + cmdData, so for "open-t<portspecs>" the cmdData
+	// is "t<portspecs>" (250 bytes) → totalCmdLen = 251 ≤ 255. Must succeed.
 	longCmd := "open-t" + strings.Repeat("2", 249)
 	if len(longCmd) > 255 {
 		longCmd = longCmd[:255]
@@ -222,5 +225,14 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 	_, err := protocol.BuildKnockPacket(ek, "10.0.0.1", longCmd, 60)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket with 255-char command: %v", err)
+	}
+
+	// A cust- command with a 255-char ID produces totalCmdLen = 1 + 255 = 256
+	// which exceeds the 255-byte binary field limit. BuildKnockPacket must
+	// reject it rather than silently truncating or encoding a malformed packet.
+	tooLong := "cust-" + strings.Repeat("x", 255)
+	_, err = protocol.BuildKnockPacket(ek, "10.0.0.1", tooLong, 60)
+	if err == nil {
+		t.Fatal("expected error for command exceeding 255-byte binary encoding limit, got nil")
 	}
 }
