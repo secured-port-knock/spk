@@ -66,10 +66,11 @@ func TestBundleSizeValidationEncryptedBundle(t *testing.T) {
 // decoded raw size exceeds maxBundleRawSize is rejected before parsing.
 // This prevents large-allocation attacks from crafted inputs.
 func TestBundleSizeValidationRejectsOversized(t *testing.T) {
-	// 5 KB starting with "SK" magic: passes magic check but exceeds the 4 KB limit.
+	// 5 KB starting with "SPK" magic: passes magic check but exceeds the 4 KB limit.
 	oversized := make([]byte, 5*1024)
 	oversized[0] = 'S'
-	oversized[1] = 'K'
+	oversized[1] = 'P'
+	oversized[2] = 'K'
 	b64 := base64.StdEncoding.EncodeToString(oversized)
 
 	_, err := crypto.ParseExportBundle(b64, "")

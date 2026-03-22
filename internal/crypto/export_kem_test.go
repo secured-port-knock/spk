@@ -126,11 +126,11 @@ func TestExportBundleVersionRejected(t *testing.T) {
 	ek := dk.EncapsulationKey()
 
 	// Build a binary bundle with unsupported version 2:
-	// "SK" + ver(2) + flags(0) + port(2) + open_duration(4) + window(4) + ek(1568)
+	// "SPK" + ver(2) + flags(0) + port(2) + open_duration(4) + window(4) + ek(1568)
 	var raw []byte
-	raw = append(raw, 'S', 'K') // magic
-	raw = append(raw, 2)        // version 2 (unsupported)
-	raw = append(raw, 0x01)     // flags: allowCustomOpenDuration
+	raw = append(raw, 'S', 'P', 'K') // magic
+	raw = append(raw, 2)             // version 2 (unsupported)
+	raw = append(raw, 0x01)          // flags: allowCustomOpenDuration
 
 	portBytes := make([]byte, 2)
 	binary.BigEndian.PutUint16(portBytes, 11111)
@@ -164,39 +164,39 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 	}
 
 	// Check magic
-	if raw[0] != 'S' || raw[1] != 'K' {
-		t.Errorf("magic = %q, want 'SK'", string(raw[:2]))
+	if string(raw[:3]) != "SPK" {
+		t.Errorf("magic = %q, want \"SPK\"", string(raw[:3]))
 	}
 	// Check version
-	if raw[2] != 1 {
-		t.Errorf("version = %d, want 1", raw[2])
+	if raw[3] != 1 {
+		t.Errorf("version = %d, want 1", raw[3])
 	}
 	// Check flags (all false = 0)
-	if raw[3] != 0 {
-		t.Errorf("flags = 0x%02x, want 0x00", raw[3])
+	if raw[4] != 0 {
+		t.Errorf("flags = 0x%02x, want 0x00", raw[4])
 	}
-	// port(2) at offset 4
-	port := binary.BigEndian.Uint16(raw[4:6])
+	// port(2) at offset 5
+	port := binary.BigEndian.Uint16(raw[5:7])
 	if port != 22222 {
 		t.Errorf("port = %d, want 22222", port)
 	}
-	// open_duration(4) at offset 6
-	openDuration := binary.BigEndian.Uint32(raw[6:10])
+	// open_duration(4) at offset 7
+	openDuration := binary.BigEndian.Uint32(raw[7:11])
 	if openDuration != 1800 {
 		t.Errorf("open_duration = %d, want 1800", openDuration)
 	}
-	// window(4) at offset 10
-	window := binary.BigEndian.Uint32(raw[10:14])
+	// window(4) at offset 11
+	window := binary.BigEndian.Uint32(raw[11:15])
 	if window != 300 {
 		t.Errorf("window = %d, want 300", window)
 	}
-	// kem_size(2) at offset 14
-	kemSize := binary.BigEndian.Uint16(raw[14:16])
+	// kem_size(2) at offset 15
+	kemSize := binary.BigEndian.Uint16(raw[15:17])
 	if kemSize != 768 {
 		t.Errorf("kem_size = %d, want 768", kemSize)
 	}
-	// ek starts at offset 16
-	ekBytes := raw[16:]
+	// ek starts at offset 17
+	ekBytes := raw[17:]
 	if len(ekBytes) != EncapsulationKeySize768 {
 		t.Errorf("ek length = %d, want %d", len(ekBytes), EncapsulationKeySize768)
 	}

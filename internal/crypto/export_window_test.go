@@ -182,7 +182,7 @@ func TestBundleRawWithWindow(t *testing.T) {
 		t.Fatalf("CreateExportBundleRawWithWindow: %v", err)
 	}
 
-	// Raw bundles have "SK" prefix + raw binary data - use ParseExportBundleRaw
+	// Raw bundles have "SPK" prefix + raw binary data - use ParseExportBundleRaw
 	bundle, err := ParseExportBundleRaw(raw, "")
 	if err != nil {
 		t.Fatalf("ParseExportBundleRaw: %v", err)

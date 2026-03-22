@@ -108,8 +108,8 @@ func FuzzEncryptDecryptRoundtrip(f *testing.F) {
 func FuzzParseExportBundle(f *testing.F) {
 	f.Add("", "")
 	f.Add("AAAA", "")
-	f.Add(base64.StdEncoding.EncodeToString([]byte("SK")), "")
-	f.Add(base64.StdEncoding.EncodeToString([]byte("SKE")), "password")
+	f.Add(base64.StdEncoding.EncodeToString([]byte("SPK")), "")
+	f.Add(base64.StdEncoding.EncodeToString([]byte("SPKE")), "password")
 	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 100)), "")
 	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 4096)), "")
 
@@ -122,12 +122,12 @@ func FuzzParseExportBundle(f *testing.F) {
 // FuzzParseExportBundleRaw feeds raw bytes encoded as base64 into bundle parsing.
 func FuzzParseExportBundleRaw(f *testing.F) {
 	f.Add([]byte{})
-	f.Add([]byte("SK"))
-	f.Add([]byte("SKE"))
-	skData := make([]byte, 2000)
-	copy(skData, []byte("SK"))
-	skData[2] = 1 // version 1
-	f.Add(skData)
+	f.Add([]byte("SPK"))
+	f.Add([]byte("SPKE"))
+	spkData := make([]byte, 2000)
+	copy(spkData, []byte("SPK"))
+	spkData[3] = 1 // version 1
+	f.Add(spkData)
 
 	f.Fuzz(func(t *testing.T, rawData []byte) {
 		b64 := base64.StdEncoding.EncodeToString(rawData)
@@ -145,7 +145,7 @@ func FuzzDecodeBinary(f *testing.F) {
 	f.Add(make([]byte, 1200)) // around EK size for KEM-768
 
 	// Valid-ish seed: magic + ver + flags + port + duration + window + kemsize
-	valid := []byte{'S', 'K', 1, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	valid := []byte{'S', 'P', 'K', 1, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	f.Add(valid)
 
 	f.Fuzz(func(t *testing.T, data []byte) {

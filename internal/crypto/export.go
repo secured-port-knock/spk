@@ -31,10 +31,10 @@ type ExportBundle struct {
 }
 
 // bundleMagic identifies a binary activation bundle.
-var bundleMagic = []byte("SK")
+var bundleMagic = []byte("SPK")
 
 // encMagic identifies an encrypted binary bundle.
-var encMagic = []byte("SKE")
+var encMagic = []byte("SPKE")
 
 const (
 	argon2Time    = 3
@@ -59,15 +59,11 @@ func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customDuration,
 		return "", err
 	}
 
-	// Prepend magic so ParseExportBundle can detect the format.
-	output := make([]byte, len(bundleMagic)+len(raw))
-	copy(output, bundleMagic)
-	copy(output[len(bundleMagic):], raw)
-
-	return base64.StdEncoding.EncodeToString(output), nil
+	// encodeV1Binary already includes the "SPK" magic prefix.
+	return base64.StdEncoding.EncodeToString(raw), nil
 }
 
-// CreateExportBundleRawWithWindow returns the raw compressed binary with custom rotation window (for QR codes).
+// CreateExportBundleRawWithWindow returns the raw binary with custom rotation window (for QR codes).
 func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
 
@@ -76,23 +72,50 @@ func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDurati
 		return nil, err
 	}
 
-	// Prepend magic so ParseExportBundleRaw can detect the format.
-	output := make([]byte, len(bundleMagic)+len(raw))
-	copy(output, bundleMagic)
-	copy(output[len(bundleMagic):], raw)
+	// encodeV1Binary already includes the "SPK" magic prefix.
+	return raw, nil
+}
 
-	return output, nil
+// CreateEncryptedExportBundleRawWithWindow returns a password-encrypted raw binary bundle (for QR codes).
+// Uses the same SPKE format as the base64 variant but returns raw bytes instead of base64.
+func CreateEncryptedExportBundleRawWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
+
+	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
+	if err != nil {
+		return nil, err
+	}
+
+	salt := make([]byte, saltSize)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("generate salt: %w", err)
+	}
+
+	key := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+
+	encrypted, err := SymmetricEncrypt(key, raw)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt bundle: %w", err)
+	}
+
+	// "SPKE" + salt(32) + encrypted(nonce+ciphertext+tag)
+	var buf bytes.Buffer
+	buf.Write(encMagic) // "SPKE"
+	buf.Write(salt)
+	buf.Write(encrypted)
+
+	return buf.Bytes(), nil
 }
 
 // encodeV1Binary creates the raw v1 binary bundle.
-// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
+// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
 func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
 
 	var buf bytes.Buffer
 
 	// Magic + version
-	buf.Write(bundleMagic) // "SK"
+	buf.Write(bundleMagic) // "SPK"
 	buf.WriteByte(1)       // version 1
 
 	// Flags (1 byte)
@@ -151,17 +174,17 @@ func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, o
 }
 
 // decodeBinary parses a v1 binary bundle (after decompression).
-// Format: "SK"(2) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
+// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
 func decodeBinary(data []byte) (*ExportBundle, error) {
-	// Minimum size: magic(2) + ver(1) + flags(1) + port(2) + open_duration(4) = 10 + some EK
-	if len(data) < 10 {
+	// Minimum size: magic(3) + ver(1) + flags(1) + port(2) + open_duration(4) = 11 + some EK
+	if len(data) < 11 {
 		return nil, fmt.Errorf("bundle too short: %d bytes", len(data))
 	}
 
 	r := bytes.NewReader(data)
 
 	// Skip magic (already verified by caller)
-	magic := make([]byte, 2)
+	magic := make([]byte, 3)
 	if _, err := io.ReadFull(r, magic); err != nil {
 		return nil, fmt.Errorf("read magic: %w", err)
 	}
@@ -289,9 +312,9 @@ func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, custom
 		return "", fmt.Errorf("encrypt bundle: %w", err)
 	}
 
-	// Encrypted binary: "SKE" + salt(32) + encrypted(nonce+ciphertext+tag)
+	// Encrypted binary: "SPKE" + salt(32) + encrypted(nonce+ciphertext+tag)
 	var encBuf bytes.Buffer
-	encBuf.Write(encMagic) // "SKE"
+	encBuf.Write(encMagic) // "SPKE"
 	encBuf.Write(salt)
 	encBuf.Write(encrypted)
 
@@ -312,14 +335,14 @@ func ParseExportBundle(b64Data string, password string) (*ExportBundle, error) {
 	}
 
 	// Detect format from first bytes
-	if len(data) >= 3 && string(data[:3]) == "SKE" {
+	if len(data) >= 4 && string(data[:4]) == "SPKE" {
 		// Encrypted bundle
 		return parseEncrypted(data, password)
 	}
-	if len(data) >= 2 && string(data[:2]) == "SK" {
-		// Plain binary bundle (starts with "SK" but NOT "SKE").
-		// Skip the 2-byte magic prefix and parse the raw binary payload.
-		return decodeBinary(data[2:])
+	if len(data) >= 3 && string(data[:3]) == "SPK" {
+		// Plain binary bundle (starts with "SPK" but NOT "SPKE").
+		// Pass the full data; decodeBinary reads and verifies the magic.
+		return decodeBinary(data)
 	}
 
 	return nil, fmt.Errorf("unrecognized bundle format")
@@ -331,13 +354,13 @@ func parseEncrypted(data []byte, password string) (*ExportBundle, error) {
 		return nil, fmt.Errorf("bundle is encrypted - password required")
 	}
 
-	// Format: "SKE"(3) + salt(32) + encrypted_data(variable)
-	if len(data) < 3+saltSize+12+16 {
+	// Format: "SPKE"(4) + salt(32) + encrypted_data(variable)
+	if len(data) < 4+saltSize+12+16 {
 		return nil, fmt.Errorf("encrypted bundle too short")
 	}
 
-	salt := data[3 : 3+saltSize]
-	encData := data[3+saltSize:]
+	salt := data[4 : 4+saltSize]
+	encData := data[4+saltSize:]
 
 	key := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 
@@ -429,12 +452,12 @@ func ParseExportBundleRaw(data []byte, password string) (*ExportBundle, error) {
 		return nil, fmt.Errorf("bundle too large: %d bytes (max %d)", len(data), maxBundleRawSize)
 	}
 	// Detect format from first bytes
-	if len(data) >= 3 && string(data[:3]) == "SKE" {
+	if len(data) >= 4 && string(data[:4]) == "SPKE" {
 		return parseEncrypted(data, password)
 	}
-	if len(data) >= 2 && string(data[:2]) == "SK" {
-		// Plain binary bundle; skip the 2-byte magic and parse the raw payload.
-		return decodeBinary(data[2:])
+	if len(data) >= 3 && string(data[:3]) == "SPK" {
+		// Plain binary bundle; decodeBinary reads and verifies the magic.
+		return decodeBinary(data)
 	}
 	return nil, fmt.Errorf("unrecognized binary bundle format")
 }
