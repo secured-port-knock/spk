@@ -8,15 +8,15 @@ The activation bundle is required to set up an SPK client. It contains the serve
 
 During server setup (`spk --server --setup`), the activation bundle is generated automatically and saved as `activation.b64` (text) and `activation_qr.png` (QR code). Transfer either to the client machine and run `spk --client --setup` to import it.
 
-- **activation.b64**: `"SK"` prefix + raw binary, then base64-encoded
-- **activation_qr.png**: `"SK"` prefix + raw binary (no base64)
+- **activation.b64**: binary layout (below), base64-encoded
+- **activation_qr.png**: binary layout (below), raw bytes
 
-Both encode the same logical content.
+Both encode the same logical content. The binary always starts with the `"SPK"` magic prefix (see Binary Layout).
 
 ## Binary Layout (inside compressed payload)
 
 ```
-"SK"           (2 bytes)  -- magic / version identifier
+"SPK"          (3 bytes)  -- magic / version identifier
 Version        (1 byte)   -- bundle version (1)
 Flags          (1 byte)   -- bit field:
                              bit 0: custom open duration allowed
@@ -31,7 +31,7 @@ KEM Size       (2 bytes)  -- ML-KEM key size: 768 or 1024 (big-endian)
 Encapsulation Key (variable) -- ML-KEM public key (1184 bytes for 768, 1568 bytes for 1024)
 ```
 
-Total: ~1202-1586 bytes depending on KEM size (SK magic + binary payload). Fits QR Medium EC.
+Total: ~1203-1587 bytes depending on KEM size (SPK magic + binary payload). Fits QR Medium EC.
 
 ## Encrypted Bundles
 
@@ -40,20 +40,20 @@ When a password is set during server export (`spk --server --export`), bundles u
 > **Important:** If the password is forgotten before the client imports the bundle, there is no recovery path for that export. Re-run `spk --server --export` on the server to generate a new bundle. The server keypair is unchanged -- only the export needs to be repeated. SPK never stores the bundle password.
 
 ```
-"SKE"          (3 bytes)  -- encrypted bundle magic
+"SPKE"         (4 bytes)  -- encrypted bundle magic
 Salt           (32 bytes) -- random salt for Argon2id
 Encrypted Data (variable) -- AES-256-GCM(Argon2id(password, salt), raw_payload)
 ```
 
 ## Encrypted Bundle Decryption
 
-When the bundle starts with `"SKE"`:
+When the bundle starts with `"SPKE"`:
 
-1. Extract `salt` (bytes 3-34, 32 bytes) and `encrypted_data` (bytes 35+)
+1. Extract `salt` (bytes 4-35, 32 bytes) and `encrypted_data` (bytes 36+)
 2. Derive key: `key = Argon2id(password, salt, time=3, memory=65536 KB, threads=4, keyLen=32)`
 3. Split encrypted_data: `nonce = encrypted_data[0:12]`, `ciphertext = encrypted_data[12:]`
 4. Decrypt: `raw = AES-256-GCM-Open(key, nonce, ciphertext, aad=nil)`
-5. Parse raw as the binary layout (see above - starts with `"SK"` + version + flags + ...)
+5. Parse raw as the binary layout (see above - starts with `"SPK"` + version + flags + ...)
 
 ## Parsing the Bundle
 
@@ -64,43 +64,39 @@ decoded = base64_decode(activation_b64_string)
 ```
 
 **Detect format:**
-- If `decoded` starts with `"SKE"` (3 bytes) -> encrypted bundle (see [Encrypted Bundle Decryption](#encrypted-bundle-decryption))
-- If `decoded` starts with `"SK"` (2 bytes, but NOT `"SKE"`) -> unencrypted bundle
+- If `decoded` starts with `"SPKE"` (4 bytes) -> encrypted bundle (see [Encrypted Bundle Decryption](#encrypted-bundle-decryption))
+- If `decoded` starts with `"SPK"` (3 bytes, but NOT `"SPKE"`) -> unencrypted bundle
 
 **Parse unencrypted bundle:**
 
-```
-magic              = decoded[0:2]        // "SK" - skip these
-raw_data           = decoded[2:]         // rest is the raw binary payload
-```
-
-**Parse the decompressed binary:**
+The decoded data IS the binary layout (it starts with `"SPK"`).
+Parse it directly:
 
 ```
-raw[0:2]   = "SK"        // magic (2 bytes)
-raw[2]     = 0x01        // version byte (must be 1)
-raw[3]     = flags       // bit field (1 byte)
-                         //   bit 0 (0x01): allow custom open duration
-                         //   bit 1 (0x02): allow custom port
-                         //   bit 2 (0x04): allow open-all
-                         //   bit 3 (0x08): dynamic port enabled
+decoded[0:3]   = "SPK"       // magic (3 bytes) -- verify, then skip
+decoded[3]     = 0x01        // version byte (must be 1)
+decoded[4]     = flags       // bit field (1 byte)
+                             //   bit 0 (0x01): allow custom open duration
+                             //   bit 1 (0x02): allow custom port
+                             //   bit 2 (0x04): allow open-all
+                             //   bit 3 (0x08): dynamic port enabled
 
 if flags & 0x08:  // dynamic port
-    raw[4:12]  = seed              // 8-byte dynamic port seed
-    offset = 12
+    decoded[5:13]  = seed              // 8-byte dynamic port seed
+    offset = 13
 else:             // static port
-    raw[4:6]   = port              // uint16 big-endian, static listen port
-    offset = 6
+    decoded[5:7]   = port              // uint16 big-endian, static listen port
+    offset = 7
 
-raw[offset : offset+4]   = open_duration   // uint32 big-endian, default open duration in seconds
-raw[offset+4 : offset+8] = window    // uint32 big-endian, port rotation period (0 = default 600s)
-raw[offset+8 : offset+10] = kem_size // uint16 big-endian, 768 or 1024
+decoded[offset : offset+4]   = open_duration   // uint32 big-endian, default open duration in seconds
+decoded[offset+4 : offset+8] = window    // uint32 big-endian, port rotation period (0 = default 600s)
+decoded[offset+8 : offset+10] = kem_size // uint16 big-endian, 768 or 1024
 
 // Determine encapsulation key size from kem_size:
 //   768  -> ek_size = 1184 bytes
 //   1024 -> ek_size = 1568 bytes
 ek_size = 1184 if kem_size == 768 else 1568
-raw[offset+10 : offset+10+ek_size] = encapsulation_key
+decoded[offset+10 : offset+10+ek_size] = encapsulation_key
 ```
 
 > **Note:** Only version byte `1` is accepted.

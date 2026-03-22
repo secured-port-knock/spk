@@ -329,9 +329,17 @@ func RunSetup() {
 	fmt.Printf("  -> Activation bundle: %s\n", activationPath)
 
 	// Generate raw binary for QR code (more compact than base64)
-	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	var rawData []byte
+	var rawErr error
+	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
+		rawData, rawErr = crypto.CreateEncryptedExportBundleRawWithWindow(ek, cfg.ListenPort,
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	} else {
+		rawData, rawErr = crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	}
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")
 		qrErr := crypto.GenerateQRCode(rawData, qrPath)
@@ -517,9 +525,17 @@ func exportBundle(cfg *config.Config, dk crypto.DecapsulationKey) {
 	fmt.Printf("Exported: %s\n", activationPath)
 
 	// Generate raw binary for QR code
-	rawData, rawErr := crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
-		cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-		portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	var rawData []byte
+	var rawErr error
+	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
+		rawData, rawErr = crypto.CreateEncryptedExportBundleRawWithWindow(ek, cfg.ListenPort,
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	} else {
+		rawData, rawErr = crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
+			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+	}
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")
 		qrErr := crypto.GenerateQRCode(rawData, qrPath)
