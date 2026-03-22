@@ -26,8 +26,10 @@ This document covers SPK's security architecture, threat model, and defense mech
 | **Timing Attacks** | No response sent - attacker gets no timing information |
 | **CPU DoS (packet flood)** | Dynamic port rotation hides the listen port; sniffer validates packet size (1118-8192 bytes) before processing; no response to invalid packets; no state allocated before authentication |
 | **Clock Skew** | Configurable timestamp tolerance (default 30s); NTP recommended |
+| **Future Timestamp** | Timestamps more than `timestamp_tolerance` seconds in the future are rejected; prevents crafting pre-validated packets |
 | **DPI / Traffic Fingerprinting** | Optional padding randomizes packet size (see [Padding](knock-protocol.md#padding)) |
 | **TOTP 2FA** | Optional TOTP (RFC 6238) adds a second factor -- attacker needs the secret even with the public key |
+| **Policy Bypass** | Server enforces allow_open_all, allowed_ports, and allow_custom_port policies -- authenticated knocks are still subject to server-side access control |
 
 ### Public Key Distribution & MITM
 

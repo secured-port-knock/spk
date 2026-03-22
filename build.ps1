@@ -141,8 +141,9 @@ Write-Host ""
 
 # Handle test/coverage/clean first
 if ($test) {
-    Write-Host "Running tests (excluding sniffer hardware tests -- use -testSniffer for those)..." -ForegroundColor Green
-    go test ./... -count=1
+    Write-Host "Running tests (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
+    $packages = & go list ./... | Where-Object { $_ -notlike '*/sniffer' }
+    go test $packages -count=1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Tests failed!" -ForegroundColor Red
         exit 1
@@ -181,8 +182,9 @@ if ($testSniffer) {
 }
 
 if ($coverage) {
-    Write-Host "Running tests with coverage..." -ForegroundColor Green
-    go test ./... -coverprofile=coverage.out
+    Write-Host "Running tests with coverage (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
+    $packages = & go list ./... | Where-Object { $_ -notlike '*/sniffer' }
+    go test $packages -coverprofile=coverage.out
     go tool cover -html=coverage.out -o coverage.html
     Write-Host "Coverage report: coverage.html" -ForegroundColor Green
     exit 0

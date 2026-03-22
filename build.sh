@@ -108,8 +108,8 @@ for arg in "$@"; do
 done
 
 if $RUN_TEST; then
-  echo "Running tests (excluding sniffer hardware tests -- use -testSniffer for those)..."
-  go test ./... -count=1
+  echo "Running tests (excluding sniffer -- use -testSniffer for those)..."
+  go test $(go list ./... | grep -v '/sniffer$') -count=1
   exit 0
 fi
 
@@ -162,8 +162,8 @@ if $RUN_SNIFFER_TEST; then
 fi
 
 if $RUN_COVERAGE; then
-  echo "Running tests with coverage..."
-  go test ./... -coverprofile=coverage.out
+  echo "Running tests with coverage (excluding sniffer -- use -testSniffer for those)..."
+  go test $(go list ./... | grep -v '/sniffer$') -coverprofile=coverage.out
   go tool cover -html=coverage.out -o coverage.html
   echo "Coverage report: coverage.html"
   exit 0

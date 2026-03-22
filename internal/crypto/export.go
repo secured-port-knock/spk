@@ -4,7 +4,6 @@ package crypto
 
 import (
 	"bytes"
-	"compress/zlib"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -31,7 +30,7 @@ type ExportBundle struct {
 	KEMSize                 int    `json:"-"`  // ML-KEM key size (768 or 1024)
 }
 
-// bundleMagic identifies a compressed binary bundle.
+// bundleMagic identifies a binary activation bundle.
 var bundleMagic = []byte("SK")
 
 // encMagic identifies an encrypted binary bundle.
@@ -46,7 +45,7 @@ const (
 )
 
 // CreateExportBundle creates a base64-encoded compact bundle for client provisioning.
-// Uses binary format with zlib compression for QR code compatibility.
+// Uses compact binary format; ML-KEM encapsulation keys are near-random and do not compress.
 func CreateExportBundle(ek EncapsulationKey, port int, customDuration, customPort, openAll bool) (string, error) {
 	return CreateExportBundleWithWindow(ek, port, customDuration, customPort, openAll, nil, false, 0, 0)
 }
@@ -60,15 +59,10 @@ func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customDuration,
 		return "", err
 	}
 
-	compressed, err := zlibCompress(raw)
-	if err != nil {
-		return "", fmt.Errorf("compress bundle: %w", err)
-	}
-
-	// Prepend magic outside compression so ParseExportBundle can detect format
-	output := make([]byte, len(bundleMagic)+len(compressed))
+	// Prepend magic so ParseExportBundle can detect the format.
+	output := make([]byte, len(bundleMagic)+len(raw))
 	copy(output, bundleMagic)
-	copy(output[len(bundleMagic):], compressed)
+	copy(output[len(bundleMagic):], raw)
 
 	return base64.StdEncoding.EncodeToString(output), nil
 }
@@ -82,15 +76,10 @@ func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDurati
 		return nil, err
 	}
 
-	compressed, err := zlibCompress(raw)
-	if err != nil {
-		return nil, fmt.Errorf("compress bundle: %w", err)
-	}
-
-	// Prepend magic so ParseExportBundleRaw can detect format
-	output := make([]byte, len(bundleMagic)+len(compressed))
+	// Prepend magic so ParseExportBundleRaw can detect the format.
+	output := make([]byte, len(bundleMagic)+len(raw))
 	copy(output, bundleMagic)
-	copy(output[len(bundleMagic):], compressed)
+	copy(output[len(bundleMagic):], raw)
 
 	return output, nil
 }
@@ -263,45 +252,11 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	return bundle, nil
 }
 
-// zlibCompress compresses data using zlib.
-func zlibCompress(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w, err := zlib.NewWriterLevel(&buf, zlib.BestCompression)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write(data); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// maxDecompressedSize limits decompressed bundle size to prevent memory exhaustion.
-// A v1 binary bundle with ML-KEM-1024 is ~1580 bytes uncompressed; 16 KB is generous.
-const maxDecompressedSize = 16 * 1024
-
-// zlibDecompress decompresses zlib data with a size limit.
-// Rejects decompressed output exceeding maxDecompressedSize to prevent
-// memory pressure from malicious compressed payloads (zip bomb defense).
-func zlibDecompress(data []byte) ([]byte, error) {
-	r, err := zlib.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	limited := io.LimitReader(r, maxDecompressedSize+1)
-	result, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
-	}
-	if len(result) > maxDecompressedSize {
-		return nil, fmt.Errorf("decompressed bundle exceeds %d bytes (possible zip bomb)", maxDecompressedSize)
-	}
-	return result, nil
-}
+// maxBundleRawSize caps the decoded size of any bundle input.
+// A v1 binary bundle with ML-KEM-1024 is ~1590 bytes raw; an encrypted
+// wrapper adds ~75 bytes of overhead. 4 KB is a generous upper bound
+// that still prevents large-allocation attacks from malformed input.
+const maxBundleRawSize = 4 * 1024
 
 // CreateEncryptedExportBundle creates a password-encrypted base64-encoded bundle.
 // Uses Argon2id for key derivation (PQC-safe symmetric algorithm) + AES-256-GCM.
@@ -319,11 +274,6 @@ func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, custom
 		return "", err
 	}
 
-	compressed, err := zlibCompress(raw)
-	if err != nil {
-		return "", fmt.Errorf("compress bundle: %w", err)
-	}
-
 	// Generate salt
 	salt := make([]byte, saltSize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -334,7 +284,7 @@ func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, custom
 	key := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 
 	// Encrypt with AES-256-GCM
-	encrypted, err := SymmetricEncrypt(key, compressed)
+	encrypted, err := SymmetricEncrypt(key, raw)
 	if err != nil {
 		return "", fmt.Errorf("encrypt bundle: %w", err)
 	}
@@ -349,12 +299,16 @@ func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, custom
 }
 
 // ParseExportBundle parses a base64-encoded export bundle.
-// Supports compressed binary and encrypted formats.
+// Supports plain binary and encrypted formats.
 // If encrypted, password is required.
 func ParseExportBundle(b64Data string, password string) (*ExportBundle, error) {
 	data, err := base64.StdEncoding.DecodeString(b64Data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
+	}
+
+	if len(data) > maxBundleRawSize {
+		return nil, fmt.Errorf("bundle too large: %d bytes (max %d)", len(data), maxBundleRawSize)
 	}
 
 	// Detect format from first bytes
@@ -363,13 +317,9 @@ func ParseExportBundle(b64Data string, password string) (*ExportBundle, error) {
 		return parseEncrypted(data, password)
 	}
 	if len(data) >= 2 && string(data[:2]) == "SK" {
-		// Compressed binary (starts with "SK" but NOT "SKE")
-		// Skip the 2-byte magic prefix before decompressing
-		decompressed, err := zlibDecompress(data[2:])
-		if err != nil {
-			return nil, fmt.Errorf("decompress bundle: %w", err)
-		}
-		return decodeBinary(decompressed)
+		// Plain binary bundle (starts with "SK" but NOT "SKE").
+		// Skip the 2-byte magic prefix and parse the raw binary payload.
+		return decodeBinary(data[2:])
 	}
 
 	return nil, fmt.Errorf("unrecognized bundle format")
@@ -391,17 +341,12 @@ func parseEncrypted(data []byte, password string) (*ExportBundle, error) {
 
 	key := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 
-	compressed, err := SymmetricDecrypt(key, encData)
+	raw, err := SymmetricDecrypt(key, encData)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt failed - wrong password or corrupted data: %w", err)
 	}
 
-	decompressed, err := zlibDecompress(compressed)
-	if err != nil {
-		return nil, fmt.Errorf("decompress decrypted bundle: %w", err)
-	}
-
-	return decodeBinary(decompressed)
+	return decodeBinary(raw)
 }
 
 // ExportToFile writes the bundle to a base64 file.
@@ -480,16 +425,16 @@ func PrintQRCodeToConsole(rawData []byte) error {
 
 // ParseExportBundleRaw parses raw binary bundle data (e.g., from QR code scan).
 func ParseExportBundleRaw(data []byte, password string) (*ExportBundle, error) {
+	if len(data) > maxBundleRawSize {
+		return nil, fmt.Errorf("bundle too large: %d bytes (max %d)", len(data), maxBundleRawSize)
+	}
 	// Detect format from first bytes
 	if len(data) >= 3 && string(data[:3]) == "SKE" {
 		return parseEncrypted(data, password)
 	}
 	if len(data) >= 2 && string(data[:2]) == "SK" {
-		decompressed, err := zlibDecompress(data[2:])
-		if err != nil {
-			return nil, fmt.Errorf("decompress bundle: %w", err)
-		}
-		return decodeBinary(decompressed)
+		// Plain binary bundle; skip the 2-byte magic and parse the raw payload.
+		return decodeBinary(data[2:])
 	}
 	return nil, fmt.Errorf("unrecognized binary bundle format")
 }

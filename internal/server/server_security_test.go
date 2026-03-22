@@ -149,39 +149,7 @@ func TestTrackerRecoveryRejectsInjection(t *testing.T) {
 }
 
 // --- ClosePortsOnCrash=false tests ---
-
-func TestTrackerRecoveryClosePortsOnCrashFalse(t *testing.T) {
-	// With closePortsOnCrash=false, expired entries should NOT have their close
-	// commands executed (they are simply dropped)
-	tmpDir := t.TempDir()
-	statePath := tmpDir + "/state.json"
-
-	state := `{
-		"10.0.0.1:22:tcp": {
-			"ip": "10.0.0.1",
-			"port": "t22",
-			"proto": "tcp",
-			"port_num": "22",
-			"opened_at": "2020-01-01T00:00:00Z",
-			"expires_at": "2020-01-01T00:30:00Z",
-			"open_command": "iptables -A INPUT -p tcp --dport 22 -s 10.0.0.1 -j ACCEPT",
-			"close_command": "iptables -D INPUT -p tcp --dport 22 -s 10.0.0.1 -j ACCEPT"
-		}
-	}`
-
-	if err := writeTestFile(statePath, state); err != nil {
-		t.Fatalf("write state: %v", err)
-	}
-
-	logger := newTestLogger(t)
-	tracker := NewTracker(statePath, logger, false) // closePortsOnCrash=false
-
-	// Expired entry should be dropped (not re-tracked)
-	entries := tracker.GetAll()
-	if len(entries) != 0 {
-		t.Errorf("expected 0 entries after recovery with closePortsOnCrash=false, got %d", len(entries))
-	}
-}
+// Note: TestCloseOnCrashRecoveryFalse in close_cmd_test.go covers the expired-entry case.
 
 func TestTrackerRecoveryClosePortsOnCrashFalseNonExpired(t *testing.T) {
 	// Non-expired entries should still be re-tracked regardless of closePortsOnCrash
