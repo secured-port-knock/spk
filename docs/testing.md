@@ -30,14 +30,19 @@ Tests cover the following areas:
 
 ### Security
 - **Anti-replay**: Nonce tracking, timestamp validation, cache eviction (max_nonce_cache)
+- **Future timestamp injection**: Knocks with timestamps far in the future are rejected; packets within tolerance are accepted
 - **Command injection**: Shell metacharacter prevention in IP/port/command fields
 - **IP binding**: Client IP embedded in encrypted payload and verified against source
 - **Forward secrecy**: Each knock uses ephemeral keys; no key reuse across knocks
 - **State recovery**: Crash recovery with state.json, close_ports_on_crash behavior
 - **Security hardening**: Systemd unit sandboxing, directory permissions
+- **Server policy enforcement**: open-all denied when disabled, unlisted ports denied, TOTP required enforcement
 
 ### Server & Command Execution
 - **Command execution**: ExecuteCommandTimeout with process group kill (Linux/Windows/macOS)
+- **Execution fuzz**: Arbitrary strings through shell execution pipeline
+- **Timeout enforcement**: Commands killed within configured timeout + process cleanup
+- **Concurrent execution**: Multiple simultaneous commands without interference
 - **Partial output capture**: Stdout/stderr captured even when commands time out or fail
 - **Command output logging**: CMD-OUTPUT logged for successful, failed, and timed-out commands
 - **Deduplication**: TryReserve/RefreshExpiry dedup prevents duplicate command execution
@@ -51,6 +56,8 @@ Tests cover the following areas:
 
 ### Networking & Capture
 - **STUN parsing**: WAN IP detection from STUN responses, NAT/CGNAT scenarios
+- **STUN fuzz**: Arbitrary bytes into STUN response parser
+- **STUN property tests**: XOR-MAPPED-ADDRESS roundtrip, IPv6, truncated attributes, unknown attribute skip
 - **Capture modes**: pcap packet parsing, AF_PACKET, WinDivert
 - **Sniffer**: Factory creation, multi-address binding, interface detection
 - **pcap (Windows)**: WinPcap/Npcap dynamic loading
@@ -67,6 +74,73 @@ Tests cover the following areas:
 - **Security properties**: Forward secrecy verification, hardening checks
 - **Config directory**: Custom cfgdir/logdir via flags
 - **Vulnerability scanning**: govulncheck for known CVEs in dependencies
+
+### Fuzz Testing
+Go native fuzz tests cover every boundary where untrusted data enters the system:
+
+| Package | Fuzz Target | What It Tests |
+|---|---|---|
+| `crypto` | `FuzzDecapsulateAndDecrypt` | Random bytes into KEM+AES decryption pipeline |
+| `crypto` | `FuzzSymmetricDecrypt`, `FuzzSymmetricRoundtrip` | AES-256-GCM with arbitrary ciphertext |
+| `crypto` | `FuzzEncryptDecryptRoundtrip` | Full ML-KEM encapsulate/decapsulate cycle |
+| `crypto` | `FuzzParseExportBundle`, `FuzzParseExportBundleRaw` | Malformed export bundles |
+| `crypto` | `FuzzDecodeBinary` | Binary format parser with arbitrary bytes |
+| `crypto` | `FuzzValidateTOTP`, `FuzzGenerateTOTP` | TOTP with arbitrary secrets and codes |
+| `crypto` | `FuzzComputeDynamicPortForWindow` | Dynamic port with arbitrary seeds and windows |
+| `protocol` | `FuzzDecodePayload` | Binary payload decoder with all flag combinations |
+| `protocol` | `FuzzParseKnockPacket` | Full packet decrypt+parse with random ciphertext |
+| `protocol` | `FuzzValidateCommand` | Command string validation with arbitrary input |
+| `protocol` | `FuzzEncodeDecodePayloadRoundtrip` | Encode/decode consistency property |
+| `sniffer` | `FuzzParsePcapPacket` | Raw pcap frames across all link types |
+| `sniffer` | `FuzzParseIPv4UDP`, `FuzzParseIPv6UDP` | IP+UDP header parsing with corruption |
+| `config` | `FuzzConfigValidate` | Config validation with 15 randomized parameters |
+| `config` | `FuzzConfigLoad` | Arbitrary TOML into config loader |
+| `server` | `FuzzBuildCommand` | Command template substitution with injection attempts |
+| `server` | `FuzzIsValidRecoveredCommand` | State file command allowlist validation |
+| `server` | `FuzzParsePortSpec` | Port specification parser |
+| `server` | `FuzzSanitizeForLog` | Log sanitizer with control characters |
+| `server` | `FuzzExecuteCommandTimeout` | Arbitrary strings through command execution pipeline |
+| `client` | `FuzzParseSTUNResponse` | Malformed STUN responses into parser |
+| `service` | `FuzzSanitizeServiceLabel` | Service label normalization invariants and allowed character set |
+| `integration` | `FuzzRawBytesIntoPipeline` | Random bytes through full decrypt+parse+command pipeline |
+| `integration` | `FuzzUDPReceiveSimulation` | Simulated UDP receive through entire server pipeline |
+| `integration` | `FuzzExportBundlePortFuzz` | Export bundle port encoding round-trip |
+
+### Property-Based and Mutation-Resilient Tests
+Tests designed to catch regressions from code mutations:
+
+- **Tamper detection**: Single-bit flip at every byte position in an encrypted packet
+- **Truncation resistance**: Payload truncated at every offset boundary
+- **Wrong-key rejection**: Packets encrypted for key A always rejected by key B
+- **Anti-replay**: Nonce tracker rejects all replayed nonces under concurrent pressure
+- **Future timestamp**: Packets with timestamps beyond tolerance are rejected; packets within tolerance are accepted
+- **Injection resistance**: Shell metacharacters in IP/port/protocol fields never reach command output
+- **State file injection**: Malicious commands in recovered state always blocked by allowlist
+- **TOTP time-window**: Codes from +/-30s accepted, wrong-secret codes rejected
+- **TOTP enforcement**: TOTP-enabled server rejects knocks with missing or wrong-secret TOTP codes
+- **Policy enforcement**: open-all command denied when disabled; ports not in allowed_ports denied when custom-port disabled
+- **Padding neutrality**: Variable padding never alters payload field values
+- **IPv6 address preservation**: Various IPv6 formats survive the full encrypt/decrypt cycle
+- **Packet uniqueness**: Identical inputs produce cryptographically distinct packets
+- **Nonce entropy**: Generated nonces have no common prefixes exceeding 4 bytes
+- **MTU compliance**: KEM768 packets with common commands fit within 1500-byte Ethernet MTU
+- **Concurrent safety**: Pipeline handles 50+ concurrent valid+garbage packets correctly
+
+### Running Fuzz Tests
+
+```bash
+# Run a specific fuzz target for 30 seconds
+go test ./internal/crypto/ -fuzz=FuzzDecapsulateAndDecrypt -fuzztime=30s
+
+# Run all fuzz targets in a package (each runs briefly as a unit test)
+go test ./internal/crypto/ -run=Fuzz
+
+# Run integration fuzz targets
+go test ./tests/integration/ -fuzz=FuzzRawBytesIntoPipeline -fuzztime=60s
+
+# Run all fuzz targets across the project (seed corpus only)
+go test ./... -run=Fuzz
+```
 
 ## Build Script Tests
 

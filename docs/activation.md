@@ -8,10 +8,10 @@ The activation bundle is required to set up an SPK client. It contains the serve
 
 During server setup (`spk --server --setup`), the activation bundle is generated automatically and saved as `activation.b64` (text) and `activation_qr.png` (QR code). Transfer either to the client machine and run `spk --client --setup` to import it.
 
-- **activation.b64**: `"SK"` prefix + zlib-compressed binary, then base64-encoded
-- **activation_qr.png**: `"SK"` prefix + zlib-compressed binary (raw bytes, no base64)
+- **activation.b64**: `"SK"` prefix + raw binary, then base64-encoded
+- **activation_qr.png**: `"SK"` prefix + raw binary (no base64)
 
-Both encode the same logical content; QR uses raw binary for better space utilization (Medium error correction).
+Both encode the same logical content.
 
 ## Binary Layout (inside compressed payload)
 
@@ -31,7 +31,7 @@ KEM Size       (2 bytes)  -- ML-KEM key size: 768 or 1024 (big-endian)
 Encapsulation Key (variable) -- ML-KEM public key (1184 bytes for 768, 1568 bytes for 1024)
 ```
 
-Total uncompressed: ~1200-1585 bytes depending on KEM size. After zlib + raw binary: fits QR Medium EC.
+Total: ~1202-1586 bytes depending on KEM size (SK magic + binary payload). Fits QR Medium EC.
 
 ## Encrypted Bundles
 
@@ -42,7 +42,7 @@ When a password is set during server export (`spk --server --export`), bundles u
 ```
 "SKE"          (3 bytes)  -- encrypted bundle magic
 Salt           (32 bytes) -- random salt for Argon2id
-Encrypted Data (variable) -- AES-256-GCM(Argon2id(password, salt), compressed_payload)
+Encrypted Data (variable) -- AES-256-GCM(Argon2id(password, salt), raw_payload)
 ```
 
 ## Encrypted Bundle Decryption
@@ -52,9 +52,8 @@ When the bundle starts with `"SKE"`:
 1. Extract `salt` (bytes 3-34, 32 bytes) and `encrypted_data` (bytes 35+)
 2. Derive key: `key = Argon2id(password, salt, time=3, memory=65536 KB, threads=4, keyLen=32)`
 3. Split encrypted_data: `nonce = encrypted_data[0:12]`, `ciphertext = encrypted_data[12:]`
-4. Decrypt: `compressed = AES-256-GCM-Open(key, nonce, ciphertext, aad=nil)`
-5. Decompress: `raw = zlib_decompress(compressed)`
-6. Parse raw as the binary layout (see above - starts with `"SK"` + version + flags + ...)
+4. Decrypt: `raw = AES-256-GCM-Open(key, nonce, ciphertext, aad=nil)`
+5. Parse raw as the binary layout (see above - starts with `"SK"` + version + flags + ...)
 
 ## Parsing the Bundle
 
@@ -72,8 +71,7 @@ decoded = base64_decode(activation_b64_string)
 
 ```
 magic              = decoded[0:2]        // "SK" - skip these
-compressed_data    = decoded[2:]         // rest is zlib-compressed
-raw                = zlib_decompress(compressed_data)
+raw_data           = decoded[2:]         // rest is the raw binary payload
 ```
 
 **Parse the decompressed binary:**

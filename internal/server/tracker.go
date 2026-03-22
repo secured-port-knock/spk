@@ -266,6 +266,10 @@ func (t *Tracker) recoverState() {
 
 	now := time.Now()
 	for key, entry := range entries {
+		if entry == nil {
+			t.logger.Printf("[RECOVERY] Skipping nil entry for key %s", key)
+			continue
+		}
 		// Validate recovered commands to prevent state file injection
 		if entry.CloseCmd != "" && !isValidRecoveredCommand(entry.CloseCmd) {
 			t.logger.Printf("[RECOVERY] Skipping entry with suspicious close command: %s:%s:%s",

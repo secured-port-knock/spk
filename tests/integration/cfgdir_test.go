@@ -204,6 +204,15 @@ func TestServiceDisplayNameCustomLabel(t *testing.T) {
 	}
 }
 
+// TestServiceNameSanitizationIntegration verifies that service labels are
+// transformed into service-safe names while preserving hyphens.
+func TestServiceNameSanitizationIntegration(t *testing.T) {
+	sc := service.ServiceConfig{DisplayLabel: " Prod Env-01! "}
+	if got, want := sc.ServiceName(), "spk_prod_env-01_"; got != want {
+		t.Errorf("ServiceName() = %q, want %q", got, want)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Helpers -- save/restore global state for parallel-safe tests
 // ---------------------------------------------------------------------------

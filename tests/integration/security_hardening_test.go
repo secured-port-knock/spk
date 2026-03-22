@@ -3,8 +3,6 @@
 package integration
 
 import (
-	"bytes"
-	"compress/zlib"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -15,13 +13,12 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Zip bomb / decompression bound tests
+// Bundle size bound tests
 // ---------------------------------------------------------------------------
 
-// TestZlibDecompressionBoundNormalBundle verifies that normal-sized export
-// bundles decompress and parse successfully (no false positives from the
-// 16 KB decompression cap).
-func TestZlibDecompressionBoundNormalBundle(t *testing.T) {
+// TestBundleSizeValidationNormalBundle verifies that normal-sized export
+// bundles parse successfully (no false positives from the size cap).
+func TestBundleSizeValidationNormalBundle(t *testing.T) {
 	for _, kem := range []crypto.KEMSize{crypto.KEM768, crypto.KEM1024} {
 		dk, err := crypto.GenerateKeyPair(kem)
 		if err != nil {
@@ -46,9 +43,9 @@ func TestZlibDecompressionBoundNormalBundle(t *testing.T) {
 	}
 }
 
-// TestZlibDecompressionBoundEncryptedBundle verifies password-encrypted
-// bundles also work within the decompression cap.
-func TestZlibDecompressionBoundEncryptedBundle(t *testing.T) {
+// TestBundleSizeValidationEncryptedBundle verifies password-encrypted
+// bundles also work within the size cap.
+func TestBundleSizeValidationEncryptedBundle(t *testing.T) {
 	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
 	ek := dk.EncapsulationKey()
 
@@ -65,44 +62,34 @@ func TestZlibDecompressionBoundEncryptedBundle(t *testing.T) {
 	}
 }
 
-// TestZlibDecompressionBoundRejectsOversized verifies that a crafted
-// compressed payload exceeding 16 KB is rejected during decompression.
-func TestZlibDecompressionBoundRejectsOversized(t *testing.T) {
-	// Create a payload that compresses well but decompresses to >16 KB.
-	// 20 KB of zeroes compresses to a few dozen bytes.
-	bigPayload := make([]byte, 20*1024)
-	var buf bytes.Buffer
-	w, _ := zlib.NewWriterLevel(&buf, zlib.BestCompression)
-	w.Write(bigPayload)
-	w.Close()
-
-	// Construct a fake v1 bundle: [version=1][compressed data]
-	fake := append([]byte{0x01}, buf.Bytes()...)
-	b64 := base64.StdEncoding.EncodeToString(fake)
+// TestBundleSizeValidationRejectsOversized verifies that a bundle whose
+// decoded raw size exceeds maxBundleRawSize is rejected before parsing.
+// This prevents large-allocation attacks from crafted inputs.
+func TestBundleSizeValidationRejectsOversized(t *testing.T) {
+	// 5 KB starting with "SK" magic: passes magic check but exceeds the 4 KB limit.
+	oversized := make([]byte, 5*1024)
+	oversized[0] = 'S'
+	oversized[1] = 'K'
+	b64 := base64.StdEncoding.EncodeToString(oversized)
 
 	_, err := crypto.ParseExportBundle(b64, "")
 	if err == nil {
-		t.Fatal("expected error for oversized decompressed bundle, got nil")
+		t.Fatal("expected error for oversized bundle, got nil")
 	}
-	// The error might mention "zip bomb" or "exceeds" or be a parse error
-	// after truncation -- any rejection is correct.
 	t.Logf("correctly rejected oversized bundle: %v", err)
 }
 
-// TestZlibDecompressionBoundJustOver16KB verifies the exact boundary.
-func TestZlibDecompressionBoundJustOver16KB(t *testing.T) {
-	payload := make([]byte, 16*1024+1) // 1 byte over the limit
-	var buf bytes.Buffer
-	w, _ := zlib.NewWriterLevel(&buf, zlib.BestCompression)
-	w.Write(payload)
-	w.Close()
-
-	fake := append([]byte{0x01}, buf.Bytes()...)
-	b64 := base64.StdEncoding.EncodeToString(fake)
+// TestBundleSizeValidationJustOverLimit verifies the exact boundary: a bundle
+// one byte over maxBundleRawSize (4096 bytes) is rejected.
+func TestBundleSizeValidationJustOverLimit(t *testing.T) {
+	oversized := make([]byte, 4097)
+	oversized[0] = 'S'
+	oversized[1] = 'K'
+	b64 := base64.StdEncoding.EncodeToString(oversized)
 
 	_, err := crypto.ParseExportBundle(b64, "")
 	if err == nil {
-		t.Fatal("expected error for payload just over 16 KB")
+		t.Fatal("expected error for bundle just over size limit")
 	}
 }
 

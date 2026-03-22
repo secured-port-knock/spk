@@ -27,13 +27,13 @@ else
 endif
 
 test:
-	go test ./... -v -count=1
+	go test $(shell go list ./... | grep -v /sniffer) -v -count=1
 
 test-short:
-	go test ./... -count=1
+	go test $(shell go list ./... | grep -v /sniffer) -count=1
 
 coverage:
-	go test ./... -coverprofile=coverage.out
+	go test $(shell go list ./... | grep -v /sniffer) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 

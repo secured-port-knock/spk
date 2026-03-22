@@ -3,6 +3,8 @@
 package protocol
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -249,5 +251,79 @@ func TestNonceTrackerEmptyNonce(t *testing.T) {
 	}
 	if tracker.Check("") {
 		t.Error("empty nonce replay should fail")
+	}
+}
+
+// ------------------------------------------------------------------------
+// Future Timestamp Injection Attack
+// ------------------------------------------------------------------------
+
+// TestFutureTimestampRejection verifies that a knock with a timestamp far in
+// the future is rejected.  An attacker could craft a packet with a future
+// timestamp hoping to keep it "fresh" longer than the tolerance window allows.
+// The server must reject packets too far ahead of its own clock.
+func TestFutureTimestampRejection(t *testing.T) {
+	dk, _ := crypto.GenerateKeyPair()
+	ek := dk.EncapsulationKey()
+
+	// Build a payload with timestamp 2 hours in the future.
+	// encodePayload is accessible because this test is in package protocol.
+	nonceRaw := make([]byte, NonceBytes)
+	if _, err := rand.Read(nonceRaw); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+	futurePayload := &KnockPayload{
+		Version:      ProtocolVersion,
+		Timestamp:    time.Now().Unix() + 7200,
+		Nonce:        hex.EncodeToString(nonceRaw),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 0,
+	}
+	plaintext, err := encodePayload(futurePayload)
+	if err != nil {
+		t.Fatalf("encodePayload: %v", err)
+	}
+	packet, err := crypto.EncapsulateAndEncrypt(ek, plaintext)
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
+
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err == nil {
+		t.Error("packet with timestamp 2h in future should be rejected (tolerance=30s)")
+	}
+	if err != nil && !strings.Contains(err.Error(), "future") {
+		t.Errorf("error should mention future timestamp, got: %v", err)
+	}
+}
+
+// TestFutureTimestampWithinToleranceAccepted verifies that a packet with a
+// timestamp slightly ahead (within tolerance) is accepted -- attackers cannot
+// use this as an oracle to determine the tolerance window.
+func TestFutureTimestampWithinToleranceAccepted(t *testing.T) {
+	dk, _ := crypto.GenerateKeyPair()
+	ek := dk.EncapsulationKey()
+
+	nonceRaw := make([]byte, NonceBytes)
+	rand.Read(nonceRaw)
+	// 10 seconds ahead -- within the default 30s tolerance
+	p := &KnockPayload{
+		Version:      ProtocolVersion,
+		Timestamp:    time.Now().Unix() + 10,
+		Nonce:        hex.EncodeToString(nonceRaw),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 0,
+	}
+	plaintext, _ := encodePayload(p)
+	packet, err := crypto.EncapsulateAndEncrypt(ek, plaintext)
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
+
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Errorf("packet 10s ahead (within 30s tolerance) should be accepted: %v", err)
 	}
 }

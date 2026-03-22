@@ -3,7 +3,9 @@
 package service
 
 import (
+	"bufio"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -168,8 +170,26 @@ func TestIsWindows(t *testing.T) {
 }
 
 func TestDetectDefaultCfgDir(t *testing.T) {
-	dir := detectDefaultCfgDir("/usr/local/bin/spk")
+	exePath := filepath.Join("root", "bin", "spk")
+	dir := detectDefaultCfgDir(exePath)
+	if runtime.GOOS == "windows" {
+		want := filepath.Join(filepath.Dir(exePath), "config")
+		if dir != want {
+			t.Errorf("detectDefaultCfgDir() = %q, want %q", dir, want)
+		}
+		return
+	}
 	if dir == "" {
-		t.Error("detectDefaultCfgDir should return non-empty dir")
+		t.Fatal("detectDefaultCfgDir should return non-empty dir")
+	}
+	if dir != "/etc/spk" && dir != filepath.Dir(exePath) {
+		t.Errorf("detectDefaultCfgDir() = %q, want /etc/spk or %q", dir, filepath.Dir(exePath))
+	}
+}
+
+func TestReadLineTrimsWhitespace(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("  hello world  \n"))
+	if got := readLine(r); got != "hello world" {
+		t.Errorf("readLine() = %q, want %q", got, "hello world")
 	}
 }
