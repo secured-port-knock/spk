@@ -457,12 +457,26 @@ func TestLoggerConcurrentWrites(t *testing.T) {
 	}
 }
 
-// TestUsingFallbackLogDir verifies the fallback tracking.
-func TestUsingFallbackLogDir(t *testing.T) {
-	// By default (before any SetLogDir override), UsingFallbackLogDir
-	// may be true or false depending on the OS. Just verify it does not panic
-	// and returns a boolean.
-	_ = UsingFallbackLogDir()
+// TestLogDirInitError verifies that LogDirInitError returns nil by default when
+// a custom log directory is set (the init error is only set on Linux/macOS when
+// /var/log/spk is inaccessible and no --logdir override is in effect).
+func TestLogDirInitError(t *testing.T) {
+	dir := t.TempDir()
+	origDir := LogDir() // prime and capture
+	// Restore via SetLogDir -- SetLogDir("") resets to defaults.
+	if origDir != "" {
+		defer func() { _ = SetLogDir(origDir) }()
+	} else {
+		defer func() { _ = SetLogDir("") }()
+	}
+
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+	// After an explicit SetLogDir call, LogDirInitError must be nil.
+	if LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil after SetLogDir, got: %v", LogDirInitError())
+	}
 }
 
 // TestDefaultConfigValues verifies DefaultConfig returns sensible defaults.

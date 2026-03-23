@@ -6,6 +6,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/secured-port-knock/spk/internal/sniffer"
 )
 
 // makeBuildInfo returns a minimal *debug.BuildInfo with the given module version.
@@ -115,6 +117,34 @@ func TestResolveVersionFromBuildInfo_StripVPrefix(t *testing.T) {
 		ver, _ := resolveVersionFromBuildInfo("1.0.0", "0", "Dev", makeBuildInfo(tc.tag), true)
 		if ver != tc.want {
 			t.Errorf("tag %q: got %q, want %q", tc.tag, ver, tc.want)
+		}
+	}
+}
+
+// TestPcapLabelMatchesSniffer verifies that pcapLabel() returns "[With PCAP]"
+// or "[No PCAP]" consistent with sniffer.PcapImplemented().
+func TestPcapLabelMatchesSniffer(t *testing.T) {
+	label := pcapLabel()
+	implemented := sniffer.PcapImplemented()
+	if implemented && label != "[With PCAP]" {
+		t.Errorf("PcapImplemented()=true but pcapLabel()=%q, want \"[With PCAP]\"", label)
+	}
+	if !implemented && label != "[No PCAP]" {
+		t.Errorf("PcapImplemented()=false but pcapLabel()=%q, want \"[No PCAP]\"", label)
+	}
+}
+
+// TestVersionTagAppendsPForPcapBuilds verifies the "p" suffix is added when
+// PCAP support is compiled in.
+func TestVersionTagAppendsPForPcapBuilds(t *testing.T) {
+	tag := versionTag()
+	if sniffer.PcapImplemented() {
+		if !strings.HasSuffix(tag, "p") {
+			t.Errorf("versionTag()=%q should end with 'p' when PcapImplemented()=true", tag)
+		}
+	} else {
+		if strings.HasSuffix(tag, "p") {
+			t.Errorf("versionTag()=%q should NOT end with 'p' when PcapImplemented()=false", tag)
 		}
 	}
 }

@@ -218,6 +218,9 @@ func TestServiceNameSanitizationIntegration(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func getConfigDirForRestore() string {
+	// ConfigDir() may return "" on Linux/macOS without root; that is fine --
+	// passing "" to SetConfigDir clears the custom override so the next
+	// ConfigDir() call reverts to platform-default resolution.
 	return config.ConfigDir()
 }
 
@@ -239,15 +242,23 @@ func restoreLogDir(dir string) {
 // Directory auto-creation tests (regression: "system cannot find the path")
 // ---------------------------------------------------------------------------
 
-// TestConfigDirAlwaysExists verifies that ConfigDir() always returns an existing
-// directory, whether using the default or a custom override.
+// TestConfigDirAlwaysExists verifies that ConfigDir() returns an existing
+// directory when one is accessible. On Linux/macOS without root /etc/spk
+// cannot be created; in that case ConfigDir() returns "" and
+// ConfigDirInitError() reports the reason.
 // Regression test for: "Error saving key: open .../config/server.crt: The system
 // cannot find the path specified."
 func TestConfigDirAlwaysExists(t *testing.T) {
 	// Default path
 	dir := config.ConfigDir()
 	if dir == "" {
-		t.Fatal("ConfigDir() returned empty string")
+		// Expected on Linux/macOS when /etc/spk is not accessible.
+		// ConfigDirInitError must be set in this case.
+		if config.ConfigDirInitError() == nil {
+			t.Error("ConfigDir() returned empty string but ConfigDirInitError() is nil")
+		}
+		t.Skipf("no writable server config directory (ConfigDirInitError: %v); expected without root on Linux/macOS", config.ConfigDirInitError())
+		return
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -276,11 +287,20 @@ func TestConfigDirAlwaysExists(t *testing.T) {
 	}
 }
 
-// TestLogDirAlwaysExists verifies that LogDir() always returns an existing directory.
+// TestLogDirAlwaysExists verifies that LogDir() returns an existing directory
+// when one is accessible. On Linux/macOS without root, /var/log/spk may not
+// be accessible; in that case LogDir() returns "" (file logging disabled) and
+// LogDirInitError() reports the reason.
 func TestLogDirAlwaysExists(t *testing.T) {
 	dir := logging.LogDir()
 	if dir == "" {
-		t.Fatal("LogDir() returned empty string")
+		// Expected on Linux/macOS when /var/log/spk is not accessible.
+		// LogDirInitError must be set in this case.
+		if logging.LogDirInitError() == nil {
+			t.Error("LogDir() returned empty string but LogDirInitError() is nil")
+		}
+		t.Skipf("no writable log directory (LogDirInitError: %v); expected without root on Linux/macOS", logging.LogDirInitError())
+		return
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -446,5 +466,80 @@ func TestClientLoggerNoFileWithoutLogDir(t *testing.T) {
 	}
 	if _, err := os.Stat(expected); err != nil {
 		t.Errorf("log file not created when logdir is set: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Config / log dir runtime behaviour tests
+// ---------------------------------------------------------------------------
+
+// TestSetLogDirEmptyResetsBehaviour verifies that SetLogDir("") clears the
+// custom override without returning an error.
+func TestSetLogDirEmptyResetsBehaviour(t *testing.T) {
+	origDir := getLogDirForRestore()
+	defer restoreLogDir(origDir)
+
+	dir := t.TempDir()
+	if err := logging.SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir(%q): %v", dir, err)
+	}
+	if !logging.IsCustomLogDir() {
+		t.Fatal("IsCustomLogDir should be true after SetLogDir")
+	}
+
+	// Now reset -- must succeed with no error.
+	if err := logging.SetLogDir(""); err != nil {
+		t.Fatalf("SetLogDir(\"\") returned unexpected error: %v", err)
+	}
+	if logging.IsCustomLogDir() {
+		t.Error("IsCustomLogDir should be false after SetLogDir(\"\")")
+	}
+}
+
+// TestSetLogDirClearsInitError verifies that after SetLogDir is called with a
+// valid directory, LogDirInitError() returns nil even if it was set before.
+func TestSetLogDirClearsInitError(t *testing.T) {
+	origDir := getLogDirForRestore()
+	defer restoreLogDir(origDir)
+
+	// Force a real log dir to be used so LogDirInitError is cleared.
+	dir := t.TempDir()
+	if err := logging.SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+	if logging.LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil after SetLogDir, got: %v", logging.LogDirInitError())
+	}
+}
+
+// TestSetConfigDirClearsInitError verifies that calling SetConfigDir with a
+// valid path clears any prior ConfigDirInitError.
+func TestSetConfigDirClearsInitError(t *testing.T) {
+	origDir := getConfigDirForRestore()
+	defer restoreConfigDir(origDir)
+
+	dir := t.TempDir()
+	config.SetConfigDir(dir)
+	if config.ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil after SetConfigDir, got: %v", config.ConfigDirInitError())
+	}
+}
+
+// TestConfigDirCustomOverrideTakesPrecedence verifies that on any platform, if
+// a custom dir is set via --cfgdir (SetConfigDir), it overrides the default
+// /etc/spk path and ConfigDirInitError() is nil afterwards.
+func TestConfigDirCustomOverrideTakesPrecedence(t *testing.T) {
+	origDir := getConfigDirForRestore()
+	defer restoreConfigDir(origDir)
+
+	dir := t.TempDir()
+	config.SetConfigDir(dir)
+
+	got := config.ConfigDir()
+	if got != dir {
+		t.Errorf("ConfigDir() = %q, want %q", got, dir)
+	}
+	if config.ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil, got: %v", config.ConfigDirInitError())
 	}
 }

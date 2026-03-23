@@ -41,13 +41,13 @@ import (
 	"github.com/secured-port-knock/spk/internal/logging"
 	"github.com/secured-port-knock/spk/internal/server"
 	"github.com/secured-port-knock/spk/internal/service"
+	"github.com/secured-port-knock/spk/internal/sniffer"
 )
 
 var (
 	version     = "1.0.0"
 	commit      = "Dev"
 	buildNumber = "0"
-	pcapBuild   = "0" // set to "1" by linker for pcap builds
 )
 
 func fullVersion() string {
@@ -58,15 +58,17 @@ func fullVersion() string {
 // Pcap-capable builds append "p" (e.g. "1.0.3.1004p").
 func versionTag() string {
 	v := fullVersion()
-	if pcapBuild == "1" {
+	if sniffer.PcapImplemented() {
 		v += "p"
 	}
 	return v
 }
 
 // pcapLabel returns a human-readable PCAP capability label.
+// Uses sniffer.PcapImplemented() which reflects the actual compile-time state
+// regardless of whether -ldflags were passed (correct for 'go install' builds).
 func pcapLabel() string {
-	if pcapBuild == "1" {
+	if sniffer.PcapImplemented() {
 		return "[With PCAP]"
 	}
 	return "[No PCAP]"
@@ -302,6 +304,18 @@ func main() {
 	}
 
 	if *serverMode {
+		// Ensure config dir is initialized and check for unrecoverable errors.
+		// ConfigDir() is idempotent so calling it explicitly here is safe even
+		// if it was already called during auto-detect mode.
+		_ = config.ConfigDir()
+		if *cfgDir == "" {
+			if cfgDirErr := config.ConfigDirInitError(); cfgDirErr != nil {
+				fmt.Fprintf(os.Stderr,
+					"Error: %v.\nTry running as root, fixing the directory permissions, or use --cfgdir <path>.\n",
+					cfgDirErr)
+				os.Exit(1)
+			}
+		}
 		switch {
 		case *setup:
 			server.RunSetup()

@@ -26,7 +26,7 @@ build:
 ifdef NOPCAP
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./cmd/spk/
 else
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_BASE) -X main.pcapBuild=1" -o $(BINARY)_$(FULL_VERSION)p ./cmd/spk/ || \
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION)p ./cmd/spk/ || \
 		(echo "CGO build failed, falling back to no-pcap"; CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./cmd/spk/)
 endif
 

@@ -20,6 +20,12 @@ type Sniffer interface {
 	Stop() error
 }
 
+// PcapImplemented reports whether this binary was compiled with pcap support.
+// On Windows the pcap backend is always compiled in (pure Go, no CGO needed).
+// On Linux/macOS it requires CGO; returns false when built with CGO_ENABLED=0.
+// This is a compile-time check, not a runtime library probe.
+func PcapImplemented() bool { return pcapImplemented() }
+
 // UDPSniffer listens on a UDP socket. Simple, universal, no dependencies.
 // Port will appear as open in scans (less stealthy) but works everywhere.
 type UDPSniffer struct {

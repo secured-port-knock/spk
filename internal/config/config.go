@@ -160,39 +160,51 @@ func DefaultClientConfig() *Config {
 // customConfigDir is set via --cfgdir to override the platform default.
 var customConfigDir string
 
-// configDirFallback is set when /etc/spk is not writable and the
-// exe-relative config/ directory is used instead.
-var configDirFallback bool
+// configDirInitError is set when /etc/spk cannot be created (permission
+// denied). Callers should check ConfigDirInitError() and exit with a helpful
+// message before attempting to use the directory.
+var configDirInitError error
 
 // SetConfigDir overrides the default config directory.
 // Creates the directory if it does not exist.
 func SetConfigDir(dir string) {
 	os.MkdirAll(dir, 0750)
 	customConfigDir = dir
+	configDirInitError = nil // clear any prior init error when an explicit dir is set
 }
 
-// UsingFallbackConfigDir returns true when ConfigDir fell back to an
-// exe-relative config/ directory because /etc/spk was not writable.
-func UsingFallbackConfigDir() bool {
-	return configDirFallback
+// ConfigDirInitError returns a non-nil error when /etc/spk could not be
+// created (permission denied). This error is only set on Linux/macOS when no
+// --cfgdir override is in effect. Callers in server mode should check this at
+// startup and exit with a helpful message.
+func ConfigDirInitError() error {
+	return configDirInitError
 }
 
 // ConfigDir returns the platform-appropriate server config directory.
 // If SetConfigDir was called, returns that override.
-// Linux/macOS: /etc/spk (falls back to <exe_dir>/config if no permission)
-// Windows: <exe_dir>/config
+// Linux/macOS: /etc/spk only (requires root). If inaccessible,
+//
+//	ConfigDirInitError() is set and "" is returned. The caller should
+//	check ConfigDirInitError() and exit with a helpful message.
+//
+// Windows: <exe_dir>\config
 func ConfigDir() string {
 	if customConfigDir != "" {
 		return customConfigDir
 	}
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		dir := "/etc/spk"
-		if err := os.MkdirAll(dir, 0750); err == nil {
-			return dir
+		// Server config lives in /etc/spk only. Root or CAP_DAC_OVERRIDE is
+		// required. There is no unprivileged fallback; use --cfgdir instead.
+		if err := os.MkdirAll("/etc/spk", 0750); err == nil {
+			configDirInitError = nil
+			return "/etc/spk"
 		}
-		configDirFallback = true
-		// Fall through to exe-relative config/ (same pattern as Windows)
+		configDirInitError = fmt.Errorf(
+			"cannot access /etc/spk: permission denied")
+		return ""
 	}
+	// Windows (and other platforms): exe-relative config/
 	exe, err := os.Executable()
 	if err != nil {
 		return "."
