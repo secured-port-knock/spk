@@ -55,46 +55,77 @@ type Logger struct {
 // customLogDir is set via --logdir to override the platform default.
 var customLogDir string
 
-// logDirFallback is set when /var/log/spk is not writable and the
-// exe-relative log/ directory is used instead.
-var logDirFallback bool
+// logDirInitError is set on Linux/macOS when /var/log/spk cannot be created
+// or is not writable by the current user. File logging is disabled in this
+// case. Check LogDirInitError() at startup to surface a helpful message.
+var logDirInitError error
 
 // SetLogDir overrides the default log directory.
 // Creates the directory if it does not exist.
-// Returns an error if the directory cannot be created; customLogDir is only
-// updated on success so that a failed call leaves the previous value intact.
+// Pass an empty string to clear a custom override and revert to defaults.
+// Returns an error if dir is non-empty and cannot be created; customLogDir
+// is only updated on success so that a failed call leaves the previous value.
 func SetLogDir(dir string) error {
+	if dir == "" {
+		// Reset to default behavior.
+		customLogDir = ""
+		return nil
+	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create log directory %s: %w", dir, err)
 	}
 	customLogDir = dir
+	logDirInitError = nil // clear any prior init error when an explicit dir is set
 	return nil
 }
 
-// UsingFallbackLogDir returns true when LogDir fell back to an
-// exe-relative log/ directory because /var/log/spk was not writable.
-func UsingFallbackLogDir() bool {
-	return logDirFallback
+// LogDirInitError returns a non-nil error when /var/log/spk could not be
+// created or is not writable by the current user (Linux/macOS only, when no
+// --logdir override is set). File logging is disabled in that case.
+// Callers in server mode should check this and surface a helpful message.
+func LogDirInitError() error {
+	return logDirInitError
+}
+
+// isWritableDir reports whether the process can create files in dir.
+// Uses a brief exclusive create+remove cycle as a portable write test.
+func isWritableDir(dir string) bool {
+	tmp := filepath.Join(dir, ".spk_write_test")
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(tmp)
+	return true
 }
 
 // LogDir returns the platform-appropriate server log directory.
 // If SetLogDir was called, returns that override.
-// Linux/macOS: /var/log/spk (falls back to <exe_dir>/log if no permission)
-// Windows: <exe_dir>/log
+// Linux/macOS: /var/log/spk when accessible (requires root/CAP_DAC_WRITE).
+//
+//	If the directory cannot be created or is not writable, LogDirInitError()
+//	is set and LogDir returns "" to signal that file logging is disabled.
+//	Use --logdir to specify an alternative directory.
+//
+// Windows: <exe_dir>\log
 func LogDir() string {
 	if customLogDir != "" {
 		return customLogDir
 	}
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		dir := "/var/log/spk"
-		// Try to create; fall back to exe-relative log/ if no permission
-		if err := os.MkdirAll(dir, 0750); err == nil {
+		if err := os.MkdirAll(dir, 0750); err == nil && isWritableDir(dir) {
+			logDirInitError = nil
 			return dir
 		}
-		logDirFallback = true
-		// Fall through to exe-relative log/ (same pattern as Windows)
+		// /var/log/spk is inaccessible -- file logging is disabled.
+		logDirInitError = fmt.Errorf(
+			"cannot access /var/log/spk: permission denied. " +
+				"File logging disabled; use --logdir to write logs elsewhere")
+		return "" // signal: no log directory, file logging disabled
 	}
-	// Windows / fallback (same pattern for all platforms)
+	// Windows (and other platforms): exe-relative log/
 	exe, err := os.Executable()
 	if err != nil {
 		return "."
@@ -192,6 +223,11 @@ func New(filename string, cfg Config, module ...string) (*Logger, error) {
 	}
 
 	logDir := LogDir()
+	if logDir == "" {
+		// LogDir returns "" on Linux/macOS when /var/log/spk is not accessible
+		// and no --logdir was specified. File logging is disabled.
+		return nil, fmt.Errorf("log directory not available (specify --logdir to enable file logging)")
+	}
 	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", logDir, err)
 	}

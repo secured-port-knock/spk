@@ -82,27 +82,31 @@ func Run() {
 	}
 	srvLogger, logErr := logging.New("spk_server.log", logCfg, "server")
 	if logErr != nil {
-		logLine("WARN", fmt.Sprintf("could not initialize file logging: %v", logErr))
+		if logging.LogDirInitError() != nil {
+			// /var/log/spk is not accessible -- file logging is disabled.
+			logLine("WARN", fmt.Sprintf("File logging disabled: %v", logging.LogDirInitError()))
+		} else {
+			logLine("WARN", fmt.Sprintf("could not initialize file logging: %v", logErr))
+			logLine("WARN", "Fix log directory permissions or specify --logdir to enable file logging")
+		}
 		// Continue with stdout-only logging
 	} else {
 		defer srvLogger.Close()
 		logLine("INFO", fmt.Sprintf("Logging to: %s", srvLogger.FilePath()))
 	}
 
-	// Use the structured logger if available, otherwise fall back to basic
+	// Use the structured logger if available; otherwise keep using logLine so
+	// that all messages have consistent "LEVEL | timestamp [server] ..." format
+	// even when file logging is disabled.
 	var srvLog serverLogger = logger
-	logf := logger.Printf
+	logf := func(format string, v ...interface{}) {
+		logLine("INFO", fmt.Sprintf(format, v...))
+	}
 	if srvLogger != nil {
 		srvLog = srvLogger
-		logf = srvLogger.Printf
-	}
-
-	// Inform user when running with exe-relative directories instead of system paths
-	if config.UsingFallbackConfigDir() {
-		logLine("INFO", fmt.Sprintf("/etc/spk is not available, using %s instead", config.ConfigDir()))
-	}
-	if logging.UsingFallbackLogDir() {
-		logLine("INFO", fmt.Sprintf("/var/log/spk is not available, using %s instead", logging.LogDir()))
+		logf = func(format string, v ...interface{}) {
+			srvLogger.Printf(format, v...)
+		}
 	}
 
 	// Load private key

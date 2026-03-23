@@ -22,8 +22,11 @@
 
 | Platform | Config and Keys | Logs |
 |---|---|---|
-| Linux / macOS | `/etc/spk/` (falls back to `<exe_dir>/config/` if not writable) | `/var/log/spk/` (falls back to `<exe_dir>/log/`) |
+| Linux / macOS | `/etc/spk/` (requires root or `CAP_DAC_OVERRIDE`) | `/var/log/spk/` |
 | Windows | `<exe_dir>\config\` | `<exe_dir>\log\` |
+
+If `/etc/spk` cannot be accessed, SPK exits with an error and suggests running as root, fixing permissions, or using `--cfgdir`.
+If `/var/log/spk` cannot be created or written, a warning is printed and logging falls back to stdout. Use `--logdir` to direct logs elsewhere.
 
 ### Client (no elevated privileges required)
 

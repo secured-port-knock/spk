@@ -316,7 +316,6 @@ build_one() {
       # Linux/Darwin pcap: CGO for dlfcn.h only (no pcap headers needed)
       cgo_enabled="1"
     fi
-    extra_ldflags=" -X main.pcapBuild=1"
     echo "  Building ${output}... (pcap)"
   else
     echo "  Building ${output}..."

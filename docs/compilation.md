@@ -198,13 +198,13 @@ No pcap SDK or development headers are needed at **compile** time. Install the r
 
 ```bash
 # Windows pcap: pure Go, no CGO needed (wpcap.dll loaded at runtime)
-GOOS=windows CGO_ENABLED=0 go build -ldflags "-s -w -X main.pcapBuild=1" -o spk.exe ./cmd/spk/
+GOOS=windows CGO_ENABLED=0 go build -ldflags "-s -w" -o spk.exe ./cmd/spk/
 
 # Linux pcap: CGO with dlfcn.h only, no pcap SDK needed (libpcap.so loaded at runtime)
-CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -ldflags "-s -w -X main.pcapBuild=1" -o spk_linux ./cmd/spk/
+CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -ldflags "-s -w" -o spk_linux ./cmd/spk/
 
 # macOS pcap (native host): CGO with clang (native toolchain)
-CGO_ENABLED=1 go build -ldflags "-s -w -X main.pcapBuild=1" -o spk_darwin ./cmd/spk/
+CGO_ENABLED=1 go build -ldflags "-s -w" -o spk_darwin ./cmd/spk/
 
 # Build without pcap (pure Go, no CGO dependency, any host/target)
 CGO_ENABLED=0 go build -ldflags "-s -w" -o spk ./cmd/spk/

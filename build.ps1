@@ -307,7 +307,6 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
         }
         Remove-Item Env:\CGO_CFLAGS -ErrorAction SilentlyContinue
         Remove-Item Env:\CGO_LDFLAGS -ErrorAction SilentlyContinue
-        $ldflags += " -X main.pcapBuild=1"
         Write-Host "  Building $output... (pcap)" -ForegroundColor Green
     } else {
         $env:CGO_ENABLED = "0"
