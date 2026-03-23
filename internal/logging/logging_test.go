@@ -5,6 +5,7 @@ package logging
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 func TestNewLogger(t *testing.T) {
 	cfg := DefaultConfig()
 
-	l, err := New("test_unit.log", cfg)
+	l, err := New("test_unit.log", cfg, "test")
 	if err != nil {
 		// May fail if LogDir is not writable - skip
 		t.Skipf("cannot create logger: %v", err)
@@ -123,7 +124,10 @@ func TestLogRotation(t *testing.T) {
 func TestLogDirNotEmpty(t *testing.T) {
 	dir := LogDir()
 	if dir == "" {
-		t.Error("LogDir should not return empty string")
+		if LogDirInitError() == nil {
+			t.Error("LogDir() returned empty string but LogDirInitError() is nil")
+		}
+		t.Skipf("no writable log directory (LogDirInitError: %v); expected without root on Linux/macOS", LogDirInitError())
 	}
 }
 
@@ -237,7 +241,10 @@ func TestLogDirDefaultReturnsNonEmpty(t *testing.T) {
 
 	d := LogDir()
 	if d == "" {
-		t.Error("LogDir() should not return empty string")
+		if LogDirInitError() == nil {
+			t.Error("LogDir() returned empty string but LogDirInitError() is nil")
+		}
+		t.Skipf("no writable log directory (LogDirInitError: %v); expected without root on Linux/macOS", LogDirInitError())
 	}
 }
 
@@ -262,8 +269,10 @@ func TestNewLoggerWithCustomDir(t *testing.T) {
 	}
 }
 
-// TestLogDirDefaultCreatesDirectory verifies that LogDir() always returns a path
-// that exists on disk, even when no custom override is set.
+// TestLogDirDefaultCreatesDirectory verifies that LogDir() returns an existing
+// directory when one is accessible. On Linux/macOS without root /var/log/spk
+// cannot be created; in that case LogDir() returns "" (file logging disabled)
+// and LogDirInitError() reports the reason.
 func TestLogDirDefaultCreatesDirectory(t *testing.T) {
 	origDir := customLogDir
 	defer func() { customLogDir = origDir }()
@@ -271,7 +280,12 @@ func TestLogDirDefaultCreatesDirectory(t *testing.T) {
 
 	dir := LogDir()
 	if dir == "" {
-		t.Fatal("LogDir() returned empty string")
+		// Expected on Linux/macOS when /var/log/spk is not accessible.
+		if LogDirInitError() == nil {
+			t.Error("LogDir() returned empty string but LogDirInitError() is nil")
+		}
+		t.Skipf("no writable log directory (LogDirInitError: %v); expected without root on Linux/macOS", LogDirInitError())
+		return
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -582,5 +596,195 @@ func TestIsCustomLogDir(t *testing.T) {
 	}
 	if !IsCustomLogDir() {
 		t.Error("IsCustomLogDir() should be true after SetLogDir")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Platform-aware LogDir behaviour tests
+// ---------------------------------------------------------------------------
+
+// TestLogDirServerModeNoRoot verifies that on Linux/macOS without root,
+// LogDir() returns "" and LogDirInitError() is set. Skips on Windows or when
+// already running as root (i.e. /var/log/spk is accessible).
+func TestLogDirServerModeNoRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows always returns exe-relative log dir; root not required")
+	}
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = ""
+
+	dir := LogDir()
+	if dir != "" {
+		t.Skipf("LogDir() = %q (non-empty); running as root or /var/log/spk is accessible -- skip non-root path", dir)
+		return
+	}
+	// Non-root path: LogDirInitError must be set.
+	if LogDirInitError() == nil {
+		t.Error("LogDirInitError() should be non-nil when LogDir() returns empty")
+	}
+	if LogDirInitError().Error() == "" {
+		t.Error("LogDirInitError() error message should not be empty")
+	}
+}
+
+// TestLogDirServerModeWithCustomDir verifies that --logdir always works
+// regardless of whether /var/log/spk is accessible (simulates server started
+// with --logdir).
+func TestLogDirServerModeWithCustomDir(t *testing.T) {
+	dir := t.TempDir()
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+
+	if got := LogDir(); got != dir {
+		t.Errorf("LogDir() = %q, want %q", got, dir)
+	}
+	if LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil after SetLogDir, got: %v", LogDirInitError())
+	}
+
+	l, err := New("server.log", DefaultConfig(), "server")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer l.Close()
+	l.Infof("server startup message")
+
+	if _, err := os.Stat(filepath.Join(dir, "server.log")); err != nil {
+		t.Errorf("log file not created: %v", err)
+	}
+}
+
+// TestNewServerLoggerFailsWithNoLogDir verifies that on Linux/macOS non-root
+// (no --logdir set), New() returns an error so the caller can fall back to
+// stdout-only logging.
+func TestNewServerLoggerFailsWithNoLogDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows always has an exe-relative log dir")
+	}
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = ""
+
+	if LogDir() != "" {
+		t.Skip("LogDir() is non-empty (running as root or /var/log/spk is accessible); skip")
+	}
+
+	// New() must return an error when there is no directory to write to.
+	_, err := New("server.log", DefaultConfig(), "server")
+	if err == nil {
+		t.Error("New() should return error when LogDir() is empty")
+	}
+}
+
+// TestLogDirWindowsAlwaysNonEmpty verifies that on Windows, LogDir() always
+// returns a non-empty exe-relative path and sets no init error.
+func TestLogDirWindowsAlwaysNonEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only test")
+	}
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = ""
+
+	dir := LogDir()
+	if dir == "" {
+		t.Fatal("LogDir() returned empty string on Windows")
+	}
+	if LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil on Windows, got: %v", LogDirInitError())
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("LogDir() = %q but directory does not exist: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("LogDir() = %q is not a directory", dir)
+	}
+}
+
+// TestLogDirInitErrorClearedBySetLogDir verifies that SetLogDir with a valid
+// path clears any prior init error.
+func TestLogDirInitErrorClearedBySetLogDir(t *testing.T) {
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+
+	// Force a fresh probe on Linux/macOS to possibly set logDirInitError.
+	if runtime.GOOS != "windows" {
+		customLogDir = ""
+		_ = LogDir() // may set logDirInitError on non-root
+	}
+
+	// Override with a valid dir -- error must be cleared.
+	dir := t.TempDir()
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+	if LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil after SetLogDir, got: %v", LogDirInitError())
+	}
+}
+
+// TestLogDirServerModeWithRoot verifies that on Linux/macOS running as root,
+// LogDir() returns "/var/log/spk" and LogDirInitError() is nil. Skips when
+// not running as root or on Windows.
+func TestLogDirServerModeWithRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses exe-relative log dir; root not applicable")
+	}
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = ""
+
+	dir := LogDir()
+	if dir == "" {
+		t.Skip("LogDir() returned empty; not running as root -- skip root path test")
+	}
+	if LogDirInitError() != nil {
+		t.Errorf("LogDirInitError() should be nil when running as root, got: %v", LogDirInitError())
+	}
+	if dir != "/var/log/spk" {
+		t.Errorf("LogDir() = %q, want /var/log/spk when running as root", dir)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("LogDir() = %q but directory does not exist: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("LogDir() = %q is not a directory", dir)
+	}
+}
+
+// TestNewServerLoggerWithRoot verifies that on Linux/macOS running as root,
+// New() can create a log file in /var/log/spk without --logdir. Skips when
+// not running as root or on Windows.
+func TestNewServerLoggerWithRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses exe-relative log dir; root not applicable")
+	}
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	customLogDir = ""
+
+	if LogDir() == "" {
+		t.Skip("LogDir() empty; not running as root -- skip root path test")
+	}
+
+	l, err := New("test_server_root.log", DefaultConfig(), "server")
+	if err != nil {
+		t.Fatalf("New() should succeed when running as root, got: %v", err)
+	}
+	defer l.Close()
+	l.Infof("server root test message")
+
+	if l.FilePath() == "" {
+		t.Error("FilePath() should not be empty when running as root")
+	}
+	if _, err := os.Stat(l.FilePath()); err != nil {
+		t.Errorf("log file not created: %v", err)
 	}
 }

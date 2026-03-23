@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -170,7 +171,10 @@ func TestStatePath(t *testing.T) {
 func TestConfigDirNotEmpty(t *testing.T) {
 	dir := ConfigDir()
 	if dir == "" {
-		t.Error("ConfigDir should not return empty string")
+		if configDirInitError == nil {
+			t.Error("ConfigDir() returned empty string but configDirInitError is nil")
+		}
+		t.Skipf("no writable server config directory (%v); expected without root on Linux/macOS", configDirInitError)
 	}
 }
 
@@ -1104,7 +1108,10 @@ func TestConfigDirDefaultReturnsNonEmpty(t *testing.T) {
 
 	d := ConfigDir()
 	if d == "" {
-		t.Error("ConfigDir() should not return empty string")
+		if configDirInitError == nil {
+			t.Error("ConfigDir() returned empty string but configDirInitError is nil")
+		}
+		t.Skipf("no writable server config directory (%v); expected without root on Linux/macOS", configDirInitError)
 	}
 }
 
@@ -1144,9 +1151,10 @@ func TestSetConfigDirAffectsStatePath(t *testing.T) {
 	}
 }
 
-// TestConfigDirDefaultCreatesDirectory verifies that ConfigDir() always returns
-// a path that exists on disk, even when no custom override is set.
-// This is the root fix for the "system cannot find the path specified" error.
+// TestConfigDirDefaultCreatesDirectory verifies that ConfigDir() returns an
+// existing directory when one is accessible. On Linux/macOS without root
+// /etc/spk cannot be created; in that case ConfigDir() returns "" and
+// configDirInitError reports the reason.
 func TestConfigDirDefaultCreatesDirectory(t *testing.T) {
 	origDir := customConfigDir
 	defer func() { customConfigDir = origDir }()
@@ -1154,7 +1162,11 @@ func TestConfigDirDefaultCreatesDirectory(t *testing.T) {
 
 	dir := ConfigDir()
 	if dir == "" {
-		t.Fatal("ConfigDir() returned empty string")
+		if configDirInitError == nil {
+			t.Error("ConfigDir() returned empty string but configDirInitError is nil")
+		}
+		t.Skipf("no writable server config directory (%v); expected without root on Linux/macOS", configDirInitError)
+		return
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -1306,4 +1318,154 @@ func containsSubstring(ss []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Platform-aware ConfigDir behaviour tests
+// ---------------------------------------------------------------------------
+
+// TestConfigDirServerModeNoRoot verifies that on Linux/macOS without root,
+// ConfigDir() returns "" and ConfigDirInitError() is set. This test skips when
+// running as root or on Windows (where no privilege is required).
+func TestConfigDirServerModeNoRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows always returns exe-relative config dir; root not required")
+	}
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+	customConfigDir = ""
+
+	dir := ConfigDir()
+	if dir != "" {
+		t.Skipf("ConfigDir() = %q (non-empty); running as root or /etc/spk is accessible -- skip non-root path", dir)
+		return
+	}
+	// Non-root path: ConfigDirInitError must be set.
+	if ConfigDirInitError() == nil {
+		t.Error("ConfigDirInitError() should be non-nil when ConfigDir() returns empty")
+	}
+	if ConfigDirInitError().Error() == "" {
+		t.Error("ConfigDirInitError() error message should not be empty")
+	}
+}
+
+// TestConfigDirServerModeWithCustomDir verifies that --cfgdir always works
+// regardless of whether /etc/spk is accessible (simulates server started with
+// --cfgdir).
+func TestConfigDirServerModeWithCustomDir(t *testing.T) {
+	dir := t.TempDir()
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+
+	SetConfigDir(dir)
+
+	if got := ConfigDir(); got != dir {
+		t.Errorf("ConfigDir() = %q, want %q", got, dir)
+	}
+	if ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil after SetConfigDir, got: %v", ConfigDirInitError())
+	}
+
+	// Server config path must be rooted in the custom dir.
+	wantCfg := filepath.Join(dir, "spk_server.toml")
+	if got := ServerConfigPath(); got != wantCfg {
+		t.Errorf("ServerConfigPath() = %q, want %q", got, wantCfg)
+	}
+}
+
+// TestConfigDirWindowsAlwaysNonEmpty verifies that on Windows, ConfigDir()
+// always returns a non-empty exe-relative path and sets no init error.
+func TestConfigDirWindowsAlwaysNonEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only test")
+	}
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+	customConfigDir = ""
+
+	dir := ConfigDir()
+	if dir == "" {
+		t.Fatal("ConfigDir() returned empty string on Windows")
+	}
+	if ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil on Windows, got: %v", ConfigDirInitError())
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("ConfigDir() = %q but directory does not exist: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("ConfigDir() = %q is not a directory", dir)
+	}
+}
+
+// TestConfigDirInitErrorClearedBySetConfigDir verifies that calling
+// SetConfigDir with a valid path clears any prior init error.
+func TestConfigDirInitErrorClearedBySetConfigDir(t *testing.T) {
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+
+	// Force an init error by resetting and re-probing on Linux/macOS.
+	if runtime.GOOS != "windows" {
+		customConfigDir = ""
+		_ = ConfigDir() // may set configDirInitError on non-root
+	}
+
+	// Now override -- error must be cleared.
+	dir := t.TempDir()
+	SetConfigDir(dir)
+	if ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil after SetConfigDir, got: %v", ConfigDirInitError())
+	}
+}
+
+// TestConfigDirServerModeWithRoot verifies that on Linux/macOS running as root,
+// ConfigDir() returns "/etc/spk" and ConfigDirInitError() is nil. Skips when
+// not running as root or on Windows.
+func TestConfigDirServerModeWithRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses exe-relative config dir; root not applicable")
+	}
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+	customConfigDir = ""
+
+	dir := ConfigDir()
+	if dir == "" {
+		t.Skip("ConfigDir() returned empty; not running as root -- skip root path test")
+	}
+	if ConfigDirInitError() != nil {
+		t.Errorf("ConfigDirInitError() should be nil when running as root, got: %v", ConfigDirInitError())
+	}
+	if dir != "/etc/spk" {
+		t.Errorf("ConfigDir() = %q, want /etc/spk when running as root", dir)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("ConfigDir() = %q but directory does not exist: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("ConfigDir() = %q is not a directory", dir)
+	}
+}
+
+// TestServerConfigPathWithRoot verifies that on Linux/macOS running as root,
+// ServerConfigPath() returns "/etc/spk/spk_server.toml". Skips when not
+// running as root or on Windows.
+func TestServerConfigPathWithRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses exe-relative config dir; root not applicable")
+	}
+	origDir := customConfigDir
+	defer func() { customConfigDir = origDir }()
+	customConfigDir = ""
+
+	if ConfigDir() == "" {
+		t.Skip("ConfigDir() empty; not running as root -- skip root path test")
+	}
+
+	want := "/etc/spk/spk_server.toml"
+	if got := ServerConfigPath(); got != want {
+		t.Errorf("ServerConfigPath() = %q, want %q", got, want)
+	}
 }
