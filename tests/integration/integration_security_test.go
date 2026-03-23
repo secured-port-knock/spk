@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"spk/internal/crypto"
-	"spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
 )
 
 // TestAntiReplayComprehensive tests the anti-replay mechanism thoroughly.
@@ -78,7 +78,7 @@ func TestAntiReplayTimestampAndNonce(t *testing.T) {
 	}
 
 	// With 0s tolerance, should fail (timestamp drifted by ~0ms but we set tolerance to 0)
-	_, err = protocol.ParseKnockPacket(dk, packet, "127.0.0.1", 0)
+	_, _ = protocol.ParseKnockPacket(dk, packet, "127.0.0.1", 0)
 	// This might pass or fail depending on timing - not a reliable test
 	// Instead, test with -1 tolerance to guarantee failure
 	// Actually, even with tolerance=0, drift=0 means <=0 which is fine.

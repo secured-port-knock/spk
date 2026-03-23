@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"spk/internal/crypto"
-	"spk/internal/protocol"
-	"spk/internal/server"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/server"
 )
 
 // --- Fuzz: raw bytes into full server pipeline ---

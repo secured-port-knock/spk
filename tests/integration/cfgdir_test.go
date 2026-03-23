@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"spk/internal/config"
-	"spk/internal/logging"
-	"spk/internal/service"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/logging"
+	"github.com/secured-port-knock/spk/internal/service"
 )
 
 // ---------------------------------------------------------------------------

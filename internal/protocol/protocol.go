@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
 const (

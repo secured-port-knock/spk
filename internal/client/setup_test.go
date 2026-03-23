@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/config"
 )
 
 // exeDir returns the directory containing the test binary.

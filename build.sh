@@ -59,7 +59,21 @@ else
   fi
 fi
 if ! $SKIP_BUILD_NUMBER_BUMP; then
-  printf '%s\n' "$((BUILD_NUMBER + 1))" > "${BUILD_NUMBER_FILE}"
+  # Protect against concurrent build invocations with flock(1), available on
+  # Linux (util-linux) and macOS (brew install util-linux).  The subshell
+  # atomically re-reads the counter under the lock to close the TOCTOU window.
+  # Falls back to a non-atomic write when flock is unavailable.
+  (
+    exec 200>"${BUILD_NUMBER_FILE}.lock"
+    flock -x 200
+    _cur=$(head -1 "${BUILD_NUMBER_FILE}" 2>/dev/null | tr -cd '0-9')
+    _cur=$([ -n "${_cur}" ] && echo "${_cur}" || echo "0")
+    printf '%s\n' "$((_cur + 1))" > "${BUILD_NUMBER_FILE}"
+  ) 2>/dev/null || printf '%s\n' "$((BUILD_NUMBER + 1))" > "${BUILD_NUMBER_FILE}"
+  # Re-read from the file so this shell sees the value actually written,
+  # even if a concurrent process incremented it first.
+  BUILD_NUMBER=$(head -1 "${BUILD_NUMBER_FILE}" 2>/dev/null | tr -cd '0-9')
+  [ -z "${BUILD_NUMBER}" ] && BUILD_NUMBER=1
 fi
 
 FULL_VERSION="${VERSION}.${BUILD_NUMBER}"

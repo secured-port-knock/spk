@@ -78,7 +78,20 @@ if ($env:BUILD_NUMBER) {
     }
 }
 if (-not $SkipBuildNumberBump) {
-    Set-Content $BuildNumberFile ($BuildNumber + 1)
+    # Use a named system Mutex so concurrent PowerShell build processes do not
+    # produce duplicate build numbers or corrupt the file.
+    $mtx = [System.Threading.Mutex]::new($false, "Global\SPKBuildNumber")
+    try {
+        $null = $mtx.WaitOne()
+        # Re-read under the lock to handle the TOCTOU window.
+        $lockedRaw = (Get-Content $BuildNumberFile -Raw -ErrorAction SilentlyContinue).Trim() -replace '[^0-9]', ''
+        $lockedNum = if ($lockedRaw) { [int]$lockedRaw } else { 0 }
+        $BuildNumber = $lockedNum + 1
+        Set-Content $BuildNumberFile $BuildNumber
+    } finally {
+        $mtx.ReleaseMutex()
+        $mtx.Dispose()
+    }
 }
 
 $FullVersion = "$Version.$BuildNumber"

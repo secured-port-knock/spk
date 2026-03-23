@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
+﻿// Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
 package integration
 
@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
-	"spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 
 	// Build packet with a command that stays within the binary encoding limit.
 	// Binary layout: type(1) + cmdData, so for "open-t<portspecs>" the cmdData
-	// is "t<portspecs>" (250 bytes) → totalCmdLen = 251 ≤ 255. Must succeed.
+	// is "t<portspecs>" (250 bytes), so totalCmdLen = 251 <= 255. Must succeed.
 	longCmd := "open-t" + strings.Repeat("2", 249)
 	if len(longCmd) > 255 {
 		longCmd = longCmd[:255]
