@@ -29,12 +29,13 @@ const (
 	PublicKeyPEMType1024  = "MLKEM1024 PUBLIC KEY"
 )
 
-// Backward-compatible aliases (default to 1024).
-// DEPRECATED: Use the size-specific constants directly.
-const (
-	PrivateKeyPEMType = PrivateKeyPEMType1024
-	PublicKeyPEMType  = PublicKeyPEMType1024
-)
+// Deprecated: PrivateKeyPEMType defaults to ML-KEM-1024. Use PrivateKeyPEMType768
+// or PrivateKeyPEMType1024 directly to be explicit about the key size.
+const PrivateKeyPEMType = PrivateKeyPEMType1024
+
+// Deprecated: PublicKeyPEMType defaults to ML-KEM-1024. Use PublicKeyPEMType768
+// or PublicKeyPEMType1024 directly to be explicit about the key size.
+const PublicKeyPEMType = PublicKeyPEMType1024
 
 // Per-size constants.
 const (
@@ -47,11 +48,13 @@ const (
 	SharedKeySize         = 32 // Same for both sizes
 )
 
-// Backward-compatible aliases (default to 1024).
-const (
-	EncapsulationKeySize = EncapsulationKeySize1024
-	CiphertextSize       = CiphertextSize1024
-)
+// Deprecated: EncapsulationKeySize defaults to ML-KEM-1024. Use
+// EncapsulationKeySize768 or EncapsulationKeySize1024 directly.
+const EncapsulationKeySize = EncapsulationKeySize1024
+
+// Deprecated: CiphertextSize defaults to ML-KEM-1024. Use CiphertextSize768
+// or CiphertextSize1024 directly.
+const CiphertextSize = CiphertextSize1024
 
 // EncapsulationKeySizeFor returns the encapsulation key byte size for a KEM size.
 func EncapsulationKeySizeFor(size KEMSize) int {
@@ -155,7 +158,7 @@ func GenerateKeyPair(sizes ...KEMSize) (DecapsulationKey, error) {
 	}
 }
 
-// pemTypeForKey returns the appropriate PEM type for the key's KEM size.
+// pemPrivateType returns the PEM block type string for a private key of the given KEM size.
 func pemPrivateType(size KEMSize) string {
 	if size == KEM768 {
 		return PrivateKeyPEMType768

@@ -206,6 +206,8 @@ func TestServiceDisplayNameCustomLabel(t *testing.T) {
 
 // TestServiceNameSanitizationIntegration verifies that service labels are
 // transformed into service-safe names while preserving hyphens.
+// Input " Prod Env-01! " -> TrimSpace -> "Prod Env-01!" -> lower -> "prod env-01!"
+// space -> '_', '!' -> '_', so the result is "spk_prod_env-01_" (trailing '_' from '!').
 func TestServiceNameSanitizationIntegration(t *testing.T) {
 	sc := service.ServiceConfig{DisplayLabel: " Prod Env-01! "}
 	if got, want := sc.ServiceName(), "spk_prod_env-01_"; got != want {

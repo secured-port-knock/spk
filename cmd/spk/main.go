@@ -1,9 +1,12 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
-// SPK - PQC Port Knocking with ML-KEM-1024
+// SPK - PQC Port Knocking with ML-KEM-768/1024
 //
-// A post-quantum secure port knocking application that uses ML-KEM-1024
-// (FIPS 203) for key encapsulation and AES-256-GCM for payload encryption.
+// A post-quantum secure port knocking application that uses ML-KEM-768 or
+// ML-KEM-1024 (FIPS 203) for key encapsulation and AES-256-GCM for payload
+// encryption. ML-KEM-768 is the default and fits within a standard 1500-byte
+// Ethernet MTU; ML-KEM-1024 provides a higher security level but requires IP
+// fragmentation and is recommended for LAN use only.
 //
 // Usage:
 //

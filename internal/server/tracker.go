@@ -1,6 +1,5 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
-// Package server implements the SPK server.
 package server
 
 import (

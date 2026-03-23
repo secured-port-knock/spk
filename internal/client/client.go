@@ -1,5 +1,7 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
+// Package client implements the SPK client: building and sending knock packets,
+// loading client configuration, and resolving the client's WAN IP via STUN.
 package client
 
 import (
