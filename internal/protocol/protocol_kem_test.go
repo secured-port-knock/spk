@@ -94,14 +94,26 @@ func TestBuildParseKnockPacket1024(t *testing.T) {
 }
 
 func TestKEM768PacketSmallerThan1024(t *testing.T) {
-	dk768, _ := crypto.GenerateKeyPair(crypto.KEM768)
-	dk1024, _ := crypto.GenerateKeyPair(crypto.KEM1024)
+	dk768, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair KEM768: %v", err)
+	}
+	dk1024, err := crypto.GenerateKeyPair(crypto.KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair KEM1024: %v", err)
+	}
 
 	samePayload := "open-t22"
 	clientIP := "192.168.1.1"
 
-	pkt768, _ := BuildKnockPacket(dk768.EncapsulationKey(), clientIP, samePayload, 3600)
-	pkt1024, _ := BuildKnockPacket(dk1024.EncapsulationKey(), clientIP, samePayload, 3600)
+	pkt768, err := BuildKnockPacket(dk768.EncapsulationKey(), clientIP, samePayload, 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket KEM768: %v", err)
+	}
+	pkt1024, err := BuildKnockPacket(dk1024.EncapsulationKey(), clientIP, samePayload, 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket KEM1024: %v", err)
+	}
 
 	if len(pkt768) >= len(pkt1024) {
 		t.Errorf("KEM-768 packet (%d bytes) should be smaller than KEM-1024 (%d bytes)",
@@ -119,11 +131,17 @@ func TestKEM768PacketSmallerThan1024(t *testing.T) {
 }
 
 func TestKEM768PacketFitsMTU(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build with typical command (no padding)
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 3600)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// IP(20) + UDP(8) + payload <=1500
 	maxUDP := 1500 - 28
@@ -133,7 +151,10 @@ func TestKEM768PacketFitsMTU(t *testing.T) {
 }
 
 func TestKEM768WithPaddingMTU(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// 96 bytes is the defined safe maximum (MaxPaddingMTUSafe768).

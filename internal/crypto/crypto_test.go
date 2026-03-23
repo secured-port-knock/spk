@@ -114,8 +114,14 @@ func TestEncapsulateDecapsulate(t *testing.T) {
 }
 
 func TestEncryptDecryptWrongKey(t *testing.T) {
-	dk1, _ := GenerateKeyPair()
-	dk2, _ := GenerateKeyPair()
+	dk1, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk2, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	ek1 := dk1.EncapsulationKey()
 	plaintext := []byte("secret data")
@@ -134,15 +140,21 @@ func TestEncryptDecryptWrongKey(t *testing.T) {
 }
 
 func TestEncryptDecryptTampered(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := EncapsulateAndEncrypt(ek, []byte("important data"))
+	packet, err := EncapsulateAndEncrypt(ek, []byte("important data"))
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
 
 	// Tamper with the encrypted payload (last byte)
 	packet[len(packet)-1] ^= 0xFF
 
-	_, err := DecapsulateAndDecrypt(dk, packet)
+	_, err = DecapsulateAndDecrypt(dk, packet)
 	if err == nil {
 		t.Error("expected decryption to fail with tampered packet")
 	}
@@ -176,24 +188,33 @@ func TestSymmetricDecryptWrongKey(t *testing.T) {
 	key2 := make([]byte, 32)
 	key2[0] = 1
 
-	encrypted, _ := SymmetricEncrypt(key1, []byte("data"))
+	encrypted, err := SymmetricEncrypt(key1, []byte("data"))
+	if err != nil {
+		t.Fatalf("SymmetricEncrypt: %v", err)
+	}
 
-	_, err := SymmetricDecrypt(key2, encrypted)
+	_, err = SymmetricDecrypt(key2, encrypted)
 	if err == nil {
 		t.Error("expected decryption to fail with wrong key")
 	}
 }
 
 func TestPacketTooSmall(t *testing.T) {
-	dk, _ := GenerateKeyPair()
-	_, err := DecapsulateAndDecrypt(dk, []byte("too small"))
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	_, err = DecapsulateAndDecrypt(dk, []byte("too small"))
 	if err == nil {
 		t.Error("expected error for too-small packet")
 	}
 }
 
 func TestKeyReconstructFromSeed(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	seed := dk.Bytes()
 
 	// Reconstruct from seed
@@ -212,10 +233,14 @@ func TestKeyReconstructFromSeed(t *testing.T) {
 }
 
 func TestMultipleEncapsulations(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Each encapsulation should produce different ciphertext
+	// Encapsulate returns (ciphertext, sharedKey) -- sharedKey is intentionally discarded here.
 	ct1, _ := ek.Encapsulate()
 	ct2, _ := ek.Encapsulate()
 

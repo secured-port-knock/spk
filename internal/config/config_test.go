@@ -215,7 +215,10 @@ func TestLoggingConfigFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "log_cfg.toml")
 	cfg.Save(path)
 
-	loaded, _ := Load(path)
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if loaded.LogMaxSizeMB != 20 {
 		t.Errorf("LogMaxSizeMB = %d, want 20", loaded.LogMaxSizeMB)
 	}
@@ -357,7 +360,10 @@ func TestWriteServerConfigDynamic(t *testing.T) {
 		t.Fatalf("WriteServerConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, `listen_port = "dynamic"`) {
 		t.Error("config should contain listen_port = \"dynamic\"")
@@ -393,7 +399,10 @@ func TestWriteClientConfigWithComments(t *testing.T) {
 		t.Fatalf("WriteClientConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "# SPK Client Configuration") {
 		t.Error("client config should have # comments")
@@ -470,7 +479,10 @@ func TestWriteServerConfigIPv6Section(t *testing.T) {
 		t.Fatalf("WriteServerConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "IPv6 FIREWALL") {
 		t.Error("config should contain IPv6 firewall section header")
@@ -498,7 +510,10 @@ func TestLogCommandOutputField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "logcmd.toml")
 	cfg.Save(path)
 
-	loaded, _ := Load(path)
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if !loaded.LogCommandOutput {
 		t.Error("loaded LogCommandOutput should be true")
 	}
@@ -534,7 +549,10 @@ func TestWriteClientConfigStunServers(t *testing.T) {
 		t.Fatalf("WriteClientConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "STUN SERVERS") {
 		t.Error("client config should contain STUN SERVERS section")
@@ -666,7 +684,10 @@ func TestListenAddressesInServerConfig(t *testing.T) {
 		t.Fatalf("WriteServerConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "listen_addresses") {
 		t.Error("server config should contain listen_addresses")
@@ -751,7 +772,10 @@ func TestWriteClientConfigDynamic(t *testing.T) {
 		t.Fatalf("WriteClientConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, `server_port = "dynamic"`) {
 		t.Error("client config should contain server_port = \"dynamic\"")
@@ -780,7 +804,10 @@ func TestWriteClientConfigStaticPort(t *testing.T) {
 		t.Fatalf("WriteClientConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "server_port = 45678") {
 		t.Error("client config should contain server_port = 45678")
@@ -890,7 +917,10 @@ func TestServerConfigNoStunServers(t *testing.T) {
 		t.Fatalf("WriteServerConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	// Server config should NOT have STUN servers section
 	if strings.Contains(content, "stun_servers") {
@@ -1003,7 +1033,10 @@ func TestServerConfigNoExportSettings(t *testing.T) {
 		t.Fatalf("WriteServerConfigWithComments: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if strings.Contains(content, "export_encrypted") {
 		t.Error("server config should NOT contain export_encrypted")
