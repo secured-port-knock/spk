@@ -1,8 +1,12 @@
+# Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
+# SPDX-License-Identifier: MIT
+#
 # NOTE: Parallel builds (make -j) are NOT supported. The build number file
 # (version/build_number.txt) is updated non-atomically; concurrent make
 # processes would produce duplicate build numbers or a corrupted file.
 # Always run make without the -j flag.
 .PHONY: build test clean all linux windows darwin cross vet coverage test-short
+.NOTPARALLEL:
 
 BINARY=spk
 VERSION?=$(shell if [ -f version/version_base.txt ]; then head -1 version/version_base.txt | tr -cd '0-9.'; else echo "1.0.0"; fi)

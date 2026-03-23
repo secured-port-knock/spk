@@ -1,11 +1,11 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
-// Package crypto provides TOTP (RFC 6238) implementation for two-factor authentication.
+
+// TOTP (RFC 6238) support for the crypto package.
 //
-// TOTP adds a "something the client knows" factor to the knock protocol.
 // The secret is generated during server setup, shown as a QR code for
 // authenticator apps (Google Authenticator, Authy, etc.), and verified
-// on each incoming knock when enabled.
+// on each incoming knock when TOTP is enabled.
 package crypto
 
 import (

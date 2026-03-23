@@ -437,7 +437,7 @@ arch: ${pkg_arch}
 version: ${FULL_VERSION}
 maintainer: "Jack L. (Cpt-JackL) <https://jack-l.com>"
 description: "Secured Port Knock - SPA port knocking with ML-KEM post-quantum cryptography"
-homepage: "https://github.com/pjaol/knock"
+homepage: "https://github.com/secured-port-knock/spk"
 license: MIT
 contents:
   - src: ${binary_path}

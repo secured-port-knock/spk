@@ -29,7 +29,6 @@ const (
 
 const (
 	// ProtocolVersion is the current wire protocol version.
-	// Commands use binary type byte (0=open, 1=close, 2=cust).
 	ProtocolVersion = 1
 
 	// NonceBytes is the size of the random nonce in knock payloads.
@@ -40,7 +39,7 @@ const (
 	MaxPacketSize = 8192
 )
 
-// Command type constants for binary encoding.
+// Command type constants for binary encoding (type byte: 0=open, 1=close, 2=cust).
 const (
 	CmdTypeOpen  byte = 0x00 // open port(s)
 	CmdTypeClose byte = 0x01 // close port(s)

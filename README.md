@@ -350,7 +350,7 @@ See [docs/files.md](docs/files.md) for a complete list of generated files, defau
 - Root/Administrator privileges for packet capture and firewall management
 - **For pcap sniffer mode (optional):** libpcap (Linux) / Npcap (Windows) / libpcap (macOS, built-in)
 
-For build requirements (Go 1.24+, zig, GCC, nfpm), see [docs/compilation.md](docs/compilation.md#build-requirements).
+For build requirements (Go 1.25+, zig, GCC, nfpm), see [docs/compilation.md](docs/compilation.md#build-requirements).
 
 ## License
 

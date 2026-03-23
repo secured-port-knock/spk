@@ -3,6 +3,7 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -359,12 +360,10 @@ func TestLoggerFileWriteOrder(t *testing.T) {
 
 	content := string(data)
 	for i := 0; i < 10; i++ {
-		expected := "message " + strings.TrimSpace(filepath.Base(
-			filepath.Join("dummy", string(rune('0'+i)))))
-		if !strings.Contains(content, "message") {
+		expected := fmt.Sprintf("message %d", i)
+		if !strings.Contains(content, expected) {
 			t.Errorf("log file missing message %d", i)
 		}
-		_ = expected
 	}
 
 	// Verify file is non-empty (the key assertion for the 0KB bug)
