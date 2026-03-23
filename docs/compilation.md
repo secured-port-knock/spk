@@ -6,7 +6,7 @@ This document covers building SPK from source, cross-compilation, and Linux pack
 
 | Tool | Required | Purpose |
 |---|---|---|
-| **Go 1.24+** | Yes | `crypto/mlkem` standard library support |
+| **Go 1.25+** | Yes | `crypto/mlkem` standard library support (`go 1.25.0` in `go.mod`) |
 | **zig** | Optional | Cross-compile Linux/macOS with pcap (`zig cc` as CGO compiler) |
 | **GCC** | Optional | Native builds with pcap (fallback when zig is not installed) |
 | **UPX** | Optional | Compress binaries (~50% smaller) |
@@ -15,6 +15,41 @@ This document covers building SPK from source, cross-compilation, and Linux pack
 Install zig: [ziglang.org/download](https://ziglang.org/download/) (`winget install zig.zig` / `brew install zig` / `snap install zig`)
 
 Install nfpm: `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest`
+
+## Install via go install
+
+The quickest way to install SPK without cloning the repository is `go install`. This builds a
+pure-Go binary (no pcap) and places it in `$GOPATH/bin` (or `$HOME/go/bin`):
+
+```bash
+# Latest stable release
+go install github.com/secured-port-knock/spk/cmd/spk@latest
+
+# Specific release
+go install github.com/secured-port-knock/spk/cmd/spk@v1.0.2
+```
+
+**Limitations of go install compared to release binaries:**
+
+- **No pcap / stealth mode.** pcap requires CGO linkage against a native C library, which `go install`
+  does not support. The installed binary uses UDP socket mode (port visible to scanners) or
+  AF_PACKET/WinDivert where available. For stealth mode, download a release binary or build from
+  source using the build scripts.
+- **No UPX compression.** Binary is larger (~6-8 MB vs ~3 MB for a UPX-compressed release build).
+- **No version metadata.** Linker flags (`-X main.version=...`, `-X main.buildNumber=...`,
+  `-X main.commit=...`) are not injected by `go install`. Instead, SPK reads the module
+  version embedded in the binary via `runtime/debug.ReadBuildInfo()`. The `--version` output
+  will show the tag you installed from and `(Go Install)` as the build label, for example:
+
+  ```
+  SPK - Secured Port Knock - 1.0.2 (Go) [No PCAP]
+  ```
+
+  If no tag is available (e.g. `go install` of a local development copy), the output falls
+  back to the hardcoded placeholder `1.0.0.0 (Dev) [No PCAP]`.
+
+For production server deployments, the release binaries are recommended. `go install` is convenient
+for client-only use (sending knock packets) or quick testing.
 
 ## Build Scripts
 
@@ -294,6 +329,17 @@ The `*-nozig` jobs assert the correct pcap/no-pcap outcome per target when zig i
 ### Release Workflow (`.github/workflows/release.yml`)
 
 Triggered manually via `workflow_dispatch`.
+
+**Tag format:**
+
+| Release type | Git tag | Example | Go install |
+|---|---|---|---|
+| Stable release | `v{VERSION}` | `v1.0.2` | `@latest` picks this up |
+| Beta pre-release | `v{VERSION}-beta.{BUILD}` | `v1.0.2-beta.1044` | excluded from `@latest` |
+
+Tags follow [semver](https://semver.org/) so the module is compatible with standard Go tooling:
+`go install github.com/secured-port-knock/spk/cmd/spk@latest` installs the latest stable release.
+Binary filenames still embed the full four-part version (e.g. `spk_1.0.2.1044p-linux-amd64`).
 
 **Inputs:**
 

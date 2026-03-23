@@ -109,11 +109,17 @@ jobs:
 
           FULL_VERSION="${VERSION}.${BUILD_NUMBER}"
 
+          # Git tags use semver-compliant format so the module works with
+          # "go install github.com/secured-port-knock/spk@latest" and
+          # "go install github.com/secured-port-knock/spk@vX.Y.Z".
+          # Release tags:  v1.0.2          (pure semver, @latest picks this up)
+          # Beta tags:     v1.0.2-beta.N   (semver pre-release, excluded from @latest)
+          # Binary filenames still embed the full four-part version (1.0.2.N).
           if [ "${{ inputs.release_type }}" = "beta" ]; then
-            TAG_NAME="v${FULL_VERSION}-beta"
+            TAG_NAME="v${VERSION}-beta.${BUILD_NUMBER}"
             IS_PRERELEASE="true"
           else
-            TAG_NAME="v${FULL_VERSION}"
+            TAG_NAME="v${VERSION}"
             IS_PRERELEASE="false"
           fi
 
