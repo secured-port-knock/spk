@@ -23,7 +23,10 @@ func TestResolvePortWithWindowStatic(t *testing.T) {
 
 func TestResolvePortWithWindowDynamic(t *testing.T) {
 	seed := "0102030405060708"
-	seedBytes, _ := hex.DecodeString(seed)
+	seedBytes, err := hex.DecodeString(seed)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 
 	cfg := &config.Config{
 		DynamicPort: true,

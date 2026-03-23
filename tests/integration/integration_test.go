@@ -97,14 +97,20 @@ func TestFullKnockCycle(t *testing.T) {
 
 // TestMITMRelayPrevention tests that forwarded packets from a different IP are rejected.
 func TestMITMRelayPrevention(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Client builds packet claiming IP 192.168.1.100
-	packet, _ := protocol.BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	packet, err := protocol.BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Attacker captures and forwards from their IP 10.0.0.99
-	_, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.99", 30)
+	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.99", 30)
 	if err == nil {
 		t.Error("MITM relay should be rejected (IP mismatch)")
 	}
@@ -113,7 +119,10 @@ func TestMITMRelayPrevention(t *testing.T) {
 // TestExportImportCycle tests full key export -> import -> use cycle.
 func TestExportImportCycle(t *testing.T) {
 	// Server generates key
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Export
@@ -155,7 +164,10 @@ func TestExportImportCycle(t *testing.T) {
 
 // TestEncryptedExportImportCycle tests password-protected export.
 func TestEncryptedExportImportCycle(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	password := "super-secret-password"
@@ -176,8 +188,14 @@ func TestEncryptedExportImportCycle(t *testing.T) {
 	}
 
 	// Use key
-	clientEK, _ := crypto.GetEncapsulationKeyFromBundle(bundle)
-	packet, _ := protocol.BuildKnockPacket(clientEK, "1.2.3.4", "open-all", 0)
+	clientEK, err := crypto.GetEncapsulationKeyFromBundle(bundle)
+	if err != nil {
+		t.Fatalf("GetEncapsulationKeyFromBundle: %v", err)
+	}
+	packet, err := protocol.BuildKnockPacket(clientEK, "1.2.3.4", "open-all", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "1.2.3.4", 30)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
@@ -189,20 +207,35 @@ func TestEncryptedExportImportCycle(t *testing.T) {
 
 // TestMultipleClientsIndependent tests that knocks from different IPs are independent.
 func TestMultipleClientsIndependent(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	tracker := protocol.NewNonceTracker(120 * time.Second)
 
 	// Client 1
-	p1, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	payload1, _ := protocol.ParseKnockPacket(dk, p1, "10.0.0.1", 30)
+	p1, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload1, err := protocol.ParseKnockPacket(dk, p1, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if !tracker.Check(payload1.Nonce) {
 		t.Error("client 1 nonce should pass")
 	}
 
 	// Client 2
-	p2, _ := protocol.BuildKnockPacket(ek, "10.0.0.2", "open-t443", 0)
-	payload2, _ := protocol.ParseKnockPacket(dk, p2, "10.0.0.2", 30)
+	p2, err := protocol.BuildKnockPacket(ek, "10.0.0.2", "open-t443", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload2, err := protocol.ParseKnockPacket(dk, p2, "10.0.0.2", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if !tracker.Check(payload2.Nonce) {
 		t.Error("client 2 nonce should pass")
 	}
@@ -325,7 +358,10 @@ func TestE2EMultipleKnocks(t *testing.T) {
 		}
 		localIP := clientConn.LocalAddr().(*net.UDPAddr).IP.String()
 		cmd := fmt.Sprintf("open-t%d", 22+i)
-		packet, _ := protocol.BuildKnockPacket(ek, localIP, cmd, 0)
+		packet, err := protocol.BuildKnockPacket(ek, localIP, cmd, 0)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket %d: %v", i, err)
+		}
 		clientConn.Write(packet)
 		clientConn.Close()
 
@@ -347,7 +383,10 @@ func TestE2EMultipleKnocks(t *testing.T) {
 
 // TestMalformedPacketHandling tests that the server gracefully handles garbage.
 func TestMalformedPacketHandling(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	malformed := [][]byte{
 		make([]byte, 100),  // Too small
@@ -366,7 +405,10 @@ func TestMalformedPacketHandling(t *testing.T) {
 
 // TestExportImportWithBatchCapability tests key exchange + batch commands.
 func TestExportImportWithBatchCapability(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Export and import

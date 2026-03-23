@@ -18,7 +18,10 @@ import (
 // TestAntiReplayComprehensive tests the anti-replay mechanism thoroughly.
 // Verifies: nonce tracking, timestamp validation, and the gap analysis between them.
 func TestAntiReplayComprehensive(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	tracker := protocol.NewNonceTrackerWithLimit(2*time.Minute, 10000)
@@ -60,7 +63,10 @@ func TestAntiReplayComprehensive(t *testing.T) {
 
 // TestAntiReplayTimestampAndNonce verifies the timestamp + nonce gap protection.
 func TestAntiReplayTimestampAndNonce(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Strict tolerance: 5 seconds
@@ -69,7 +75,10 @@ func TestAntiReplayTimestampAndNonce(t *testing.T) {
 	// After 5s, timestamp alone rejects.
 	// The nonce tracker keeps nonces for 10s as extra safety.
 
-	packet, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Parse should succeed with 30s tolerance (default)
 	payload, err := protocol.ParseKnockPacket(dk, packet, "127.0.0.1", 30)
@@ -94,7 +103,10 @@ func TestAntiReplayTimestampAndNonce(t *testing.T) {
 // TestBundleWindowIntegration tests the full cycle of bundle creation with a custom
 // rotation window and verifying client & server would compute the same dynamic port.
 func TestBundleWindowIntegration(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Generate a port seed
@@ -144,7 +156,10 @@ func TestDynPortDeterminismIntegration(t *testing.T) {
 	port1 := crypto.ComputeDynamicPortWithWindow(seed, 600)
 
 	// "Restart": decode seed from hex (as server does from config)
-	seed2, _ := hex.DecodeString(seedHex)
+	seed2, err := hex.DecodeString(seedHex)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 	port2 := crypto.ComputeDynamicPortWithWindow(seed2[:8], 600)
 
 	if port1 != port2 {
@@ -161,7 +176,10 @@ func TestDynPortDeterminismIntegration(t *testing.T) {
 
 // TestUDPPacketSizeAnalysis measures actual knock packet size to verify it fits expectations.
 func TestUDPPacketSizeAnalysis(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Test various command and IP combinations
@@ -228,18 +246,24 @@ func TestNonceCacheLimitIntegration(t *testing.T) {
 
 // TestIPSpoofingWithNATScenario simulates a client behind NAT sending a knock.
 func TestIPSpoofingWithNATScenario(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Client behind NAT builds packet with LAN IP
 	lanIP := "192.168.1.100"
-	packet, _ := protocol.BuildKnockPacket(ek, lanIP, "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek, lanIP, "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Server sees WAN IP (NAT'd)
 	wanIP := "203.0.113.50"
 
 	// With match_incoming_ip=true (default): should REJECT (IP mismatch)
-	_, err := protocol.ParseKnockPacket(dk, packet, wanIP, 30)
+	_, err = protocol.ParseKnockPacket(dk, packet, wanIP, 30)
 	if err == nil {
 		t.Error("NAT'd packet should be rejected with match_incoming_ip=true")
 	}
@@ -260,10 +284,16 @@ func TestIPSpoofingWithNATScenario(t *testing.T) {
 // TestMITMRelayPreventionWithMatchIncomingIPDisabled verifies that even with match_incoming_ip=false,
 // the authenticated encryption still prevents MITM from modifying commands.
 func TestMITMRelayPreventionWithMatchIncomingIPDisabled(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// MITM tries to modify the command by flipping bits
 	for offset := 0; offset < len(packet); offset += 100 {
@@ -286,7 +316,10 @@ func TestUDPReflectionImpossible(t *testing.T) {
 	// produces a packet, and ParseKnockPacket consumes it, with no
 	// response generation function existing.
 
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Set up a UDP listener
@@ -299,9 +332,15 @@ func TestUDPReflectionImpossible(t *testing.T) {
 	serverAddr := conn.LocalAddr().String()
 
 	// Client sends a knock
-	packet, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
-	clientConn, _ := net.Dial("udp", serverAddr)
+	clientConn, err := net.Dial("udp", serverAddr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
 	clientConn.Write(packet)
 
 	// Server reads the knock
@@ -330,7 +369,10 @@ func TestUDPReflectionImpossible(t *testing.T) {
 
 // TestMultipleKnocksUnique verifies that each knock packet is cryptographically unique.
 func TestMultipleKnocksUnique(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	var wg sync.WaitGroup

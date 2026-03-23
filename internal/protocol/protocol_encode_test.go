@@ -288,7 +288,10 @@ func TestEncodeDecodeWithTOTPAndPadding(t *testing.T) {
 		t.Error("expected padding to be present")
 	}
 	// Padding should be hex of 100 zero bytes
-	padBytes, _ := hex.DecodeString(decoded.Padding)
+	padBytes, err := hex.DecodeString(decoded.Padding)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 	if len(padBytes) != 100 {
 		t.Errorf("padding length = %d bytes, want 100", len(padBytes))
 	}

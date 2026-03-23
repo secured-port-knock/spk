@@ -95,8 +95,8 @@ func isWritableDir(dir string) bool {
 	if err != nil {
 		return false
 	}
-	f.Close()
-	os.Remove(tmp)
+	_ = f.Close()
+	_ = os.Remove(tmp)
 	return true
 }
 

@@ -391,7 +391,10 @@ func TestLoggerWarnf(t *testing.T) {
 	l.Warnf("something %s happened", "bad")
 	l.Close()
 
-	data, _ := os.ReadFile(filepath.Join(dir, "test_warn.log"))
+	data, err := os.ReadFile(filepath.Join(dir, "test_warn.log"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "WARN") {
 		t.Error("log should contain WARN level")
@@ -416,7 +419,10 @@ func TestLoggerErrorf(t *testing.T) {
 	l.Errorf("failure: %d", 42)
 	l.Close()
 
-	data, _ := os.ReadFile(filepath.Join(dir, "test_error.log"))
+	data, err := os.ReadFile(filepath.Join(dir, "test_error.log"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
 	if !strings.Contains(content, "ERROR") {
 		t.Error("log should contain ERROR level")

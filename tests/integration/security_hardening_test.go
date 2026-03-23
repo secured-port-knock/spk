@@ -46,7 +46,10 @@ func TestBundleSizeValidationNormalBundle(t *testing.T) {
 // TestBundleSizeValidationEncryptedBundle verifies password-encrypted
 // bundles also work within the size cap.
 func TestBundleSizeValidationEncryptedBundle(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := crypto.CreateEncryptedExportBundle(ek, 54321, false, false, false, "hunter2")
@@ -102,7 +105,10 @@ func TestBundleSizeValidationJustOverLimit(t *testing.T) {
 // TestPacketSizeValidationMinimum verifies that valid knock packets are
 // at least MinPacketSize (1118 bytes).
 func TestPacketSizeValidationMinimum(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	packet, err := protocol.BuildKnockPacket(ek, "1.2.3.4", "open-t22", 60)
@@ -117,10 +123,13 @@ func TestPacketSizeValidationMinimum(t *testing.T) {
 
 // TestPacketSizeTooSmallRejected verifies truncated packets fail decryption.
 func TestPacketSizeTooSmallRejected(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	tooSmall := make([]byte, 500)
-	_, err := crypto.DecapsulateAndDecrypt(dk, tooSmall)
+	_, err = crypto.DecapsulateAndDecrypt(dk, tooSmall)
 	if err == nil {
 		t.Fatal("expected error for undersized packet")
 	}
@@ -128,10 +137,13 @@ func TestPacketSizeTooSmallRejected(t *testing.T) {
 
 // TestPacketSizeTooLargeRejected verifies oversized random data fails.
 func TestPacketSizeTooLargeRejected(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	tooLarge := make([]byte, 10000)
-	_, err := crypto.DecapsulateAndDecrypt(dk, tooLarge)
+	_, err = crypto.DecapsulateAndDecrypt(dk, tooLarge)
 	if err == nil {
 		t.Fatal("expected error for oversized random packet")
 	}
@@ -212,7 +224,10 @@ func TestConfigValidateAcceptsValidDefaults(t *testing.T) {
 // This integration test verifies the principle: control characters in commands
 // should not appear in log output.
 func TestCommandFieldLengthLimit(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build packet with a command that stays within the binary encoding limit.
@@ -222,7 +237,7 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 	if len(longCmd) > 255 {
 		longCmd = longCmd[:255]
 	}
-	_, err := protocol.BuildKnockPacket(ek, "10.0.0.1", longCmd, 60)
+	_, err = protocol.BuildKnockPacket(ek, "10.0.0.1", longCmd, 60)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket with 255-char command: %v", err)
 	}
