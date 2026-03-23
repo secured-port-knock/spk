@@ -1,3 +1,7 @@
+# NOTE: Parallel builds (make -j) are NOT supported. The build number file
+# (version/build_number.txt) is updated non-atomically; concurrent make
+# processes would produce duplicate build numbers or a corrupted file.
+# Always run make without the -j flag.
 .PHONY: build test clean all linux windows darwin cross vet coverage test-short
 
 BINARY=spk

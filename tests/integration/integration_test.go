@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"spk/internal/crypto"
-	"spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
 )
 
 // TestFullKnockCycle tests a complete client->server knock round trip.

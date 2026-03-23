@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
-	"spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
 )
 
 // =============================================================================

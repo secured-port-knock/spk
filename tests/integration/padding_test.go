@@ -5,8 +5,8 @@ package integration
 import (
 	"testing"
 
-	"spk/internal/crypto"
-	"spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/protocol"
 )
 
 // ------------------------------------------------------------------------

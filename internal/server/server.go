@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
-	"spk/internal/logging"
-	"spk/internal/protocol"
-	"spk/internal/sniffer"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/logging"
+	"github.com/secured-port-knock/spk/internal/protocol"
+	"github.com/secured-port-knock/spk/internal/sniffer"
 )
 
 // serverLogger is a minimal interface satisfied by both *log.Logger and *logging.Logger.

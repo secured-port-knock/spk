@@ -1,4 +1,4 @@
-module spk
+module github.com/secured-port-knock/spk
 
 go 1.25.0
 

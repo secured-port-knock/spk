@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
-	"spk/internal/sniffer"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/sniffer"
 )
 
 // RunSetup runs the interactive server setup wizard.

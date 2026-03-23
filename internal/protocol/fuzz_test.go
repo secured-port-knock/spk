@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
 // --- Fuzz tests ---
@@ -473,7 +473,7 @@ func TestParseKnockPacket_TimestampBoundaries(t *testing.T) {
 	}
 
 	// With tolerance=0, packet may fail (depends on processing time)
-	_, err = ParseKnockPacket(dk, packet, clientIP, 0)
+	_, _ = ParseKnockPacket(dk, packet, clientIP, 0)
 	// Either pass or fail is acceptable, but must not panic
 
 	// With very large tolerance, packet should always pass

@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
 // RunSetup runs the interactive client setup wizard.

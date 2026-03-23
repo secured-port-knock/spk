@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"spk/internal/config"
-	"spk/internal/crypto"
+	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
 func TestResolvePortWithWindowStatic(t *testing.T) {
