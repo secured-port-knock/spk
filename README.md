@@ -6,7 +6,7 @@
 [![Build](https://github.com/secured-port-knock/spk/actions/workflows/build.yml/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/build.yml)
 [![CodeQL](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql)
 [![Dependency Graph](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph)
-
+[![Go Report Card](https://goreportcard.com/badge/github.com/secured-port-knock/spk)](https://goreportcard.com/report/github.com/secured-port-knock/spk)
 
 > **Development Status**
 >
@@ -18,7 +18,14 @@
 
 **What is SPK (Secured Port Knock)**
 
-SPK is a single-packet authorization (SPA) port knocking tool that uses ML-KEM (FIPS 203) for post-quantum key encapsulation and AES-256-GCM for authenticated encryption. Its main purpose is to add a secured authentication layer for legacy interfaces -- preventing services from being exposed directly on the internet. A single encrypted UDP packet is all that's needed to open firewall ports -- no handshake, no response, no attack surface. SPK does not implement user-level authentication; it controls network access to the services behind it.
+SPK is a single-packet authorization (SPA) port knocking tool that uses ML-KEM (FIPS 203) for post-quantum key encapsulation and AES-256-GCM for authenticated encryption. Its primary purpose is to protect servers by acting as a cryptographic whitelist layer: firewall ports stay closed to everyone on the internet until a valid, authenticated knock arrives -- only then does the server open access for that specific IP. This approach is particularly effective against mass internet scanners and opportunistic exploits (such as the XZ backdoor, CVE-2024-3094) by eliminating any
+visible attack surface.
+
+A single encrypted UDP packet is all that is needed to open firewall ports -- no handshake, no response, no attack surface.
+
+**Multi-user note:** SPK does not implement user-level authentication. Access control beyond "valid knock received" is intentionally left to the service behind the firewall. The reason is twofold: (1) enforcing user identity is the responsibility of the actual service (SSH keys, certificates, passwords, MFA), and (2) in shared IP environments such as LAN or NAT/CGNAT, all clients share the same public IP address -- there is no reliable way to distinguish individual users at the network layer, making per-user identity a best-effort concern at best. If separate per-user access policies are needed, the recommended approach is to run multiple SPK instances, each with its own key pair, allowed ports, TOTP secret, and custom firewall commands. See the FAQ below for details.
+
+SPK is significantly more secure than traditional port knocking (knockd-style TCP sequence knocking), which relies on plaintext sequences trivially captured and replayed by any passive observer. See [docs/security.md](docs/security.md) for the full security analysis.
 
 ## The Problem
 
@@ -80,6 +87,19 @@ Download the latest release for your platform from [GitHub Releases](../../relea
 # SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [No PCAP]    -- non-pcap build
 # SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [With PCAP]  -- pcap build
 ```
+
+### Install via go install
+
+If you have Go 1.25+ installed, you can install SPK directly from source without cloning the
+repository:
+
+```bash
+go install github.com/secured-port-knock/spk/cmd/spk@latest
+```
+
+This installs a pure-Go build (no pcap stealth mode). For pcap support or production server
+deployments, use the release binaries. See [docs/compilation.md](docs/compilation.md#install-via-go-install)
+for details and limitations.
 
 To build from source, see [docs/compilation.md](docs/compilation.md).
 
@@ -273,7 +293,19 @@ Yes. SPK compiles to a single static binary with no runtime dependencies (when b
 
 **Q: Does SPK support multiple users?**
 
-SPK does not have built-in multi-user support -- a single server instance uses one key pair and one configuration. However, nothing prevents running multiple SPK instances on the same machine with different keys, ports, and configurations using the `--label` flag (e.g., `spk --server --label user1`). Each instance operates independently with its own service, config directory, and firewall rules.
+SPK does not implement built-in per-user authentication -- a single server instance uses one key pair and one configuration. If separate per-user access policies are required (different allowed ports, different keys, individual revocation), the recommended approach is to run multiple SPK instances on the same machine. Each instance is isolated with its own key pair, allowed ports, TOTP secret, custom commands, config directory, and firewall rules. Use separate config directories (`--cfgdir`) and enter a different service label when prompted during `--install`:
+
+```bash
+# Set up instance for alice:
+sudo ./spk --server --setup --cfgdir /etc/spk-alice
+sudo ./spk --server --install --cfgdir /etc/spk-alice  # enter label "alice" when prompted
+
+# Set up instance for bob:
+sudo ./spk --server --setup --cfgdir /etc/spk-bob
+sudo ./spk --server --install --cfgdir /etc/spk-bob    # enter label "bob" when prompted
+```
+
+Each instance runs as an independent service (`spk_alice`, `spk_bob`) with its own keys and rules.
 
 **Q: What happens if the server crashes while ports are open?**
 

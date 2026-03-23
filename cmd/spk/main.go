@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ import (
 
 var (
 	version     = "1.0.0"
-	commit      = "dev"
+	commit      = "Dev"
 	buildNumber = "0"
 	pcapBuild   = "0" // set to "1" by linker for pcap builds
 )
@@ -71,9 +72,32 @@ func pcapLabel() string {
 	return "[No PCAP]"
 }
 
+// resolveVersionFromBuildInfo returns the display version and commit label to
+// show in --version output. It is a pure function that accepts all inputs
+// explicitly so it can be tested without modifying globals.
+//
+// Rules:
+//  1. If currentCommit != "Dev", ldflags were injected by the build scripts;
+//     use currentVersion+"."+currentBuildNumber and currentCommit unchanged.
+//  2. Otherwise this is a plain 'go install' or 'go build' without ldflags.
+//     If debug.ReadBuildInfo returned a real module version tag (non-empty,
+//     not "(devel)"), strip the leading "v" and label it "Go".
+//  3. Fall back to the hardcoded placeholder and "Dev" label.
+func resolveVersionFromBuildInfo(currentVersion, currentBuildNumber, currentCommit string, info *debug.BuildInfo, ok bool) (ver, commitLabel string) {
+	if currentCommit != "Dev" {
+		return fmt.Sprintf("%s.%s", currentVersion, currentBuildNumber), currentCommit
+	}
+	if ok && info != nil && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimPrefix(info.Main.Version, "v"), "Go"
+	}
+	return fmt.Sprintf("%s.%s", currentVersion, currentBuildNumber), currentCommit
+}
+
 // versionString returns the full application version string shown to users.
 func versionString() string {
-	return fmt.Sprintf("SPK - Secured Port Knock - %s (%s) %s\nCopyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)\nGithub Repository: https://github.com/secured-port-knock/spk", fullVersion(), commit, pcapLabel())
+	info, ok := debug.ReadBuildInfo()
+	ver, commitLabel := resolveVersionFromBuildInfo(version, buildNumber, commit, info, ok)
+	return fmt.Sprintf("SPK - Secured Port Knock - %s (%s) %s\nCopyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)\nGithub Repository: https://github.com/secured-port-knock/spk", ver, commitLabel, pcapLabel())
 }
 
 // isPrivileged checks whether the process is running with elevated privileges
