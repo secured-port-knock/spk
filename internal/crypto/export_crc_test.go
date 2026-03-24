@@ -26,7 +26,10 @@ import (
 // TestBundleCRC32TrailerPresent verifies that encodeV1Binary appends a 4-byte
 // CRC32 trailer at the end of every produced binary bundle.
 func TestBundleCRC32TrailerPresent(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
@@ -45,7 +48,10 @@ func TestBundleCRC32TrailerPresent(t *testing.T) {
 // TestBundleCRC32Value verifies that the stored CRC32 value equals the
 // CRC32/IEEE checksum of all bytes preceding the last 4 bytes.
 func TestBundleCRC32Value(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 12345, true, false, true, nil, false, 3600, 0)
@@ -69,7 +75,10 @@ func TestBundleCRC32Value(t *testing.T) {
 // TestBundleCRC32RoundTripKEM768 verifies create-and-parse round-trip with
 // CRC32 for a KEM-768 static-port bundle.
 func TestBundleCRC32RoundTripKEM768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 55555, true, true, false)
@@ -96,7 +105,10 @@ func TestBundleCRC32RoundTripKEM768(t *testing.T) {
 // TestBundleCRC32RoundTripKEM1024 verifies create-and-parse round-trip with
 // CRC32 for a KEM-1024 static-port bundle.
 func TestBundleCRC32RoundTripKEM1024(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 44444, false, false, true)
@@ -119,7 +131,10 @@ func TestBundleCRC32RoundTripKEM1024(t *testing.T) {
 
 // TestBundleCRC32RoundTripDynamicPort verifies CRC32 works for dynamic-port bundles.
 func TestBundleCRC32RoundTripDynamicPort(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	seed := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x00, 0x01}
 
@@ -147,7 +162,10 @@ func TestBundleCRC32RoundTripDynamicPort(t *testing.T) {
 // TestBundleCRC32Mismatch verifies that a single-byte flip anywhere in the
 // bundle (excluding the CRC32 trailer itself) is detected as a CRC32 mismatch.
 func TestBundleCRC32Mismatch(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 8080, false, false, false, nil, false, 3600, 0)
@@ -175,7 +193,7 @@ func TestBundleCRC32Mismatch(t *testing.T) {
 		copy(corrupted, raw)
 		corrupted[pos] ^= 0xFF // flip all bits at this position
 
-		_, err := decodeBinary(corrupted)
+		_, err = decodeBinary(corrupted)
 		if err == nil {
 			t.Errorf("position %d: expected CRC32 mismatch error, got nil", pos)
 		}
@@ -185,7 +203,10 @@ func TestBundleCRC32Mismatch(t *testing.T) {
 // TestBundleCRC32WrongChecksum verifies that supplying an incorrect CRC32
 // value (without changing the payload) returns a clear error.
 func TestBundleCRC32WrongChecksum(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 9999, false, false, false, nil, false, 0, 0)
@@ -207,7 +228,10 @@ func TestBundleCRC32WrongChecksum(t *testing.T) {
 // TestBundleCRC32LegacyNoCRC32Rejected verifies that bundles without the
 // CRC32 trailer (0 trailing bytes after the encapsulation key) are rejected.
 func TestBundleCRC32LegacyNoCRC32Rejected(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build a bundle without CRC32: "SPK" + ver + flags + port + duration + window + kem_size + EK
@@ -234,7 +258,7 @@ func TestBundleCRC32LegacyNoCRC32Rejected(t *testing.T) {
 
 	buf.Write(ek.Bytes()) // no CRC32
 
-	_, err := decodeBinary(buf.Bytes())
+	_, err = decodeBinary(buf.Bytes())
 	if err == nil {
 		t.Fatal("expected error for bundle without CRC32 trailer, got nil")
 	}
@@ -244,7 +268,10 @@ func TestBundleCRC32LegacyNoCRC32Rejected(t *testing.T) {
 // of trailing bytes other than exactly 4 (the CRC32 field) are rejected.
 // This includes 0 trailing bytes (missing CRC32) and any number other than 4.
 func TestBundleCRC32TrailingBytesRejected(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 8888, false, false, false, nil, false, 0, 0)
@@ -271,7 +298,10 @@ func TestBundleCRC32TrailingBytesRejected(t *testing.T) {
 // TestBundleCRC32EncryptedInnerVerified verifies that encrypted bundles have
 // their inner (decrypted) payload's CRC32 validated when a password is supplied.
 func TestBundleCRC32EncryptedInnerVerified(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "test-crc32-enc-pw"
 
@@ -293,7 +323,10 @@ func TestBundleCRC32EncryptedInnerVerified(t *testing.T) {
 // TestBundleCRC32RawAndBase64Consistent verifies that the raw binary and
 // base64-encoded paths produce exactly the same bytes (including CRC32).
 func TestBundleCRC32RawAndBase64Consistent(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := CreateExportBundleRawWithWindow(ek, 11111, true, true, false, nil, false, 900, 300)
@@ -334,7 +367,10 @@ func TestBundleCRC32RawAndBase64Consistent(t *testing.T) {
 // TestBundleCRC32AllFieldsRoundTrip verifies that every logical field survives
 // a full encode-then-decode cycle with CRC32 present.
 func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	cases := []struct {
@@ -396,7 +432,10 @@ func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
 // TestBundleCRC32KEM1024TrailerSize verifies the correct trailer offset for
 // KEM-1024 bundles (larger EK means the CRC32 is at a different offset).
 func TestBundleCRC32KEM1024TrailerSize(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 443, false, false, false, nil, false, 0, 0)
@@ -432,7 +471,10 @@ func TestBundleCRC32KEM1024TrailerSize(t *testing.T) {
 // causes either a format-rejection error or a CRC32 mismatch -- in both
 // cases decoding must not succeed.
 func TestBundleCRC32MagicByteCorruption(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 22, false, false, false, nil, false, 0, 0)
@@ -447,7 +489,7 @@ func TestBundleCRC32MagicByteCorruption(t *testing.T) {
 
 		// decodeBinary is called directly so we must redirect through ParseExportBundleRaw
 		// which also validates the magic prefix.
-		_, err := ParseExportBundleRaw(corrupted, "")
+		_, err = ParseExportBundleRaw(corrupted, "")
 		if err == nil {
 			t.Errorf("magic byte %d corrupted: expected error, got nil", i)
 		}
@@ -458,7 +500,10 @@ func TestBundleCRC32MagicByteCorruption(t *testing.T) {
 // key decoded from a CRC32-validated bundle can still be used for encryption
 // and that decapsulation recovers the original plaintext.
 func TestBundleCRC32EKKeyUsableAfterVerification(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 8080, true, false, false, nil, false, 3600, 0)

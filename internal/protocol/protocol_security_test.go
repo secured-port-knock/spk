@@ -114,13 +114,19 @@ func TestParseKnockPacketMatchIncomingIP(t *testing.T) {
 }
 
 func TestParseKnockPacketMatchIncomingIPDefault(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := BuildKnockPacket(ek, "192.168.1.1", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "192.168.1.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// With match_incoming_ip=true (default), matching IP should work
-	_, err := ParseKnockPacket(dk, packet, "192.168.1.1", 30)
+	_, err = ParseKnockPacket(dk, packet, "192.168.1.1", 30)
 	if err != nil {
 		t.Fatalf("matching IP should succeed: %v", err)
 	}

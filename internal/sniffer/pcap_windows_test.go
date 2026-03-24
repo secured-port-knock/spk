@@ -176,7 +176,10 @@ func TestPcapCaptureRaw(t *testing.T) {
 	t.Logf("Selected device: %s", dev)
 
 	var errbuf [256]byte
-	devPtr, _ := syscall.BytePtrFromString(dev)
+	devPtr, err := syscall.BytePtrFromString(dev)
+	if err != nil {
+		t.Fatalf("BytePtrFromString: %v", err)
+	}
 	handle, _, _ := procPcapOpenLive.Call(
 		uintptr(unsafe.Pointer(devPtr)),
 		65535, // snaplen
@@ -278,7 +281,10 @@ func TestPcapBPFFilter(t *testing.T) {
 	dev := devs[0]
 
 	var errbuf [256]byte
-	devPtr, _ := syscall.BytePtrFromString(dev)
+	devPtr, err := syscall.BytePtrFromString(dev)
+	if err != nil {
+		t.Fatalf("BytePtrFromString: %v", err)
+	}
 	handle, _, _ := procPcapOpenLive.Call(
 		uintptr(unsafe.Pointer(devPtr)),
 		65535,
@@ -294,7 +300,10 @@ func TestPcapBPFFilter(t *testing.T) {
 	// Compile and set BPF filter for a specific port
 	testPort := 39999
 	filter := fmt.Sprintf("udp and port %d", testPort)
-	filterPtr, _ := syscall.BytePtrFromString(filter)
+	filterPtr, err := syscall.BytePtrFromString(filter)
+	if err != nil {
+		t.Fatalf("BytePtrFromString: %v", err)
+	}
 
 	var fp bpfProgram
 	ret, _, _ := procPcapCompile.Call(

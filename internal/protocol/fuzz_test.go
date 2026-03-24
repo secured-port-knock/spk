@@ -89,8 +89,14 @@ func FuzzParseKnockPacket(f *testing.F) {
 	f.Add(make([]byte, 8193)) // over max
 	f.Add(make([]byte, 2000))
 
-	dk768, _ := crypto.GenerateKeyPair(crypto.KEM768)
-	dk1024, _ := crypto.GenerateKeyPair(crypto.KEM1024)
+	dk768, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		f.Fatalf("GenerateKeyPair(KEM768): %v", err)
+	}
+	dk1024, err := crypto.GenerateKeyPair(crypto.KEM1024)
+	if err != nil {
+		f.Fatalf("GenerateKeyPair(KEM1024): %v", err)
+	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic on any input
@@ -628,8 +634,14 @@ func TestPacketTampering_AppendedData(t *testing.T) {
 
 // TestPacketTampering_WrongKey verifies packet encrypted for one key cannot be decrypted by another.
 func TestPacketTampering_WrongKey(t *testing.T) {
-	dk1, _ := crypto.GenerateKeyPair(crypto.KEM768)
-	dk2, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk1, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk2, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek1 := dk1.EncapsulationKey()
 
 	packet, err := BuildKnockPacket(ek1, "10.0.0.1", "open-t22", 3600)
@@ -646,7 +658,10 @@ func TestPacketTampering_WrongKey(t *testing.T) {
 
 // TestPacketUniqueness verifies every packet is unique (forward secrecy via fresh KEM encapsulation).
 func TestPacketUniqueness(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	seen := make(map[string]bool)

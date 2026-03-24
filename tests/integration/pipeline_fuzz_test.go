@@ -23,11 +23,17 @@ import (
 // the full decryption + parsing + command validation pipeline.
 // This simulates a remote attacker sending garbage over the network.
 func FuzzRawBytesIntoPipeline(f *testing.F) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		f.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	// Seed with a valid packet
 	ek := dk.EncapsulationKey()
-	validPacket, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	validPacket, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		f.Fatalf("BuildKnockPacket: %v", err)
+	}
 	f.Add(validPacket)
 
 	// Seed with truncated valid packets
@@ -124,7 +130,10 @@ func TestCryptoPayloadFieldPreservation(t *testing.T) {
 // TestPacketCryptographicUniqueness verifies that identical inputs
 // produce different ciphertext (due to random KEM encapsulation + nonce).
 func TestPacketCryptographicUniqueness(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	packets := make(map[string]bool)
@@ -146,13 +155,19 @@ func TestPacketCryptographicUniqueness(t *testing.T) {
 // TestEndToEndTamperDetection verifies that any single-byte change
 // in a valid packet causes decryption failure.
 func TestEndToEndTamperDetection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Verify original works
-	_, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("valid packet rejected: %v", err)
 	}
@@ -163,7 +178,7 @@ func TestEndToEndTamperDetection(t *testing.T) {
 		copy(tampered, packet)
 		tampered[i] ^= 0xFF // flip all bits in this byte
 
-		_, err := protocol.ParseKnockPacket(dk, tampered, "10.0.0.1", 30)
+		_, err = protocol.ParseKnockPacket(dk, tampered, "10.0.0.1", 30)
 		if err == nil {
 			t.Errorf("tampered packet accepted (byte %d flipped)", i)
 		}
@@ -175,14 +190,23 @@ func TestEndToEndTamperDetection(t *testing.T) {
 // TestEndToEndWrongKeyRejection verifies packets encrypted for one key
 // cannot be decrypted by another.
 func TestEndToEndWrongKeyRejection(t *testing.T) {
-	dk1, _ := crypto.GenerateKeyPair()
-	dk2, _ := crypto.GenerateKeyPair()
+	dk1, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk2, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek1 := dk1.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek1, "10.0.0.1", "open-t22", 3600)
+	packet, err := protocol.BuildKnockPacket(ek1, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Decrypt with wrong key
-	_, err := protocol.ParseKnockPacket(dk2, packet, "10.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk2, packet, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("packet decrypted with wrong key should be rejected")
 	}
@@ -193,7 +217,10 @@ func TestEndToEndWrongKeyRejection(t *testing.T) {
 // TestAntiReplayPropertyBased verifies the nonce tracker
 // correctly deduplicates across many packets.
 func TestAntiReplayPropertyBased(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	tracker := protocol.NewNonceTracker(120 * time.Second)
 
@@ -201,7 +228,10 @@ func TestAntiReplayPropertyBased(t *testing.T) {
 	nonces := make([]string, 0, packetCount)
 
 	for i := 0; i < packetCount; i++ {
-		pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+		pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
 		payload, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
 		if err != nil {
 			t.Fatalf("packet %d: %v", i, err)
@@ -225,7 +255,10 @@ func TestAntiReplayPropertyBased(t *testing.T) {
 // TestConcurrentKnockProcessing verifies the pipeline handles
 // concurrent packet processing safely.
 func TestConcurrentKnockProcessing(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	tracker := protocol.NewNonceTracker(120 * time.Second)
 
@@ -265,7 +298,10 @@ func TestConcurrentKnockProcessing(t *testing.T) {
 // TestEndToEndCommandInjectionResistance verifies that no valid command
 // type can produce a shell injection in the BuildCommand output.
 func TestEndToEndCommandInjectionResistance(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	commands := []string{
@@ -280,7 +316,10 @@ func TestEndToEndCommandInjectionResistance(t *testing.T) {
 	dangerousChars := []string{";", "&&", "||", "|", "`", "$(", "${", "\n", "\r"}
 
 	for _, cmd := range commands {
-		pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", cmd, 3600)
+		pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", cmd, 3600)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
 		payload, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
 		if err != nil {
 			t.Fatal(err)
@@ -300,7 +339,10 @@ func TestEndToEndCommandInjectionResistance(t *testing.T) {
 
 // TestTOTPEndToEnd verifies TOTP codes survive the full packet cycle.
 func TestTOTPEndToEnd(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	secret, err := crypto.GenerateTOTPSecret()
@@ -338,7 +380,10 @@ func TestTOTPEndToEnd(t *testing.T) {
 
 // TestPaddingPreservesPayload verifies variable padding doesn't alter payload data.
 func TestPaddingPreservesPayload(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	configs := []protocol.PaddingConfig{
@@ -409,7 +454,10 @@ func TestDynPortFullPipeline(t *testing.T) {
 // for both KEM sizes, with and without password encryption.
 func TestExportBundleFullLifecycle(t *testing.T) {
 	for _, kemSize := range []crypto.KEMSize{crypto.KEM768, crypto.KEM1024} {
-		dk, _ := crypto.GenerateKeyPair(kemSize)
+		dk, err := crypto.GenerateKeyPair(kemSize)
+		if err != nil {
+			t.Fatalf("GenerateKeyPair: %v", err)
+		}
 		ek := dk.EncapsulationKey()
 
 		// Unencrypted bundle
@@ -479,7 +527,10 @@ func TestExportBundleFullLifecycle(t *testing.T) {
 // TestIPv6FullPipelineProperty verifies the full pipeline works with
 // various IPv6 address formats.
 func TestIPv6FullPipelineProperty(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	ipv6Addrs := []string{
@@ -514,7 +565,10 @@ func TestIPv6FullPipelineProperty(t *testing.T) {
 // TestConcurrentMixedTraffic simulates realistic concurrent traffic
 // with valid knocks mixed with garbage data.
 func TestConcurrentMixedTraffic(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	tracker := protocol.NewNonceTracker(120 * time.Second)
 
@@ -566,13 +620,19 @@ func TestConcurrentMixedTraffic(t *testing.T) {
 // TestTimestampToleranceEnforcement verifies that packets with timestamps
 // outside the tolerance window are rejected.
 func TestTimestampToleranceEnforcement(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Should pass with generous tolerance
-	_, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 60)
+	_, err = protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 60)
 	if err != nil {
 		t.Fatalf("valid packet rejected: %v", err)
 	}
@@ -589,7 +649,10 @@ func TestTimestampToleranceEnforcement(t *testing.T) {
 // TestOpenDurationBoundaryValues verifies extreme open duration values
 // survive the encoding round trip.
 func TestOpenDurationBoundaryValues(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	durations := []int{
@@ -624,11 +687,17 @@ func TestOpenDurationBoundaryValues(t *testing.T) {
 // knock port and processing it through the full server pipeline.
 // This tests the exact path: [network bytes] -> [decrypt] -> [parse] -> [validate] -> [command].
 func FuzzUDPReceiveSimulation(f *testing.F) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		f.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Seed with valid packet
-	pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		f.Fatalf("BuildKnockPacket: %v", err)
+	}
 	f.Add(pkt)
 
 	// Seed with packet-sized random data
@@ -671,13 +740,22 @@ func FuzzUDPReceiveSimulation(f *testing.F) {
 // TestNonceEntropyProperty verifies that generated nonces have
 // sufficient entropy (no prefix collisions, no patterns).
 func TestNonceEntropyProperty(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	nonces := make([]string, 100)
 	for i := range nonces {
-		pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-		payload, _ := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
+		pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
+		payload, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
+		if err != nil {
+			t.Fatalf("ParseKnockPacket: %v", err)
+		}
 		nonces[i] = payload.Nonce
 	}
 
@@ -706,7 +784,10 @@ func TestNonceEntropyProperty(t *testing.T) {
 // TestPacketSizeMTUCompliance verifies KEM768 packets fit within
 // standard Ethernet MTU (1500 bytes) for common commands.
 func TestPacketSizeMTUCompliance(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	commonCommands := []string{
@@ -735,7 +816,10 @@ func TestPacketSizeMTUCompliance(t *testing.T) {
 
 // TestBundlePortRangeProperty verifies port values survive the bundle round trip.
 func TestBundlePortRangeProperty(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	ports := []int{0, 1, 80, 443, 1024, 8080, 10000, 49152, 65535}
@@ -761,7 +845,10 @@ func TestBundlePortRangeProperty(t *testing.T) {
 
 // FuzzExportBundlePortFuzz tests export bundle with random port values.
 func FuzzExportBundlePortFuzz(f *testing.F) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		f.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	f.Add(0)
@@ -791,7 +878,10 @@ func FuzzExportBundlePortFuzz(f *testing.F) {
 
 // TestPaddingSizeDistribution verifies padding size is within configured bounds.
 func TestPaddingSizeDistribution(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	minPad := 64
@@ -829,10 +919,16 @@ func TestPaddingSizeDistribution(t *testing.T) {
 // containing a knock packet, then corrupts UDP header bytes to verify the
 // sniffer parsing rejects or degrades gracefully.
 func TestSnifferUDPCorruption(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	knockData, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	knockData, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Build Ethernet(14) + IPv4(20) + UDP(8) + knockData
 	ethHdr := make([]byte, 14)
@@ -848,7 +944,10 @@ func TestSnifferUDPCorruption(t *testing.T) {
 	copy(ipHdr[16:20], net.ParseIP("192.168.1.1").To4())
 
 	udpHdr := make([]byte, 8)
-	n, _ := rand.Int(rand.Reader, big.NewInt(50000))
+	n, err := rand.Int(rand.Reader, big.NewInt(50000))
+	if err != nil {
+		t.Fatalf("Int: %v", err)
+	}
 	srcPort := uint16(n.Int64() + 1024)
 	binary.BigEndian.PutUint16(udpHdr[0:2], srcPort)
 	binary.BigEndian.PutUint16(udpHdr[2:4], 12345)

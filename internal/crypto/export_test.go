@@ -73,7 +73,10 @@ func TestCreateParseExportBundle(t *testing.T) {
 }
 
 func TestEncryptedExportBundle(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	password := "test-password-123"
@@ -110,10 +113,16 @@ func TestEncryptedExportBundle(t *testing.T) {
 }
 
 func TestExportBundleFileRoundTrip(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	b64, _ := CreateExportBundle(ek, 11111, false, false, false)
+	b64, err := CreateExportBundle(ek, 11111, false, false, false)
+	if err != nil {
+		t.Fatalf("CreateExportBundle: %v", err)
+	}
 
 	path := t.TempDir() + "/test.b64"
 	if err := ExportToFile(path, b64); err != nil {
@@ -148,7 +157,10 @@ func TestExportBundleFileRoundTrip(t *testing.T) {
 // TestBase64BundleMagicNotDoubled verifies that the base64-decoded wire format
 // starts with exactly "SPK" + version(1), not "SPKSPK" + version(1).
 func TestBase64BundleMagicNotDoubled(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 12345, true, false, true)
@@ -191,7 +203,10 @@ func TestBase64BundleMagicNotDoubled(t *testing.T) {
 // TestRawBundleMagicNotDoubled verifies that the raw binary bundle (used for
 // QR codes) starts with exactly "SPK" + version(1), not "SPKSPK" + version(1).
 func TestRawBundleMagicNotDoubled(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := CreateExportBundleRawWithWindow(ek, 9999, false, true, false, nil, false, 60, 0)
@@ -226,7 +241,10 @@ func TestRawBundleMagicNotDoubled(t *testing.T) {
 // TestEncryptedBundleMagicPrefix verifies that encrypted bundles start with
 // "SPKE" (4 bytes) and that the decrypted inner payload starts with "SPK" + version.
 func TestEncryptedBundleMagicPrefix(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "regression-test-pw"
 
@@ -259,7 +277,10 @@ func TestEncryptedBundleMagicPrefix(t *testing.T) {
 // and raw binary creation paths produce identical binary content (base64
 // encoding being the only difference).
 func TestBase64AndRawBundlesProduceSamePayload(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundleWithWindow(ek, 5555, true, false, true, nil, false, 120, 0)
@@ -284,7 +305,10 @@ func TestBase64AndRawBundlesProduceSamePayload(t *testing.T) {
 // TestEncodeV1BinaryOutputStartsWithMagic verifies that encodeV1Binary itself
 // includes the "SPK" magic prefix in its output.
 func TestEncodeV1BinaryOutputStartsWithMagic(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
@@ -305,7 +329,10 @@ func TestEncodeV1BinaryOutputStartsWithMagic(t *testing.T) {
 
 // TestBundleKEM1024MagicNotDoubled repeats the magic prefix check for KEM-1024.
 func TestBundleKEM1024MagicNotDoubled(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 54321, false, true, false)
@@ -338,7 +365,10 @@ func TestBundleKEM1024MagicNotDoubled(t *testing.T) {
 // TestEncryptedRawBundleRoundTrip verifies that CreateEncryptedExportBundleRawWithWindow
 // produces raw bytes starting with "SPKE" that ParseExportBundleRaw can decrypt.
 func TestEncryptedRawBundleRoundTrip(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "test-qr-password"
 
@@ -393,7 +423,10 @@ func TestEncryptedRawBundleRoundTrip(t *testing.T) {
 // TestEncryptedRawBundleKeyRoundTrip verifies that the encapsulation key
 // survives encrypted raw bundle round-trip and can be used for encryption.
 func TestEncryptedRawBundleKeyRoundTrip(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "key-round-trip-pw"
 
@@ -431,7 +464,10 @@ func TestEncryptedRawBundleKeyRoundTrip(t *testing.T) {
 // unencrypted raw bundles for the same key material produce different bytes,
 // confirming the QR code content is actually encrypted.
 func TestEncryptedAndUnencryptedRawBundlesDiffer(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	plain, err := CreateExportBundleRawWithWindow(ek, 5555, true, false, true, nil, false, 120, 0)
@@ -468,7 +504,10 @@ func TestEncryptedAndUnencryptedRawBundlesDiffer(t *testing.T) {
 // raw bundle (for QR) and encrypted base64 bundle (for text) both decrypt to
 // the same logical content.
 func TestEncryptedRawAndBase64BundlesParseToSameValues(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "consistency-test-pw"
 

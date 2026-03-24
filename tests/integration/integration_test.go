@@ -396,7 +396,7 @@ func TestMalformedPacketHandling(t *testing.T) {
 	}
 
 	for i, data := range malformed {
-		_, err := protocol.ParseKnockPacket(dk, data, "1.2.3.4", 30)
+		_, err = protocol.ParseKnockPacket(dk, data, "1.2.3.4", 30)
 		if err == nil {
 			t.Errorf("malformed packet %d should be rejected", i)
 		}
@@ -514,7 +514,10 @@ func TestIPv6KnockCycle(t *testing.T) {
 
 // TestIPv6AddressInPayload verifies that full IPv6 addresses survive the encrypt/decrypt cycle.
 func TestIPv6AddressInPayload(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	ipv6Addrs := []string{

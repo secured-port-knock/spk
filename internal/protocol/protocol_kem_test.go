@@ -181,18 +181,30 @@ func TestKEM768WithPaddingMTU(t *testing.T) {
 }
 
 func TestCrossKEMPacketRejection(t *testing.T) {
-	dk768, _ := crypto.GenerateKeyPair(crypto.KEM768)
-	dk1024, _ := crypto.GenerateKeyPair(crypto.KEM1024)
+	dk768, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair(KEM768): %v", err)
+	}
+	dk1024, err := crypto.GenerateKeyPair(crypto.KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair(KEM1024): %v", err)
+	}
 
 	// Build with KEM-768 key, try to parse with KEM-1024 key
-	packet, _ := BuildKnockPacket(dk768.EncapsulationKey(), "192.168.1.1", "open-t22", 0)
-	_, err := ParseKnockPacket(dk1024, packet, "192.168.1.1", 30)
+	packet, err := BuildKnockPacket(dk768.EncapsulationKey(), "192.168.1.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("EncapsulationKey: %v", err)
+	}
+	_, err = ParseKnockPacket(dk1024, packet, "192.168.1.1", 30)
 	if err == nil {
 		t.Error("expected error parsing KEM-768 packet with KEM-1024 key")
 	}
 
 	// Build with KEM-1024 key, try to parse with KEM-768 key
-	packet2, _ := BuildKnockPacket(dk1024.EncapsulationKey(), "10.0.0.1", "open-t443", 0)
+	packet2, err := BuildKnockPacket(dk1024.EncapsulationKey(), "10.0.0.1", "open-t443", 0)
+	if err != nil {
+		t.Fatalf("EncapsulationKey: %v", err)
+	}
 	_, err = ParseKnockPacket(dk768, packet2, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("expected error parsing KEM-1024 packet with KEM-768 key")
@@ -201,7 +213,10 @@ func TestCrossKEMPacketRejection(t *testing.T) {
 
 func TestIPv6SupportMultiKEM(t *testing.T) {
 	for _, size := range []crypto.KEMSize{crypto.KEM768, crypto.KEM1024} {
-		dk, _ := crypto.GenerateKeyPair(size)
+		dk, err := crypto.GenerateKeyPair(size)
+		if err != nil {
+			t.Fatalf("GenerateKeyPair(%d): %v", size, err)
+		}
 		ek := dk.EncapsulationKey()
 
 		ipv6 := "2001:db8::1"
@@ -222,7 +237,10 @@ func TestIPv6SupportMultiKEM(t *testing.T) {
 
 func TestBatchCommandMultiKEM(t *testing.T) {
 	for _, size := range []crypto.KEMSize{crypto.KEM768, crypto.KEM1024} {
-		dk, _ := crypto.GenerateKeyPair(size)
+		dk, err := crypto.GenerateKeyPair(size)
+		if err != nil {
+			t.Fatalf("GenerateKeyPair(%d): %v", size, err)
+		}
 		ek := dk.EncapsulationKey()
 
 		// Test with a batch command containing multiple ports

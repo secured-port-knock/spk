@@ -130,8 +130,14 @@ func TestEncryptDecryptRoundTrip1024(t *testing.T) {
 
 func TestCrossKEMDecryptFails(t *testing.T) {
 	// A packet encrypted with KEM-768 key should NOT decrypt with a KEM-1024 key
-	dk768, _ := GenerateKeyPair(KEM768)
-	dk1024, _ := GenerateKeyPair(KEM1024)
+	dk768, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk1024, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	plaintext := []byte("test data")
 	packet, err := EncapsulateAndEncrypt(dk768.EncapsulationKey(), plaintext)
@@ -147,8 +153,14 @@ func TestCrossKEMDecryptFails(t *testing.T) {
 
 func TestCrossKEMDecryptFails1024To768(t *testing.T) {
 	// A packet encrypted with KEM-1024 key should NOT decrypt with a KEM-768 key
-	dk768, _ := GenerateKeyPair(KEM768)
-	dk1024, _ := GenerateKeyPair(KEM1024)
+	dk768, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk1024, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	plaintext := []byte("test data")
 	packet, err := EncapsulateAndEncrypt(dk1024.EncapsulationKey(), plaintext)
@@ -167,7 +179,10 @@ func TestCrossKEMDecryptFails1024To768(t *testing.T) {
 // =============================================================================
 
 func TestKEM768PacketFitsMTU(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Typical compact binary knock payload (version + flags + timestamp + nonce + ip + timeout + cmdlen + cmd)
@@ -189,7 +204,10 @@ func TestKEM768PacketFitsMTU(t *testing.T) {
 }
 
 func TestKEM1024PacketExceedsMTU(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Even an empty payload exceeds MTU with KEM-1024
@@ -212,7 +230,10 @@ func TestKEM1024PacketExceedsMTU(t *testing.T) {
 // =============================================================================
 
 func TestSaveLoadPrivateKey768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "private.pem")
 
@@ -221,7 +242,10 @@ func TestSaveLoadPrivateKey768(t *testing.T) {
 	}
 
 	// Verify PEM type
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if !contains(string(data), "MLKEM768 PRIVATE KEY") {
 		t.Error("PEM file should contain MLKEM768 PRIVATE KEY header")
 	}
@@ -241,7 +265,10 @@ func TestSaveLoadPrivateKey768(t *testing.T) {
 }
 
 func TestSaveLoadPrivateKey1024(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "private.pem")
 
@@ -250,7 +277,10 @@ func TestSaveLoadPrivateKey1024(t *testing.T) {
 	}
 
 	// Verify PEM type
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if !contains(string(data), "MLKEM1024 PRIVATE KEY") {
 		t.Error("PEM file should contain MLKEM1024 PRIVATE KEY header")
 	}
@@ -265,7 +295,10 @@ func TestSaveLoadPrivateKey1024(t *testing.T) {
 }
 
 func TestSaveLoadPublicKey768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "public.pem")
 
@@ -273,7 +306,10 @@ func TestSaveLoadPublicKey768(t *testing.T) {
 		t.Fatalf("SavePublicKey: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if !contains(string(data), "MLKEM768 PUBLIC KEY") {
 		t.Error("PEM file should contain MLKEM768 PUBLIC KEY header")
 	}
@@ -288,7 +324,10 @@ func TestSaveLoadPublicKey768(t *testing.T) {
 }
 
 func TestSaveLoadPublicKey1024(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "public.pem")
 
@@ -296,7 +335,10 @@ func TestSaveLoadPublicKey1024(t *testing.T) {
 		t.Fatalf("SavePublicKey: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if !contains(string(data), "MLKEM1024 PUBLIC KEY") {
 		t.Error("PEM file should contain MLKEM1024 PUBLIC KEY header")
 	}
@@ -312,7 +354,10 @@ func TestSaveLoadPublicKey1024(t *testing.T) {
 
 func TestSaveLoadRoundTrip768(t *testing.T) {
 	// Generate, save, load, encrypt, decrypt - full round trip with KEM-768
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	dir := t.TempDir()
 	privPath := filepath.Join(dir, "priv.pem")
 	pubPath := filepath.Join(dir, "pub.pem")
@@ -348,7 +393,10 @@ func TestSaveLoadRoundTrip768(t *testing.T) {
 // =============================================================================
 
 func TestLoadPublicKeyBytesAutoDetect768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ekBytes := dk.EncapsulationKey().Bytes()
 
 	// No explicit size - should auto-detect from length
@@ -362,7 +410,10 @@ func TestLoadPublicKeyBytesAutoDetect768(t *testing.T) {
 }
 
 func TestLoadPublicKeyBytesAutoDetect1024(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ekBytes := dk.EncapsulationKey().Bytes()
 
 	loaded, err := LoadPublicKeyBytes(ekBytes)
@@ -375,7 +426,10 @@ func TestLoadPublicKeyBytesAutoDetect1024(t *testing.T) {
 }
 
 func TestLoadPublicKeyBytesExplicitSize(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ekBytes := dk.EncapsulationKey().Bytes()
 
 	// Explicit KEM768 size

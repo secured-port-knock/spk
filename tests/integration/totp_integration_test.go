@@ -66,15 +66,27 @@ func TestTOTPKnockRoundTrip(t *testing.T) {
 // TestTOTPKnockValidation verifies that the server-side TOTP validation
 // accepts valid codes and rejects invalid ones after the knock cycle.
 func TestTOTPKnockValidation(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	secret, _ := crypto.GenerateTOTPSecret()
-	validCode, _ := crypto.GenerateTOTP(secret, time.Now())
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	validCode, err := crypto.GenerateTOTP(secret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP: %v", err)
+	}
 
 	// Valid TOTP code should validate
 	opts := protocol.KnockOptions{TOTP: validCode}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -85,8 +97,14 @@ func TestTOTPKnockValidation(t *testing.T) {
 
 	// Invalid TOTP code should NOT validate
 	opts2 := protocol.KnockOptions{TOTP: "000000"}
-	packet2, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts2)
-	payload2, _ := protocol.ParseKnockPacket(dk, packet2, "10.0.0.1", 30)
+	packet2, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts2)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload2, err := protocol.ParseKnockPacket(dk, packet2, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if crypto.ValidateTOTP(secret, payload2.TOTP) {
 		t.Log("000000 happened to be valid (extremely unlikely) - skipping")
 	}
@@ -94,11 +112,20 @@ func TestTOTPKnockValidation(t *testing.T) {
 
 // TestTOTPKnockWithPadding verifies TOTP works alongside padding.
 func TestTOTPKnockWithPadding(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	secret, _ := crypto.GenerateTOTPSecret()
-	code, _ := crypto.GenerateTOTP(secret, time.Now())
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	code, err := crypto.GenerateTOTP(secret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP: %v", err)
+	}
 
 	opts := protocol.KnockOptions{
 		TOTP: code,
@@ -132,11 +159,20 @@ func TestTOTPKnockWithPadding(t *testing.T) {
 
 // TestTOTPKnockE2EUDP tests TOTP in a full network round-trip over UDP.
 func TestTOTPKnockE2EUDP(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	secret, _ := crypto.GenerateTOTPSecret()
-	code, _ := crypto.GenerateTOTP(secret, time.Now())
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	code, err := crypto.GenerateTOTP(secret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP: %v", err)
+	}
 
 	// Start UDP listener
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -165,12 +201,18 @@ func TestTOTPKnockE2EUDP(t *testing.T) {
 	}()
 
 	// Send packet with TOTP
-	clientConn, _ := net.Dial("udp", conn.LocalAddr().String())
+	clientConn, err := net.Dial("udp", conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
 	defer clientConn.Close()
 	localIP := clientConn.LocalAddr().(*net.UDPAddr).IP.String()
 
 	opts := protocol.KnockOptions{TOTP: code}
-	packet, _ := protocol.BuildKnockPacket(ek, localIP, "open-t22", 0, opts)
+	packet, err := protocol.BuildKnockPacket(ek, localIP, "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	clientConn.Write(packet)
 
 	res := <-ch
@@ -187,11 +229,17 @@ func TestTOTPKnockE2EUDP(t *testing.T) {
 
 // TestTOTPKnockWithoutCode verifies that a packet without TOTP has empty TOTP field.
 func TestTOTPKnockWithoutCode(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build packet without TOTP
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -205,16 +253,34 @@ func TestTOTPKnockWithoutCode(t *testing.T) {
 // generated with one secret fails validation against a different secret,
 // even after surviving the encrypt->decrypt cycle.
 func TestTOTPKnockWrongSecretRejectsAfterRoundTrip(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	secret1, _ := crypto.GenerateTOTPSecret()
-	secret2, _ := crypto.GenerateTOTPSecret()
-	code, _ := crypto.GenerateTOTP(secret1, time.Now())
+	secret1, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	secret2, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	code, err := crypto.GenerateTOTP(secret1, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP: %v", err)
+	}
 
 	opts := protocol.KnockOptions{TOTP: code}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	// Code from secret1 should NOT validate against secret2
 	if crypto.ValidateTOTP(secret2, payload.TOTP) {
@@ -228,14 +294,20 @@ func TestTOTPKnockWrongSecretRejectsAfterRoundTrip(t *testing.T) {
 
 // TestTimestampPastErrorMessage verifies the specific error message for old packets.
 func TestTimestampPastErrorMessage(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build packet, wait, then parse with tight tolerance
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	time.Sleep(2 * time.Second)
 
-	_, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
+	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
 		t.Fatal("old packet should be rejected with 1s tolerance")
 	}
@@ -254,13 +326,19 @@ func TestTimestampPastErrorMessage(t *testing.T) {
 
 // TestTimestampErrorIncludesTolerance verifies the error includes tolerance info.
 func TestTimestampErrorIncludesTolerance(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	time.Sleep(3 * time.Second)
 
-	_, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
+	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -277,11 +355,17 @@ func TestTimestampErrorIncludesTolerance(t *testing.T) {
 
 // TestIPMismatchErrorMessage verifies the spoofing/relay/NAT hint in IP errors.
 func TestIPMismatchErrorMessage(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	_, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.2", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.2", 30)
 	if err == nil {
 		t.Fatal("IP mismatch should be rejected")
 	}
@@ -297,12 +381,18 @@ func TestIPMismatchErrorMessage(t *testing.T) {
 
 // TestProtocolVersionErrorMessage verifies unsupported version error.
 func TestProtocolVersionErrorMessage(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build a valid packet, but we can't directly set version.
 	// Instead test that valid packets pass the version check.
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("valid packet should parse: %v", err)
@@ -318,11 +408,17 @@ func TestProtocolVersionErrorMessage(t *testing.T) {
 
 // TestKnockOptionsEmpty verifies that empty KnockOptions produces no TOTP or padding.
 func TestKnockOptionsEmpty(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -337,12 +433,21 @@ func TestKnockOptionsEmpty(t *testing.T) {
 
 // TestKnockOptionsTOTPOnly verifies TOTP without padding.
 func TestKnockOptionsTOTPOnly(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{TOTP: "123456"}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if payload.TOTP != "123456" {
 		t.Errorf("TOTP = %q, want 123456", payload.TOTP)
@@ -354,7 +459,10 @@ func TestKnockOptionsTOTPOnly(t *testing.T) {
 
 // TestKnockOptionsPaddingOnly verifies padding without TOTP.
 func TestKnockOptionsPaddingOnly(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -364,8 +472,14 @@ func TestKnockOptionsPaddingOnly(t *testing.T) {
 			MaxBytes: 100,
 		},
 	}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if payload.TOTP != "" {
 		t.Error("TOTP should be empty")
@@ -382,7 +496,10 @@ func TestKnockOptionsPaddingOnly(t *testing.T) {
 
 // TestKnockOptionsBothTOTPAndPadding verifies both at once.
 func TestKnockOptionsBothTOTPAndPadding(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -393,8 +510,14 @@ func TestKnockOptionsBothTOTPAndPadding(t *testing.T) {
 			MaxBytes: 128,
 		},
 	}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if payload.TOTP != "654321" {
 		t.Errorf("TOTP = %q, want 654321", payload.TOTP)
@@ -416,7 +539,10 @@ func TestKnockOptionsBothTOTPAndPadding(t *testing.T) {
 
 // TestPaddingMinEqualsMax verifies fixed-size padding when min==max.
 func TestPaddingMinEqualsMax(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -427,8 +553,14 @@ func TestPaddingMinEqualsMax(t *testing.T) {
 		},
 	}
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if payload.Padding == "" {
 		t.Error("padding should be present")
@@ -441,7 +573,10 @@ func TestPaddingMinEqualsMax(t *testing.T) {
 
 // TestPaddingMinGreaterThanMax verifies the auto-correction when min > max.
 func TestPaddingMinGreaterThanMax(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -457,7 +592,10 @@ func TestPaddingMinGreaterThanMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildKnockPacket should auto-correct min>max: %v", err)
 	}
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if payload.Padding == "" {
 		t.Error("padding should be present after auto-correction")
 	}
@@ -465,7 +603,10 @@ func TestPaddingMinGreaterThanMax(t *testing.T) {
 
 // TestPaddingZeroMin verifies that zero min defaults to 64.
 func TestPaddingZeroMin(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -476,8 +617,14 @@ func TestPaddingZeroMin(t *testing.T) {
 		},
 	}
 
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if payload.Padding == "" {
 		t.Error("padding should be present with defaults")
@@ -495,16 +642,28 @@ func TestPaddingZeroMin(t *testing.T) {
 
 // TestMultipleTOTPKnocksUniqueNonces verifies TOTP knocks have unique nonces.
 func TestMultipleTOTPKnocksUniqueNonces(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	secret, _ := crypto.GenerateTOTPSecret()
-	code, _ := crypto.GenerateTOTP(secret, time.Now())
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	code, err := crypto.GenerateTOTP(secret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP: %v", err)
+	}
 
 	nonces := make(map[string]bool)
 	for i := 0; i < 50; i++ {
 		opts := protocol.KnockOptions{TOTP: code}
-		packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", fmt.Sprintf("open-t%d", 22+i), 0, opts)
+		packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", fmt.Sprintf("open-t%d", 22+i), 0, opts)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
 		payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
 		if err != nil {
 			t.Fatalf("parse %d: %v", i, err)

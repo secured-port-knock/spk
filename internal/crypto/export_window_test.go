@@ -64,7 +64,10 @@ func TestBundleWithWindowRoundTrip(t *testing.T) {
 func TestBundleDefaultWindowCompatibility(t *testing.T) {
 	// Test that bundles created with the new format (window field) can be parsed
 	// and that the window value is correctly read
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	seed := make([]byte, 8)
 	rand.Read(seed)
@@ -87,7 +90,10 @@ func TestBundleDefaultWindowCompatibility(t *testing.T) {
 }
 
 func TestBundleWindowVariousValues(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	seed := make([]byte, 8)
 	rand.Read(seed)
@@ -110,7 +116,10 @@ func TestBundleWindowVariousValues(t *testing.T) {
 }
 
 func TestBundleStaticPortWithWindow(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Static port bundle with window field - window is meaningless but should survive
@@ -136,7 +145,10 @@ func TestBundleStaticPortWithWindow(t *testing.T) {
 }
 
 func TestBundleEncryptedWithWindow(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	seed := make([]byte, 8)
 	rand.Read(seed)
@@ -172,7 +184,10 @@ func TestBundleEncryptedWithWindow(t *testing.T) {
 }
 
 func TestBundleRawWithWindow(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	seed := make([]byte, 8)
 	rand.Read(seed)
@@ -194,12 +209,18 @@ func TestBundleRawWithWindow(t *testing.T) {
 }
 
 func TestBundleSeedPreserved(t *testing.T) {
-	dk, _ := GenerateKeyPair()
+	dk, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	seed := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
 
-	raw, _ := encodeV1Binary(ek, 0, false, false, false, seed, true, 3600, 600)
+	raw, err := encodeV1Binary(ek, 0, false, false, false, seed, true, 3600, 600)
+	if err != nil {
+		t.Fatalf("encodeV1Binary: %v", err)
+	}
 	bundle, err := decodeBinary(raw)
 	if err != nil {
 		t.Fatalf("decodeBinary: %v", err)

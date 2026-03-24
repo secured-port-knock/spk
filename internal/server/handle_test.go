@@ -309,10 +309,19 @@ func TestHandleKnockTOTPRequiredButMissing(t *testing.T) {
 // Attack scenario: an attacker knows the server public key and has a TOTP
 // authenticator, but is using the wrong secret -- the knock must be rejected.
 func TestHandleKnockTOTPWrongCode(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
-	serverSecret, _ := crypto.GenerateTOTPSecret()
-	attackerSecret, _ := crypto.GenerateTOTPSecret() // different secret
+	serverSecret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	attackerSecret, err := crypto.GenerateTOTPSecret() // different secret
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	cfg := &config.Config{
 		TOTPEnabled:     true,

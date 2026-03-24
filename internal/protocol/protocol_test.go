@@ -65,24 +65,36 @@ func TestBuildParseKnockPacket(t *testing.T) {
 }
 
 func TestIPSpoofingRejection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Client claims to be 192.168.1.100
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Server sees packet from different IP (attacker forwarded/spoofed)
-	_, err := ParseKnockPacket(dk, packet, "10.0.0.50", 30)
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.50", 30)
 	if err == nil {
 		t.Error("expected IP mismatch error for spoofed packet")
 	}
 }
 
 func TestReplayRejection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Parse twice - second should detect replay via nonce tracker
 	tracker := NewNonceTracker(120 * time.Second)
@@ -103,30 +115,45 @@ func TestReplayRejection(t *testing.T) {
 }
 
 func TestTimestampRejection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build a valid packet
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Parse with very tight tolerance (0 seconds) - should still pass since it was just created
-	_, err := ParseKnockPacket(dk, packet, "192.168.1.100", 2)
+	_, err = ParseKnockPacket(dk, packet, "192.168.1.100", 2)
 	if err != nil {
 		t.Fatalf("fresh packet should pass with 2s tolerance: %v", err)
 	}
 }
 
 func TestWrongKeyRejection(t *testing.T) {
-	dk1, _ := crypto.GenerateKeyPair()
-	dk2, _ := crypto.GenerateKeyPair()
+	dk1, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk2, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	ek1 := dk1.EncapsulationKey()
 
 	// Encrypt with server1's key
-	packet, _ := BuildKnockPacket(ek1, "192.168.1.100", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek1, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Try to decrypt with server2's key
-	_, err := ParseKnockPacket(dk2, packet, "192.168.1.100", 30)
+	_, err = ParseKnockPacket(dk2, packet, "192.168.1.100", 30)
 	if err == nil {
 		t.Error("expected error when decrypting with wrong server key")
 	}
@@ -175,26 +202,35 @@ func TestNonceTracker(t *testing.T) {
 }
 
 func TestTamperedPacketRejection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Tamper in the encrypted payload area
 	packet[len(packet)-5] ^= 0xFF
 
-	_, err := ParseKnockPacket(dk, packet, "192.168.1.100", 30)
+	_, err = ParseKnockPacket(dk, packet, "192.168.1.100", 30)
 	if err == nil {
 		t.Error("tampered packet should fail authentication")
 	}
 }
 
 func TestMaxPacketSize(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	// Create oversized packet
 	bigPacket := make([]byte, MaxPacketSize+1)
-	_, err := ParseKnockPacket(dk, bigPacket, "1.2.3.4", 30)
+	_, err = ParseKnockPacket(dk, bigPacket, "1.2.3.4", 30)
 	if err == nil {
 		t.Error("oversized packet should be rejected")
 	}
@@ -209,7 +245,10 @@ func abs(x int64) int64 {
 
 // TestBatchCommandPacket tests that batch commands like "open-t22,t443,u53" are valid payloads.
 func TestBatchCommandPacket(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Batch command
@@ -232,7 +271,10 @@ func TestBatchCommandPacket(t *testing.T) {
 // TestBatchCloseCommandPacket tests that batch close commands like "close-t22,t443" round-trip
 // through the protocol correctly.
 func TestBatchCloseCommandPacket(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	cases := []string{
@@ -288,7 +330,10 @@ func TestValidateCommandBatchClose(t *testing.T) {
 
 // TestLargeOpenDuration tests that extreme open duration values are handled.
 func TestLargeOpenDuration(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Valid max open duration (7 days = 604800)
@@ -309,10 +354,13 @@ func TestLargeOpenDuration(t *testing.T) {
 
 // TestEmptyCommand tests that empty commands are rejected.
 func TestEmptyCommand(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	_, err := BuildKnockPacket(ek, "10.0.0.1", "", 0)
+	_, err = BuildKnockPacket(ek, "10.0.0.1", "", 0)
 	if err == nil {
 		t.Fatal("empty command should be rejected")
 	}
@@ -323,8 +371,11 @@ func TestEmptyCommand(t *testing.T) {
 
 // TestZeroLengthPacket tests that zero-length packets are rejected.
 func TestZeroLengthPacket(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
-	_, err := ParseKnockPacket(dk, []byte{}, "1.2.3.4", 30)
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	_, err = ParseKnockPacket(dk, []byte{}, "1.2.3.4", 30)
 	if err == nil {
 		t.Error("zero-length packet should be rejected")
 	}
@@ -332,12 +383,15 @@ func TestZeroLengthPacket(t *testing.T) {
 
 // TestGarbagePacket tests that random garbage is rejected gracefully.
 func TestGarbagePacket(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	garbage := make([]byte, 2000)
 	for i := range garbage {
 		garbage[i] = byte(i % 256)
 	}
-	_, err := ParseKnockPacket(dk, garbage, "1.2.3.4", 30)
+	_, err = ParseKnockPacket(dk, garbage, "1.2.3.4", 30)
 	if err == nil {
 		t.Error("garbage packet should be rejected")
 	}
@@ -345,7 +399,10 @@ func TestGarbagePacket(t *testing.T) {
 
 // TestNonceUniqueness tests that successive packets have unique nonces.
 func TestNonceUniqueness(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	nonces := make(map[string]bool)
@@ -367,7 +424,10 @@ func TestNonceUniqueness(t *testing.T) {
 
 // TestIPv6Support tests that IPv6 addresses work in payloads.
 func TestIPv6Support(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	ipv6 := "2001:db8::1"
@@ -444,7 +504,10 @@ func TestValidateCommandCustomASCII(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBuildKnockPacketWithPadding(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := KnockOptions{
@@ -478,7 +541,10 @@ func TestBuildKnockPacketWithPadding(t *testing.T) {
 }
 
 func TestBuildKnockPacketWithTOTP(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := KnockOptions{TOTP: "123456"}
@@ -497,7 +563,10 @@ func TestBuildKnockPacketWithTOTP(t *testing.T) {
 }
 
 func TestBuildKnockPacketWithPaddingAndTOTP(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := KnockOptions{
@@ -550,7 +619,10 @@ func TestNonceTrackerEviction(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseKnockPacketSkipIPVerify(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build with IP "1.1.1.1"

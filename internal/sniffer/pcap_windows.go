@@ -286,7 +286,10 @@ func (s *PcapSniffer) Start(handler PacketHandler) error {
 // and returns the live capture handle.
 func (s *PcapSniffer) openDevHandle(dev string) (uintptr, error) {
 	var errbuf [256]byte
-	devPtr, _ := syscall.BytePtrFromString(dev)
+	devPtr, err := syscall.BytePtrFromString(dev)
+	if err != nil {
+		return 0, fmt.Errorf("invalid device name %q: %v", dev, err)
+	}
 	handle, _, _ := procPcapOpenLive.Call(
 		uintptr(unsafe.Pointer(devPtr)),
 		uintptr(MaxPacketSize+200),
@@ -300,7 +303,10 @@ func (s *PcapSniffer) openDevHandle(dev string) (uintptr, error) {
 
 	// Build BPF filter: only UDP packets destined to our port.
 	filter := fmt.Sprintf("udp dst port %d", s.port)
-	filterPtr, _ := syscall.BytePtrFromString(filter)
+	filterPtr, err := syscall.BytePtrFromString(filter)
+	if err != nil {
+		return 0, fmt.Errorf("invalid BPF filter %q: %v", filter, err)
+	}
 	var fp bpfProgram
 	ret, _, _ := procPcapCompile.Call(
 		handle,

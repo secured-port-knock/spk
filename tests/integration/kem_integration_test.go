@@ -132,7 +132,10 @@ func TestFullKnockCycleKEM1024(t *testing.T) {
 	}
 	t.Logf("KEM-1024 knock packet: %d bytes", len(packet))
 
-	clientConn, _ := net.Dial("udp", serverAddr)
+	clientConn, err := net.Dial("udp", serverAddr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
 	defer clientConn.Close()
 	clientConn.Write(packet)
 
@@ -147,7 +150,10 @@ func TestFullKnockCycleKEM1024(t *testing.T) {
 
 func TestExportBundleKeyExchangeKEM768(t *testing.T) {
 	// Simulate full workflow: server generates bundle, client imports it, sends knock
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Server exports bundle
@@ -190,7 +196,10 @@ func TestExportBundleKeyExchangeKEM768(t *testing.T) {
 }
 
 func TestExportBundleEncryptedWorkflowKEM768(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "integration-test-pwd"
 
@@ -209,8 +218,14 @@ func TestExportBundleEncryptedWorkflowKEM768(t *testing.T) {
 		t.Errorf("bundle KEMSize = %d, want 768", bundle.KEMSize)
 	}
 
-	clientEK, _ := crypto.GetEncapsulationKeyFromBundle(bundle)
-	packet, _ := protocol.BuildKnockPacket(clientEK, "172.16.0.1", "open-t8080", 1800)
+	clientEK, err := crypto.GetEncapsulationKeyFromBundle(bundle)
+	if err != nil {
+		t.Fatalf("GetEncapsulationKeyFromBundle: %v", err)
+	}
+	packet, err := protocol.BuildKnockPacket(clientEK, "172.16.0.1", "open-t8080", 1800)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "172.16.0.1", 30)
 	if err != nil {
 		t.Fatalf("ParseKnockPacket: %v", err)
@@ -231,10 +246,16 @@ func TestDefaultConfigProducesMTUSafePackets(t *testing.T) {
 		t.Fatalf("default KEMSize = %d, want 768", cfg.KEMSize)
 	}
 
-	dk, _ := crypto.GenerateKeyPair(crypto.KEMSize(cfg.KEMSize))
+	dk, err := crypto.GenerateKeyPair(crypto.KEMSize(cfg.KEMSize))
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := protocol.BuildKnockPacket(ek, "1.2.3.4", "open-t22", cfg.DefaultOpenDuration)
+	packet, err := protocol.BuildKnockPacket(ek, "1.2.3.4", "open-t22", cfg.DefaultOpenDuration)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	maxPayload := 1500 - 28 // IP + UDP
 	if len(packet) > maxPayload {
@@ -244,7 +265,10 @@ func TestDefaultConfigProducesMTUSafePackets(t *testing.T) {
 
 func TestKEM768WithMaxSafePadding(t *testing.T) {
 	// Verify MaxPaddingMTUSafe768 actually produces packets within MTU
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	opts := protocol.KnockOptions{
@@ -301,7 +325,10 @@ func TestClientSetupPEMRoundTrip768(t *testing.T) {
 	}
 
 	// Client saves PEM with correct KEM-768 type (this was the bug)
-	ekBytes, _ := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	ekBytes, err := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 	pemType := crypto.PublicKeyPEMType1024
 	if bundle.KEMSize == 768 {
 		pemType = crypto.PublicKeyPEMType768
@@ -359,7 +386,10 @@ func TestClientSetupPEMRoundTrip1024(t *testing.T) {
 		t.Fatalf("ParseExportBundle: %v", err)
 	}
 
-	ekBytes, _ := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	ekBytes, err := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 	pemType := crypto.PublicKeyPEMType1024
 	if bundle.KEMSize == 768 {
 		pemType = crypto.PublicKeyPEMType768
@@ -376,7 +406,10 @@ func TestClientSetupPEMRoundTrip1024(t *testing.T) {
 		t.Errorf("loaded EK KEMSize = %d, want 1024", loadedEK.KEMSize())
 	}
 
-	packet, _ := protocol.BuildKnockPacket(loadedEK, "10.0.0.2", "close-t80", 0)
+	packet, err := protocol.BuildKnockPacket(loadedEK, "10.0.0.2", "close-t80", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.2", 30)
 	if err != nil {
 		t.Fatalf("ParseKnockPacket: %v", err)
@@ -391,7 +424,10 @@ func TestEncryptedBundlePEMRoundTrip768(t *testing.T) {
 	dir := t.TempDir()
 	password := "test-secure-pass"
 
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := crypto.CreateEncryptedExportBundle(ek, 33333, true, true, true, password)
@@ -407,7 +443,10 @@ func TestEncryptedBundlePEMRoundTrip768(t *testing.T) {
 		t.Fatalf("encrypted bundle KEMSize = %d, want 768", bundle.KEMSize)
 	}
 
-	ekBytes, _ := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	ekBytes, err := base64.StdEncoding.DecodeString(bundle.EncapsulationKey)
+	if err != nil {
+		t.Fatalf("DecodeString: %v", err)
+	}
 	pemBlock := &pem.Block{Type: crypto.PublicKeyPEMType768, Bytes: ekBytes}
 	certPath := filepath.Join(dir, "server.crt")
 	os.WriteFile(certPath, pem.EncodeToMemory(pemBlock), 0600)
@@ -417,7 +456,10 @@ func TestEncryptedBundlePEMRoundTrip768(t *testing.T) {
 		t.Fatalf("LoadPublicKey from encrypted bundle: %v", err)
 	}
 
-	packet, _ := protocol.BuildKnockPacket(loadedEK, "10.0.0.3", "open-all", 7200)
+	packet, err := protocol.BuildKnockPacket(loadedEK, "10.0.0.3", "open-all", 7200)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.3", 30)
 	if err != nil {
 		t.Fatalf("ParseKnockPacket: %v", err)
@@ -432,7 +474,10 @@ func TestKeySaveLoadCrossProcess768(t *testing.T) {
 	dir := t.TempDir()
 
 	// Server generates and saves
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	crypto.SavePrivateKey(dir+"/server_priv.pem", dk)
 	crypto.SavePublicKey(dir+"/server_pub.pem", dk)
 
@@ -453,7 +498,10 @@ func TestKeySaveLoadCrossProcess768(t *testing.T) {
 	}
 
 	// Client builds knock with loaded public key
-	packet, _ := protocol.BuildKnockPacket(loadedEK, "192.168.1.50", "open-t22", 1800)
+	packet, err := protocol.BuildKnockPacket(loadedEK, "192.168.1.50", "open-t22", 1800)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Server parses with loaded private key
 	payload, err := protocol.ParseKnockPacket(loadedDK, packet, "192.168.1.50", 30)
@@ -645,8 +693,14 @@ dynamic_port_window = 600
 	os.WriteFile(serverPath, []byte(serverCfg), 0600)
 	os.WriteFile(clientPath, []byte(clientCfg), 0600)
 
-	srv, _ := config.Load(serverPath)
-	cli, _ := config.Load(clientPath)
+	srv, err := config.Load(serverPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cli, err := config.Load(clientPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 
 	if !srv.DynamicPort {
 		t.Error("server should be dynamic")
@@ -666,7 +720,10 @@ dynamic_port_window = 600
 
 func TestPaddingWithinMTUE2E(t *testing.T) {
 	// E2E test: build knock with maximum safe padding (96 bytes), send over UDP, verify parsing
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -710,7 +767,10 @@ func TestPaddingWithinMTUE2E(t *testing.T) {
 		ch <- result{p, err}
 	}()
 
-	c, _ := net.Dial("udp", conn.LocalAddr().String())
+	c, err := net.Dial("udp", conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
 	defer c.Close()
 	c.Write(packet)
 
@@ -726,7 +786,10 @@ func TestPaddingWithinMTUE2E(t *testing.T) {
 
 func TestBatchCommandMultiPortE2E(t *testing.T) {
 	// Verify batch commands (open-t22,t443) work through full cycle
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -757,7 +820,10 @@ func TestBatchCommandMultiPortE2E(t *testing.T) {
 		ch <- result{p, err}
 	}()
 
-	c, _ := net.Dial("udp", conn.LocalAddr().String())
+	c, err := net.Dial("udp", conn.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
 	defer c.Close()
 	c.Write(packet)
 
@@ -772,7 +838,10 @@ func TestBatchCommandMultiPortE2E(t *testing.T) {
 
 func TestNonceReplayPreventionE2E(t *testing.T) {
 	// Send the same packet twice, second should be rejected by nonce tracker
-	dk, _ := crypto.GenerateKeyPair(crypto.KEM768)
+	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	packet, err := protocol.BuildKnockPacket(ek, "192.168.1.1", "open-t22", 3600)
