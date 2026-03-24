@@ -33,8 +33,14 @@ func TestQRCapacityForBundleSizes(t *testing.T) {
 	t.Logf("Dynamic port raw bundle: %d bytes", len(rawDynamic))
 
 	// Also get b64 size for comparison
-	b64Static, _ := CreateExportBundleWithWindow(ek, 12345, true, false, true, nil, false, 3600, 0)
-	b64Dynamic, _ := CreateExportBundleWithWindow(ek, 0, true, false, true, seed, true, 3600, 0)
+	b64Static, err := CreateExportBundleWithWindow(ek, 12345, true, false, true, nil, false, 3600, 0)
+	if err != nil {
+		t.Fatalf("CreateExportBundleWithWindow: %v", err)
+	}
+	b64Dynamic, err := CreateExportBundleWithWindow(ek, 0, true, false, true, seed, true, 3600, 0)
+	if err != nil {
+		t.Fatalf("CreateExportBundleWithWindow: %v", err)
+	}
 	t.Logf("Static port b64 bundle: %d chars", len(b64Static))
 	t.Logf("Dynamic port b64 bundle: %d chars", len(b64Dynamic))
 

@@ -22,7 +22,10 @@ import (
 
 // TestPaddedPacketDecryption verifies that a padded knock packet decrypts correctly.
 func TestPaddedPacketDecryption(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{
@@ -37,7 +40,10 @@ func TestPaddedPacketDecryption(t *testing.T) {
 	}
 
 	// Should be larger than an unpadded packet
-	unpaddedPkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	unpaddedPkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	if len(packet) <= len(unpaddedPkt) {
 		t.Errorf("padded packet (%d bytes) should be larger than unpadded (%d bytes)",
 			len(packet), len(unpaddedPkt))
@@ -66,7 +72,10 @@ func TestPaddedPacketDecryption(t *testing.T) {
 
 // TestUnpaddedPacketStillWorks verifies that packets without padding still work.
 func TestUnpaddedPacketStillWorks(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// No padding
@@ -90,13 +99,22 @@ func TestUnpaddedPacketStillWorks(t *testing.T) {
 
 // TestPaddingDisabledByDefault verifies that without PaddingConfig, no padding is added.
 func TestPaddingDisabledByDefault(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{Enabled: false}
-	packet, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
-	payload, _ := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	payload, err := protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if payload.Padding != "" {
 		t.Error("disabled padding should not add padding")
 	}
@@ -104,7 +122,10 @@ func TestPaddingDisabledByDefault(t *testing.T) {
 
 // TestPaddingVariableSize verifies that padding produces variable-size packets.
 func TestPaddingVariableSize(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{
@@ -115,7 +136,10 @@ func TestPaddingVariableSize(t *testing.T) {
 
 	sizes := make(map[int]bool)
 	for i := 0; i < 50; i++ {
-		pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+		pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
 		sizes[len(pkt)] = true
 	}
 
@@ -129,7 +153,10 @@ func TestPaddingVariableSize(t *testing.T) {
 // TestPaddingInsideEncryption verifies that padding is inside the encrypted envelope.
 // An observer can see the total packet size but not the padding content.
 func TestPaddingInsideEncryption(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{
@@ -138,8 +165,14 @@ func TestPaddingInsideEncryption(t *testing.T) {
 		MaxBytes: 100, // Fixed size for this test
 	}
 
-	pkt1, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
-	pkt2, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	pkt1, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	pkt2, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Both packets have same command and same padding size, but the actual cipher
 	// bytes should differ (different KEM + different random padding content)
@@ -148,8 +181,14 @@ func TestPaddingInsideEncryption(t *testing.T) {
 	}
 
 	// Decrypt both - padding content should differ (random padding)
-	p1, _ := protocol.ParseKnockPacket(dk, pkt1, "10.0.0.1", 30)
-	p2, _ := protocol.ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
+	p1, err := protocol.ParseKnockPacket(dk, pkt1, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
+	p2, err := protocol.ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if p1.Padding == p2.Padding {
 		t.Error("padding content should be random and differ between packets")
@@ -158,7 +197,10 @@ func TestPaddingInsideEncryption(t *testing.T) {
 
 // TestPaddedPacketWithinMaxSize verifies padded packets don't exceed MaxPacketSize.
 func TestPaddedPacketWithinMaxSize(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Use maximum padding
@@ -181,7 +223,10 @@ func TestPaddedPacketWithinMaxSize(t *testing.T) {
 
 // TestServerAcceptsBothPaddedAndUnpadded verifies mixed traffic works.
 func TestServerAcceptsBothPaddedAndUnpadded(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	tracker := protocol.NewNonceTrackerWithLimit(5*60*1000000000, 10000) // 5 min
@@ -218,7 +263,10 @@ func TestServerAcceptsBothPaddedAndUnpadded(t *testing.T) {
 
 // TestPaddingMinBytesDefault verifies that invalid min/max get sensible defaults.
 func TestPaddingMinBytesDefault(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// MinBytes=0 should default to 64
@@ -245,7 +293,10 @@ func TestPaddingMinBytesDefault(t *testing.T) {
 
 // TestPaddingWithIPv6 verifies padding works with IPv6 client addresses.
 func TestPaddingWithIPv6(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{
@@ -275,25 +326,34 @@ func TestPaddingWithIPv6(t *testing.T) {
 
 // TestPaddingSecurityProperties verifies that padding doesn't weaken security.
 func TestPaddingSecurityProperties(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	padCfg := protocol.PaddingConfig{Enabled: true, MinBytes: 128, MaxBytes: 256}
 
 	// Build padded packet
-	pkt, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	pkt, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, protocol.KnockOptions{Padding: padCfg})
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Tamper with packet - should fail
 	tampered := make([]byte, len(pkt))
 	copy(tampered, pkt)
 	tampered[len(tampered)/2] ^= 0xFF
-	_, err := protocol.ParseKnockPacket(dk, tampered, "10.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk, tampered, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("tampered padded packet should fail authentication")
 	}
 
 	// Wrong key - should fail
-	dk2, _ := crypto.GenerateKeyPair()
+	dk2, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	_, err = protocol.ParseKnockPacket(dk2, pkt, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("padded packet should not decrypt with wrong key")

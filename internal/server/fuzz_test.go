@@ -398,7 +398,10 @@ func TestTracker_StateRecovery_SuspiciousCommands(t *testing.T) {
 		},
 	}
 
-	data, _ := json.MarshalIndent(entries, "", "  ")
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent: %v", err)
+	}
 	if err := os.WriteFile(statePath, data, 0600); err != nil {
 		t.Fatal(err)
 	}

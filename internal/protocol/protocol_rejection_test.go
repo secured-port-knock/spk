@@ -17,14 +17,20 @@ import (
 // ------------------------------------------------------------------------
 
 func TestTimestampPastSpecificError(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build packet, wait 3s, then parse with 1s tolerance
-	packet, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	time.Sleep(3 * time.Second)
 
-	_, err := ParseKnockPacket(dk, packet, "10.0.0.1", 1)
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
 		t.Fatal("old packet should be rejected")
 	}
@@ -46,13 +52,19 @@ func TestTimestampPastSpecificError(t *testing.T) {
 
 // TestTimestampErrorFormatIncludesDrift verifies drift seconds are in the error.
 func TestTimestampErrorFormatIncludesDrift(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	time.Sleep(3 * time.Second)
 
-	_, err := ParseKnockPacket(dk, packet, "10.0.0.1", 1)
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -69,39 +81,69 @@ func TestTimestampErrorFormatIncludesDrift(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestKnockPayloadTOTPField(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Without TOTP
-	pkt1, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	p1, _ := ParseKnockPacket(dk, pkt1, "10.0.0.1", 30)
+	pkt1, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	p1, err := ParseKnockPacket(dk, pkt1, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if p1.TOTP != "" {
 		t.Errorf("TOTP should be empty without option, got %q", p1.TOTP)
 	}
 
 	// With TOTP
 	opts := KnockOptions{TOTP: "543210"}
-	pkt2, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
-	p2, _ := ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
+	pkt2, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	p2, err := ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 	if p2.TOTP != "543210" {
 		t.Errorf("TOTP = %q, want 543210", p2.TOTP)
 	}
 }
 
 func TestKnockPayloadTOTPOmitEmpty(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// When TOTP is not set, the binary payload omits the 6-byte TOTP field
 	// (smaller packet without the TOTP bytes)
-	pktNoTOTP, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	pktWithTOTP, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, KnockOptions{TOTP: "123456"})
+	pktNoTOTP, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	pktWithTOTP, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, KnockOptions{TOTP: "123456"})
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Packet with TOTP should be slightly larger (has the 6-byte TOTP field)
 	// Due to KEM randomness, raw packet sizes are similar, but this test verifies
 	// the field is present/absent at the binary level
-	p1, _ := ParseKnockPacket(dk, pktNoTOTP, "10.0.0.1", 30)
-	p2, _ := ParseKnockPacket(dk, pktWithTOTP, "10.0.0.1", 30)
+	p1, err := ParseKnockPacket(dk, pktNoTOTP, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
+	p2, err := ParseKnockPacket(dk, pktWithTOTP, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket: %v", err)
+	}
 
 	if p1.TOTP != "" {
 		t.Error("no-TOTP packet should have empty TOTP field")
@@ -116,11 +158,17 @@ func TestKnockPayloadTOTPOmitEmpty(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestIPMismatchErrorContainsAddresses(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	packet, _ := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
-	_, err := ParseKnockPacket(dk, packet, "10.0.0.50", 30)
+	packet, err := BuildKnockPacket(ek, "192.168.1.100", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	_, err = ParseKnockPacket(dk, packet, "10.0.0.50", 30)
 	if err == nil {
 		t.Fatal("IP mismatch should fail")
 	}
@@ -142,7 +190,10 @@ func TestIPMismatchErrorContainsAddresses(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestCommandLengthLimit(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Max valid: cust- prefix + 249 bytes data = 254 total string
@@ -170,18 +221,27 @@ func TestCommandLengthLimit(t *testing.T) {
 }
 
 func TestOpenDurationRangeValidation(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Valid: exactly 604800 (7 days)
-	pkt, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604800)
-	_, err := ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
+	pkt, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604800)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	_, err = ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("max open duration should be valid: %v", err)
 	}
 
 	// Valid: 0
-	pkt2, _ := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	pkt2, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	_, err = ParseKnockPacket(dk, pkt2, "10.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("zero open duration should be valid: %v", err)
@@ -263,7 +323,10 @@ func TestNonceTrackerEmptyNonce(t *testing.T) {
 // timestamp hoping to keep it "fresh" longer than the tolerance window allows.
 // The server must reject packets too far ahead of its own clock.
 func TestFutureTimestampRejection(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build a payload with timestamp 2 hours in the future.
@@ -302,7 +365,10 @@ func TestFutureTimestampRejection(t *testing.T) {
 // timestamp slightly ahead (within tolerance) is accepted -- attackers cannot
 // use this as an oracle to determine the tolerance window.
 func TestFutureTimestampWithinToleranceAccepted(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	nonceRaw := make([]byte, NonceBytes)
@@ -316,7 +382,10 @@ func TestFutureTimestampWithinToleranceAccepted(t *testing.T) {
 		Command:      "open-t22",
 		OpenDuration: 0,
 	}
-	plaintext, _ := encodePayload(p)
+	plaintext, err := encodePayload(p)
+	if err != nil {
+		t.Fatalf("encodePayload: %v", err)
+	}
 	packet, err := crypto.EncapsulateAndEncrypt(ek, plaintext)
 	if err != nil {
 		t.Fatalf("EncapsulateAndEncrypt: %v", err)

@@ -23,7 +23,10 @@ import (
 // encapsulation, producing a different ciphertext and thus a different
 // symmetric key for AES-256-GCM.
 func TestNoKeyReuse(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	const n = 50
@@ -55,12 +58,21 @@ func TestNoKeyReuse(t *testing.T) {
 // We verify this by showing each packet uses a completely different KEM
 // ciphertext (and thus a different AES-256-GCM key).
 func TestForwardSecrecy(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build two packets with identical content
-	pkt1, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
-	pkt2, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	pkt1, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	pkt2, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Ciphertexts must differ (fresh KEM encapsulation each time)
 	ct1 := pkt1[:crypto.CiphertextSize]
@@ -105,7 +117,10 @@ func TestForwardSecrecy(t *testing.T) {
 // TestForwardSecrecyKeyCompromise verifies that having one decrypted session
 // doesn't help decrypt any other session.
 func TestForwardSecrecyKeyCompromise(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build 10 packets
@@ -120,16 +135,19 @@ func TestForwardSecrecyKeyCompromise(t *testing.T) {
 
 	// Decrypt all - should succeed
 	for i, pkt := range packets {
-		_, err := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
+		_, err = protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
 		if err != nil {
 			t.Errorf("decrypt %d: %v", i, err)
 		}
 	}
 
 	// Wrong key can't decrypt any of them
-	dk2, _ := crypto.GenerateKeyPair()
+	dk2, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	for i, pkt := range packets {
-		_, err := protocol.ParseKnockPacket(dk2, pkt, "127.0.0.1", 30)
+		_, err = protocol.ParseKnockPacket(dk2, pkt, "127.0.0.1", 30)
 		if err == nil {
 			t.Errorf("packet %d should NOT decrypt with wrong key", i)
 		}
@@ -138,14 +156,20 @@ func TestForwardSecrecyKeyCompromise(t *testing.T) {
 
 // TestReplayPreventionNonceTracker verifies the nonce tracker rejects replays.
 func TestReplayPreventionNonceTracker(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	tracker := protocol.NewNonceTrackerWithLimit(5*time.Minute, 10000)
 
 	// Send 100 unique knocks
 	for i := 0; i < 100; i++ {
-		pkt, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+		pkt, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
 		payload, err := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
 		if err != nil {
 			t.Fatalf("parse %d: %v", i, err)
@@ -158,8 +182,14 @@ func TestReplayPreventionNonceTracker(t *testing.T) {
 	// Re-parse the same packets - same nonces should be rejected
 	// (this simulates storing and replaying old packets)
 	for i := 0; i < 100; i++ {
-		pkt, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
-		payload, _ := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
+		pkt, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+		if err != nil {
+			t.Fatalf("BuildKnockPacket: %v", err)
+		}
+		payload, err := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
+		if err != nil {
+			t.Fatalf("ParseKnockPacket: %v", err)
+		}
 		// First check passes
 		tracker.Check(payload.Nonce)
 		// Second check for same nonce must fail
@@ -171,13 +201,19 @@ func TestReplayPreventionNonceTracker(t *testing.T) {
 
 // TestReplayPreventionTimestamp verifies packets outside the timestamp window are rejected.
 func TestReplayPreventionTimestamp(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	pkt, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+	pkt, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// With 30s tolerance - should pass
-	_, err := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
 	if err != nil {
 		t.Fatalf("30s tolerance should pass: %v", err)
 	}
@@ -185,7 +221,10 @@ func TestReplayPreventionTimestamp(t *testing.T) {
 	// With 0s tolerance - might pass if very fast, but -1 guarantees reject
 	// Actually a negative tolerance would mean nothing passes; use 0 which means drift=0 passes
 	// Let's test a very tight window then wait
-	pkt2, _ := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+	pkt2, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 	time.Sleep(2 * time.Second)
 
 	// With 1s tolerance, a 2s old packet should fail
@@ -198,14 +237,20 @@ func TestReplayPreventionTimestamp(t *testing.T) {
 // TestIPBindingEnforced verifies that the server rejects knock packets where the
 // embedded client IP doesn't match the UDP source address.
 func TestIPBindingEnforced(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	clientIP := "192.168.1.100"
-	pkt, _ := protocol.BuildKnockPacket(ek, clientIP, "open-t22", 3600)
+	pkt, err := protocol.BuildKnockPacket(ek, clientIP, "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Same IP: should pass
-	_, err := protocol.ParseKnockPacket(dk, pkt, clientIP, 30)
+	_, err = protocol.ParseKnockPacket(dk, pkt, clientIP, 30)
 	if err != nil {
 		t.Fatalf("matching IP should succeed: %v", err)
 	}
@@ -218,7 +263,7 @@ func TestIPBindingEnforced(t *testing.T) {
 		"::1",           // IPv6 loopback
 	}
 	for _, spoofed := range spoofedIPs {
-		_, err := protocol.ParseKnockPacket(dk, pkt, spoofed, 30)
+		_, err = protocol.ParseKnockPacket(dk, pkt, spoofed, 30)
 		if err == nil {
 			t.Errorf("packet from %q should be rejected (payload has %q)", spoofed, clientIP)
 		}
@@ -227,14 +272,20 @@ func TestIPBindingEnforced(t *testing.T) {
 
 // TestIPBindingIPv6 verifies IP binding works with IPv6 addresses.
 func TestIPBindingIPv6(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	ipv6 := "2001:db8::1"
-	pkt, _ := protocol.BuildKnockPacket(ek, ipv6, "open-t22", 0)
+	pkt, err := protocol.BuildKnockPacket(ek, ipv6, "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Matching IPv6: should pass
-	_, err := protocol.ParseKnockPacket(dk, pkt, ipv6, 30)
+	_, err = protocol.ParseKnockPacket(dk, pkt, ipv6, 30)
 	if err != nil {
 		t.Fatalf("matching IPv6 should succeed: %v", err)
 	}
@@ -254,11 +305,17 @@ func TestIPBindingIPv6(t *testing.T) {
 
 // TestIPBindingSkipForNAT verifies that IP binding can be disabled.
 func TestIPBindingSkipForNAT(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	lanIP := "192.168.1.100"
-	pkt, _ := protocol.BuildKnockPacket(ek, lanIP, "open-t22", 3600)
+	pkt, err := protocol.BuildKnockPacket(ek, lanIP, "open-t22", 3600)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// With skip=true, any source IP should work
 	wanIPs := []string{"203.0.113.50", "10.0.0.1", "2001:db8::ff"}
@@ -277,17 +334,26 @@ func TestIPBindingSkipForNAT(t *testing.T) {
 // TestCiphertextAuthenticityPerPacket verifies that each packet's ciphertext
 // is independently authenticated - modifying one packet doesn't help forge another.
 func TestCiphertextAuthenticityPerPacket(t *testing.T) {
-	dk, _ := crypto.GenerateKeyPair()
+	dk, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
-	pkt1, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	pkt2, _ := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t443", 0)
+	pkt1, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	pkt2, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t443", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Try swapping ciphertext from pkt1 with payload from pkt2
 	hybrid := make([]byte, len(pkt1))
 	copy(hybrid[:crypto.CiphertextSize], pkt1[:crypto.CiphertextSize]) // KEM from pkt1
 	copy(hybrid[crypto.CiphertextSize:], pkt2[crypto.CiphertextSize:]) // AES-GCM from pkt2
-	_, err := protocol.ParseKnockPacket(dk, hybrid, "10.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk, hybrid, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("hybrid packet (KEM from pkt1 + AES-GCM from pkt2) should fail decryption")
 	}
@@ -305,16 +371,28 @@ func TestCiphertextAuthenticityPerPacket(t *testing.T) {
 // TestKeyIndependence verifies that packets for two different servers are
 // completely independent - no cross-decryption possible.
 func TestKeyIndependence(t *testing.T) {
-	dk1, _ := crypto.GenerateKeyPair()
+	dk1, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek1 := dk1.EncapsulationKey()
-	dk2, _ := crypto.GenerateKeyPair()
+	dk2, err := crypto.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek2 := dk2.EncapsulationKey()
 
-	pkt1, _ := protocol.BuildKnockPacket(ek1, "10.0.0.1", "open-t22", 0)
-	pkt2, _ := protocol.BuildKnockPacket(ek2, "10.0.0.2", "open-t443", 0)
+	pkt1, err := protocol.BuildKnockPacket(ek1, "10.0.0.1", "open-t22", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
+	pkt2, err := protocol.BuildKnockPacket(ek2, "10.0.0.2", "open-t443", 0)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket: %v", err)
+	}
 
 	// Each key only decrypts its own packets
-	_, err := protocol.ParseKnockPacket(dk1, pkt1, "10.0.0.1", 30)
+	_, err = protocol.ParseKnockPacket(dk1, pkt1, "10.0.0.1", 30)
 	if err != nil {
 		t.Errorf("dk1 should decrypt pkt1: %v", err)
 	}

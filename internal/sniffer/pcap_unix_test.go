@@ -307,7 +307,7 @@ func TestPcapStopWaitsForCaptureLoop(t *testing.T) {
 		if err != nil {
 			t.Skipf("Start() failed (may need root/CAP_NET_RAW): %v", err)
 		}
-		return // Start returned early — library not available, skip
+		return // Start returned early - library not available, skip
 	default:
 	}
 

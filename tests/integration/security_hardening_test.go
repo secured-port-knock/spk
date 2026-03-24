@@ -233,7 +233,7 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 	// Build packet with a command that stays within the binary encoding limit.
 	// Binary layout: type(1) + cmdData, so for "open-t<portspecs>" the cmdData
 	// is "t<portspecs>" (250 bytes), so totalCmdLen = 251 <= 255. Must succeed.
-	longCmd := "open-t" + strings.Repeat("2", 249)
+	longCmd := "open-t" + strings.Repeat("2", 249) // 249 = 255-byte binary limit - 1 (type byte) - 5 ("open-" prefix stripped from cmdData)
 	if len(longCmd) > 255 {
 		longCmd = longCmd[:255]
 	}
@@ -245,7 +245,7 @@ func TestCommandFieldLengthLimit(t *testing.T) {
 	// A cust- command with a 255-char ID produces totalCmdLen = 1 + 255 = 256
 	// which exceeds the 255-byte binary field limit. BuildKnockPacket must
 	// reject it rather than silently truncating or encoding a malformed packet.
-	tooLong := "cust-" + strings.Repeat("x", 255)
+	tooLong := "cust-" + strings.Repeat("x", 255) // 255 data bytes: type(1) + data(255) = 256 total, exceeds the 255-byte binary field limit
 	_, err = protocol.BuildKnockPacket(ek, "10.0.0.1", tooLong, 60)
 	if err == nil {
 		t.Fatal("expected error for command exceeding 255-byte binary encoding limit, got nil")

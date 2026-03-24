@@ -13,7 +13,10 @@ import (
 // =============================================================================
 
 func TestExportBundleV1WithKEM768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 12345, true, false, true)
@@ -70,7 +73,10 @@ func TestExportBundleV1WithKEM768(t *testing.T) {
 }
 
 func TestExportBundleV1WithKEM1024(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 54321, false, true, false)
@@ -110,7 +116,10 @@ func TestExportBundleV1WithKEM1024(t *testing.T) {
 
 	// Full encrypt/decrypt round trip
 	plaintext := []byte("v1 bundle test 1024")
-	packet, _ := EncapsulateAndEncrypt(reconstructed, plaintext)
+	packet, err := EncapsulateAndEncrypt(reconstructed, plaintext)
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
 	result, err := DecapsulateAndDecrypt(dk, packet)
 	if err != nil {
 		t.Fatalf("DecapsulateAndDecrypt: %v", err)
@@ -122,7 +131,10 @@ func TestExportBundleV1WithKEM1024(t *testing.T) {
 
 func TestExportBundleVersionRejected(t *testing.T) {
 	// Decoder should reject any version other than 1.
-	dk, _ := GenerateKeyPair(KEM1024)
+	dk, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	// Build a binary bundle with unsupported version 2:
@@ -147,7 +159,7 @@ func TestExportBundleVersionRejected(t *testing.T) {
 	raw = append(raw, ek.Bytes()...)
 
 	// Parser should reject unsupported version
-	_, err := decodeBinary(raw)
+	_, err = decodeBinary(raw)
 	if err == nil {
 		t.Fatal("expected error parsing unsupported bundle version, got nil")
 	}
@@ -155,7 +167,10 @@ func TestExportBundleVersionRejected(t *testing.T) {
 
 func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 	// Verify the v1 binary format explicitly has the kem_size field
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
@@ -207,7 +222,10 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 }
 
 func TestExportBundleEncryptedWithKEM768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 	password := "test-password-768"
 
@@ -243,7 +261,10 @@ func TestExportBundleEncryptedWithKEM768(t *testing.T) {
 }
 
 func TestExportBundleDynamicPortWithKEM768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
@@ -273,7 +294,10 @@ func TestExportBundleDynamicPortWithKEM768(t *testing.T) {
 }
 
 func TestExportBundleBase64RoundTrip768(t *testing.T) {
-	dk, _ := GenerateKeyPair(KEM768)
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
 	ek := dk.EncapsulationKey()
 
 	b64, err := CreateExportBundle(ek, 44444, true, true, true)

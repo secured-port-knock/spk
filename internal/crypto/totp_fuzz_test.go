@@ -75,7 +75,10 @@ func TestTOTP_GenerateValidateRoundtrip(t *testing.T) {
 
 // TestTOTP_CodeFormat verifies code is always 6 digits, zero-padded.
 func TestTOTP_CodeFormat(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	for i := 0; i < 100; i++ {
 		ts := time.Now().Add(time.Duration(i*30) * time.Second)
@@ -96,17 +99,26 @@ func TestTOTP_CodeFormat(t *testing.T) {
 
 // TestTOTP_SkewTolerance verifies +-1 step tolerance works.
 func TestTOTP_SkewTolerance(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 	now := time.Now()
 
 	// Code from 30s ago should still be valid (skew=1)
-	pastCode, _ := GenerateTOTP(secret, now.Add(-30*time.Second))
+	pastCode, err := GenerateTOTP(secret, now.Add(-30*time.Second))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	if !ValidateTOTP(secret, pastCode) {
 		t.Error("code from -30s should be valid with skew=1")
 	}
 
 	// Code from 30s in the future should still be valid
-	futureCode, _ := GenerateTOTP(secret, now.Add(30*time.Second))
+	futureCode, err := GenerateTOTP(secret, now.Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	if !ValidateTOTP(secret, futureCode) {
 		t.Error("code from +30s should be valid with skew=1")
 	}
@@ -114,7 +126,10 @@ func TestTOTP_SkewTolerance(t *testing.T) {
 
 // TestTOTP_InvalidCodeLength verifies wrong-length codes are rejected.
 func TestTOTP_InvalidCodeLength(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	invalidCodes := []string{
 		"",
@@ -133,7 +148,10 @@ func TestTOTP_InvalidCodeLength(t *testing.T) {
 
 // TestTOTP_NonDigitCodes verifies non-digit codes are rejected.
 func TestTOTP_NonDigitCodes(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	nonDigitCodes := []string{
 		"abcdef",
@@ -211,10 +229,19 @@ func TestTOTP_URIFormat(t *testing.T) {
 
 // TestTOTP_WrongSecretRejected verifies codes from different secrets don't cross-validate.
 func TestTOTP_WrongSecretRejected(t *testing.T) {
-	secret1, _ := GenerateTOTPSecret()
-	secret2, _ := GenerateTOTPSecret()
+	secret1, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	secret2, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
-	code1, _ := GenerateTOTP(secret1, time.Now())
+	code1, err := GenerateTOTP(secret1, time.Now())
+	if err != nil {
+		t.Fatalf("Now: %v", err)
+	}
 
 	if ValidateTOTP(secret2, code1) {
 		t.Error("code from secret1 should not validate against secret2")
@@ -225,8 +252,14 @@ func TestTOTP_WrongSecretRejected(t *testing.T) {
 // This is a structural test - we verify that ValidateTOTP uses constant-time comparison
 // by checking that a near-miss code is rejected (would pass with prefix matching).
 func TestTOTP_TimeConstantComparison(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
-	code, _ := GenerateTOTP(secret, time.Now())
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	code, err := GenerateTOTP(secret, time.Now())
+	if err != nil {
+		t.Fatalf("Now: %v", err)
+	}
 
 	// Flip last digit
 	tampered := code[:5]

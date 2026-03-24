@@ -97,7 +97,10 @@ func TestGenerateTOTPDeterministic(t *testing.T) {
 }
 
 func TestGenerateTOTPCodeFormat(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	code, err := GenerateTOTP(secret, time.Now())
 	if err != nil {
@@ -117,7 +120,10 @@ func TestGenerateTOTPCodeFormat(t *testing.T) {
 
 func TestGenerateTOTPLeadingZeros(t *testing.T) {
 	// Verify leading zeros are preserved (code is zero-padded)
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	// Generate many codes and check all are 6 digits
 	for i := 0; i < 100; i++ {
@@ -133,7 +139,10 @@ func TestGenerateTOTPLeadingZeros(t *testing.T) {
 }
 
 func TestValidateTOTPCurrentCode(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	// Generate current code
 	code, err := GenerateTOTP(secret, time.Now())
@@ -147,34 +156,52 @@ func TestValidateTOTPCurrentCode(t *testing.T) {
 }
 
 func TestValidateTOTPAdjacentSteps(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 	now := time.Now()
 
 	// Code from previous step should be valid (within skew)
-	prevCode, _ := GenerateTOTP(secret, now.Add(-TOTPPeriod*time.Second))
+	prevCode, err := GenerateTOTP(secret, now.Add(-TOTPPeriod*time.Second))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	if !ValidateTOTP(secret, prevCode) {
 		t.Error("previous time step code should be valid (skew +-1)")
 	}
 
 	// Code from next step should be valid (within skew)
-	nextCode, _ := GenerateTOTP(secret, now.Add(TOTPPeriod*time.Second))
+	nextCode, err := GenerateTOTP(secret, now.Add(TOTPPeriod*time.Second))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	if !ValidateTOTP(secret, nextCode) {
 		t.Error("next time step code should be valid (skew +-1)")
 	}
 }
 
 func TestValidateTOTPExpiredCode(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	// Code from far in the past (5 steps ago = 2.5 minutes)
-	oldCode, _ := GenerateTOTP(secret, time.Now().Add(-5*TOTPPeriod*time.Second))
+	oldCode, err := GenerateTOTP(secret, time.Now().Add(-5*TOTPPeriod*time.Second))
+	if err != nil {
+		t.Fatalf("Now: %v", err)
+	}
 	if ValidateTOTP(secret, oldCode) {
 		t.Error("expired TOTP code (5 steps old) should be invalid")
 	}
 }
 
 func TestValidateTOTPWrongCode(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	if ValidateTOTP(secret, "000000") {
 		// This could theoretically pass if 000000 is the current code,
@@ -188,7 +215,10 @@ func TestValidateTOTPWrongCode(t *testing.T) {
 }
 
 func TestValidateTOTPInvalidFormat(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
 	tests := []struct {
 		name string
@@ -214,10 +244,19 @@ func TestValidateTOTPInvalidFormat(t *testing.T) {
 }
 
 func TestValidateTOTPWrongSecret(t *testing.T) {
-	secret1, _ := GenerateTOTPSecret()
-	secret2, _ := GenerateTOTPSecret()
+	secret1, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	secret2, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 
-	code, _ := GenerateTOTP(secret1, time.Now())
+	code, err := GenerateTOTP(secret1, time.Now())
+	if err != nil {
+		t.Fatalf("Now: %v", err)
+	}
 	if ValidateTOTP(secret2, code) {
 		t.Error("code from secret1 should not validate with secret2")
 	}
@@ -345,10 +384,13 @@ func TestFormatTOTPSecret(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestGenerateTOTPQRCode(t *testing.T) {
-	secret, _ := GenerateTOTPSecret()
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
 	path := t.TempDir() + "/totp_test_qr.png"
 
-	err := GenerateTOTPQRCode(secret, path)
+	err = GenerateTOTPQRCode(secret, path)
 	if err != nil {
 		t.Fatalf("GenerateTOTPQRCode: %v", err)
 	}
@@ -395,7 +437,10 @@ func TestTOTPManualVerification(t *testing.T) {
 	secret := "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" // base32 of "12345678901234567890"
 	timestamp := time.Unix(59, 0)                // Known time for RFC 6238 test
 
-	secretBytes, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	secretBytes, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		t.Fatalf("WithPadding: %v", err)
+	}
 	counter := uint64(timestamp.Unix()) / TOTPPeriod // 59/30 = 1
 
 	// Manual HMAC-SHA1 computation

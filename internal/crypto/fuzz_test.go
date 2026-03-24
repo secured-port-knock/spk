@@ -23,8 +23,14 @@ func FuzzDecapsulateAndDecrypt(f *testing.F) {
 	f.Add(make([]byte, 1088+12+16-1)) // one byte too short for KEM-768
 	f.Add(make([]byte, 8192))         // max packet size
 
-	dk768, _ := GenerateKeyPair(KEM768)
-	dk1024, _ := GenerateKeyPair(KEM1024)
+	dk768, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		f.Fatalf("GenerateKeyPair: %v", err)
+	}
+	dk1024, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		f.Fatalf("GenerateKeyPair: %v", err)
+	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic, must return error for random garbage
