@@ -148,6 +148,36 @@ func FuzzDecodeBinary(f *testing.F) {
 	valid := []byte{'S', 'P', 'K', 1, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	f.Add(valid)
 
+	// Fully valid bundle with correct CRC32 -- gives the fuzzer a real working seed.
+	dk768, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		f.Fatal(err)
+	}
+	validWithCRC, err := encodeV1Binary(dk768.EncapsulationKey(), 22, false, false, false, nil, false, 0, 0)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(validWithCRC)
+
+	// Valid KEM-1024 bundle seed.
+	dk1024, err := GenerateKeyPair(KEM1024)
+	if err != nil {
+		f.Fatal(err)
+	}
+	valid1024, err := encodeV1Binary(dk1024.EncapsulationKey(), 443, true, false, false, nil, false, 3600, 600)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(valid1024)
+
+	// Valid dynamic-port bundle seed.
+	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	validDyn, err := encodeV1Binary(dk768.EncapsulationKey(), 0, false, false, false, seed, true, 300, 120)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(validDyn)
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic
 		_, _ = decodeBinary(data)

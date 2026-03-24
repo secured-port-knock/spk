@@ -13,7 +13,7 @@ During server setup (`spk --server --setup`), the activation bundle is generated
 
 Both encode the same logical content. The binary always starts with the `"SPK"` magic prefix (see Binary Layout).
 
-## Binary Layout (inside compressed payload)
+## Binary Layout
 
 ```
 "SPK"          (3 bytes)  -- magic / version identifier
@@ -29,9 +29,12 @@ OpenDuration   (4 bytes)  -- default open duration in seconds (big-endian)
 Window         (4 bytes)  -- dynamic port rotation period in seconds (0 = default 600)
 KEM Size       (2 bytes)  -- ML-KEM key size: 768 or 1024 (big-endian)
 Encapsulation Key (variable) -- ML-KEM public key (1184 bytes for 768, 1568 bytes for 1024)
+CRC32          (4 bytes)  -- CRC32/IEEE checksum of all preceding bytes (big-endian)
 ```
 
-Total: ~1203-1587 bytes depending on KEM size (SPK magic + binary payload). Fits QR Medium EC.
+Total: ~1207-1595 bytes depending on KEM size (SPK magic + binary payload + 4-byte CRC32). Fits QR Medium EC.
+
+> **CRC32 checksum:** The final 4 bytes contain a CRC32/IEEE checksum computed over all preceding bytes, from the `"SPK"` magic through the last byte of the encapsulation key. The parser MUST verify this checksum and reject bundles whose stored checksum does not match the computed value. Bundles missing the CRC32 trailer must also be rejected.
 
 ## Encrypted Bundles
 
@@ -97,6 +100,13 @@ decoded[offset+8 : offset+10] = kem_size // uint16 big-endian, 768 or 1024
 //   1024 -> ek_size = 1568 bytes
 ek_size = 1184 if kem_size == 768 else 1568
 decoded[offset+10 : offset+10+ek_size] = encapsulation_key
+
+// CRC32 trailer (4 bytes, big-endian) -- REQUIRED:
+//   crc32_stored  = uint32 big-endian at decoded[offset+10+ek_size : offset+10+ek_size+4]
+//   crc32_computed = CRC32/IEEE over decoded[0 : offset+10+ek_size]
+//   MUST verify: crc32_stored == crc32_computed; reject bundle if mismatch or if field is absent
+//   Total expected length: offset + 10 + ek_size + 4
+//   Any other length: reject as malformed
 ```
 
 > **Note:** Only version byte `1` is accepted.
@@ -112,3 +122,4 @@ decoded[offset+10 : offset+10+ek_size] = encapsulation_key
 | `window` | uint32 | Port rotation period in seconds (0 = 600) |
 | `kem_size` | uint16 | ML-KEM key size: 768 or 1024 |
 | `encapsulation_key` | 1184 or 1568 bytes | ML-KEM public (encapsulation) key |
+| `crc32` | uint32 (big-endian) | CRC32/IEEE checksum of all preceding bytes (mandatory) |

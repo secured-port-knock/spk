@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 
@@ -42,6 +43,7 @@ const (
 	argon2Threads = 4
 	argon2KeyLen  = 32
 	saltSize      = 32
+	crc32Size     = 4 // CRC32/IEEE checksum appended at end of raw binary bundle
 )
 
 // CreateExportBundle creates a base64-encoded compact bundle for client provisioning.
@@ -108,7 +110,8 @@ func CreateEncryptedExportBundleRawWithWindow(ek EncapsulationKey, port int, cus
 }
 
 // encodeV1Binary creates the raw v1 binary bundle.
-// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
+// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable) + crc32(4)
+// The final 4 bytes are a CRC32/IEEE checksum (big-endian) of all preceding bytes.
 func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
 
@@ -170,11 +173,21 @@ func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, o
 	ekBytes := ek.Bytes()
 	buf.Write(ekBytes)
 
+	// CRC32/IEEE checksum (4 bytes, big-endian) over all preceding bytes.
+	// Allows the parser to detect corruption or unintended modification in transit.
+	payload := buf.Bytes()
+	checksum := crc32.ChecksumIEEE(payload)
+	crcBytes := make([]byte, crc32Size)
+	binary.BigEndian.PutUint32(crcBytes, checksum)
+	buf.Write(crcBytes)
+
 	return buf.Bytes(), nil
 }
 
-// decodeBinary parses a v1 binary bundle (after decompression).
-// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable)
+// decodeBinary parses a v1 binary bundle.
+// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable) + crc32(4)
+// The final 4 bytes MUST be the CRC32/IEEE checksum (big-endian) of all preceding bytes.
+// Bundles missing the CRC32 trailer are rejected.
 func decodeBinary(data []byte) (*ExportBundle, error) {
 	// Minimum size: magic(3) + ver(1) + flags(1) + port(2) + open_duration(4) = 11 + some EK
 	if len(data) < 11 {
@@ -259,6 +272,21 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 		return nil, fmt.Errorf("read encapsulation key: got %d bytes, want %d", n, ekSize)
 	}
 
+	// CRC32 trailer (4 bytes, big-endian) MUST be present.
+	// CRC32 covers all bytes preceding the 4-byte checksum field.
+	if r.Len() != crc32Size {
+		return nil, fmt.Errorf("bundle has %d trailing bytes after encapsulation key, want exactly %d (CRC32)", r.Len(), crc32Size)
+	}
+	crcBuf := make([]byte, crc32Size)
+	if _, err := io.ReadFull(r, crcBuf); err != nil {
+		return nil, fmt.Errorf("read crc32: %w", err)
+	}
+	storedCRC := binary.BigEndian.Uint32(crcBuf)
+	actualCRC := crc32.ChecksumIEEE(data[:len(data)-crc32Size])
+	if actualCRC != storedCRC {
+		return nil, fmt.Errorf("bundle CRC32 mismatch: data corrupted or modified")
+	}
+
 	bundle := &ExportBundle{
 		Version:                 int(ver),
 		EncapsulationKey:        base64.StdEncoding.EncodeToString(ekBytes),
@@ -276,8 +304,8 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 }
 
 // maxBundleRawSize caps the decoded size of any bundle input.
-// A v1 binary bundle with ML-KEM-1024 is ~1590 bytes raw; an encrypted
-// wrapper adds ~75 bytes of overhead. 4 KB is a generous upper bound
+// A v1 binary bundle with ML-KEM-1024 is ~1594 bytes raw (including 4-byte CRC32);
+// an encrypted wrapper adds ~75 bytes of overhead. 4 KB is a generous upper bound
 // that still prevents large-allocation attacks from malformed input.
 const maxBundleRawSize = 4 * 1024
 

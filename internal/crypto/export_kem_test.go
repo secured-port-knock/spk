@@ -195,8 +195,12 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 	if kemSize != 768 {
 		t.Errorf("kem_size = %d, want 768", kemSize)
 	}
-	// ek starts at offset 17
-	ekBytes := raw[17:]
+	// ek starts at offset 17, followed by 4-byte CRC32 trailer
+	wantTotal := 17 + EncapsulationKeySize768 + crc32Size
+	if len(raw) != wantTotal {
+		t.Errorf("total bundle length = %d, want %d", len(raw), wantTotal)
+	}
+	ekBytes := raw[17 : 17+EncapsulationKeySize768]
 	if len(ekBytes) != EncapsulationKeySize768 {
 		t.Errorf("ek length = %d, want %d", len(ekBytes), EncapsulationKeySize768)
 	}
