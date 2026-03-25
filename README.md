@@ -94,7 +94,7 @@ If you have Go 1.25+ installed, you can install SPK directly from source without
 repository:
 
 ```bash
-go install github.com/secured-port-knock/spk/cmd/spk@latest
+go install github.com/secured-port-knock/spk@latest
 ```
 
 This installs a pure-Go build (no pcap stealth mode). For pcap support or production server

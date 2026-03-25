@@ -1,6 +1,6 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
-package main
+package app
 
 import (
 	"runtime/debug"
@@ -41,12 +41,12 @@ func TestResolveVersionFromBuildInfo_LdflagsInjected_NoBuildInfo(t *testing.T) {
 }
 
 func TestResolveVersionFromBuildInfo_GoInstall_RealTag(t *testing.T) {
-	// Scenario 1: go install @v1.0.2 -- commit is the sentinel ("Dev"), build
+	// Scenario 1: go install @v1.0.4 -- commit is the sentinel ("Dev"), build
 	// info carries a real semver tag. Version is the tag (v-stripped), label
 	// is "Go".
-	ver, label := resolveVersionFromBuildInfo("1.0.0", "0", "Dev", makeBuildInfo("v1.0.2"), true)
-	if ver != "1.0.2" {
-		t.Errorf("version: got %q, want %q", ver, "1.0.2")
+	ver, label := resolveVersionFromBuildInfo("1.0.0", "0", "Dev", makeBuildInfo("v1.0.4"), true)
+	if ver != "1.0.4" {
+		t.Errorf("version: got %q, want %q", ver, "1.0.4")
 	}
 	if label != "Go" {
 		t.Errorf("commit label: got %q, want %q", label, "Go")

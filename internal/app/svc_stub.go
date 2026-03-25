@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
 
-package main
+package app
 
 // runAsWindowsService is a no-op on non-Windows platforms.
 // Returns (false, nil) so callers can always branch on `ran`.

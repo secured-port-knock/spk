@@ -1,5 +1,10 @@
 // Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 // SPDX-License-Identifier: MIT
+
+// Package app implements the SPK command-line application: flag parsing,
+// mode detection, version resolution, and dispatch to the server, client,
+// and service sub-systems.
+//
 // SPK - PQC Port Knocking with ML-KEM-768/1024
 //
 // A post-quantum secure port knocking application that uses ML-KEM-768 or
@@ -28,7 +33,7 @@
 //	spk open-t22                      # Send command (auto-detect)
 //	spk open-t22,t443,u53             # Batch open (auto-detect)
 //	spk open-t22 --duration 3600 --ip 1.2.3.4
-package main
+package app
 
 import (
 	"flag"
@@ -47,6 +52,14 @@ import (
 	"github.com/secured-port-knock/spk/internal/sniffer"
 )
 
+// version variables are overridden at build time via -ldflags:
+//
+//	-X github.com/secured-port-knock/spk/internal/app.version=1.0.3
+//	-X github.com/secured-port-knock/spk/internal/app.commit=abc1234
+//	-X github.com/secured-port-knock/spk/internal/app.buildNumber=1008
+//
+// When not injected (plain 'go install' / 'go build'), the sentinel value
+// "Dev" for commit triggers version resolution from runtime/debug.BuildInfo.
 var (
 	version     = "1.0.0"
 	commit      = "Dev"
@@ -121,7 +134,8 @@ func isPrivileged() bool {
 	return os.Getuid() == 0
 }
 
-func main() {
+// Run is the application entry point, called from package main.
+func Run() {
 	// Define flags
 	serverMode := flag.Bool("server", false, "Run in server mode")
 	clientMode := flag.Bool("client", false, "Run in client mode")

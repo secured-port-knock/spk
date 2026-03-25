@@ -77,7 +77,7 @@ if ! $SKIP_BUILD_NUMBER_BUMP; then
 fi
 
 FULL_VERSION="${VERSION}.${BUILD_NUMBER}"
-LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildNumber=${BUILD_NUMBER} -s -w"
+LDFLAGS="-X github.com/secured-port-knock/spk/internal/app.version=${VERSION} -X github.com/secured-port-knock/spk/internal/app.commit=${COMMIT} -X github.com/secured-port-knock/spk/internal/app.buildNumber=${BUILD_NUMBER} -s -w"
 BUILD_DIR="build"
 
 echo "SPK Build Script"
@@ -328,7 +328,7 @@ build_one() {
   if (
     export GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED="${cgo_enabled}"
     if [ -n "$cc" ]; then export CC="$cc"; fi
-    go build -ldflags "${ldflags}" -o "${output}" ./cmd/spk/
+    go build -ldflags "${ldflags}" -o "${output}" ./
   ); then
     # UPX compress if available
     if $UPX_AVAILABLE && [ -f "${output}" ]; then

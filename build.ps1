@@ -95,7 +95,7 @@ if (-not $SkipBuildNumberBump) {
 }
 
 $FullVersion = "$Version.$BuildNumber"
-$LDFlags = "-X main.version=$Version -X main.commit=$Commit -X main.buildNumber=$BuildNumber"
+$LDFlags = "-X github.com/secured-port-knock/spk/internal/app.version=$Version -X github.com/secured-port-knock/spk/internal/app.commit=$Commit -X github.com/secured-port-knock/spk/internal/app.buildNumber=$BuildNumber"
 $BuildDir = "build"
 
 Write-Host "SPK Build Script" -ForegroundColor Cyan
@@ -316,7 +316,7 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
         Write-Host "  Building $output..."
     }
 
-    $buildArgs = @("build", "-ldflags", "$ldflags -s -w", "-o", $output, "./cmd/spk/")
+    $buildArgs = @("build", "-ldflags", "$ldflags -s -w", "-o", $output, "./")
 
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) {

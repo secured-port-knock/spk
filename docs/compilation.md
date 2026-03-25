@@ -23,10 +23,10 @@ pure-Go binary (no pcap) and places it in `$GOPATH/bin` (or `$HOME/go/bin`):
 
 ```bash
 # Latest stable release
-go install github.com/secured-port-knock/spk/cmd/spk@latest
+go install github.com/secured-port-knock/spk@latest
 
 # Specific release
-go install github.com/secured-port-knock/spk/cmd/spk@v1.0.2
+go install github.com/secured-port-knock/spk@v1.0.4
 ```
 
 **Limitations of go install compared to release binaries:**
@@ -36,8 +36,8 @@ go install github.com/secured-port-knock/spk/cmd/spk@v1.0.2
   AF_PACKET/WinDivert where available. For stealth mode, download a release binary or build from
   source using the build scripts.
 - **No UPX compression.** Binary is larger (~6-8 MB vs ~3 MB for a UPX-compressed release build).
-- **No version metadata.** Linker flags (`-X main.version=...`, `-X main.buildNumber=...`,
-  `-X main.commit=...`) are not injected by `go install`. Instead, SPK reads the module
+- **No version metadata.** Linker flags (`-X github.com/secured-port-knock/spk/internal/app.version=...`
+  etc.) are not injected by `go install`. Instead, SPK reads the module
   version embedded in the binary via `runtime/debug.ReadBuildInfo()`. The `--version` output
   will show the tag you installed from and `(Go Install)` as the build label, for example:
 
@@ -198,16 +198,16 @@ No pcap SDK or development headers are needed at **compile** time. Install the r
 
 ```bash
 # Windows pcap: pure Go, no CGO needed (wpcap.dll loaded at runtime)
-GOOS=windows CGO_ENABLED=0 go build -ldflags "-s -w" -o spk.exe ./cmd/spk/
+GOOS=windows CGO_ENABLED=0 go build -ldflags "-s -w" -o spk.exe ./
 
 # Linux pcap: CGO with dlfcn.h only, no pcap SDK needed (libpcap.so loaded at runtime)
-CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -ldflags "-s -w" -o spk_linux ./cmd/spk/
+CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -ldflags "-s -w" -o spk_linux ./
 
 # macOS pcap (native host): CGO with clang (native toolchain)
-CGO_ENABLED=1 go build -ldflags "-s -w" -o spk_darwin ./cmd/spk/
+CGO_ENABLED=1 go build -ldflags "-s -w" -o spk_darwin ./
 
 # Build without pcap (pure Go, no CGO dependency, any host/target)
-CGO_ENABLED=0 go build -ldflags "-s -w" -o spk ./cmd/spk/
+CGO_ENABLED=0 go build -ldflags "-s -w" -o spk ./
 ```
 
 > **Note:** Cross-compiling darwin with CGO (e.g. via `zig cc -target x86_64-macos`) is not
@@ -334,11 +334,11 @@ Triggered manually via `workflow_dispatch`.
 
 | Release type | Git tag | Example | Go install |
 |---|---|---|---|
-| Stable release | `v{VERSION}` | `v1.0.2` | `@latest` picks this up |
-| Beta pre-release | `v{VERSION}-beta.{BUILD}` | `v1.0.2-beta.1044` | excluded from `@latest` |
+| Stable release | `v{VERSION}` | `v1.0.4` | `@latest` picks this up |
+| Beta pre-release | `v{VERSION}-beta.{BUILD}` | `v1.0.4-beta.1044` | excluded from `@latest` |
 
 Tags follow [semver](https://semver.org/) so the module is compatible with standard Go tooling:
-`go install github.com/secured-port-knock/spk/cmd/spk@latest` installs the latest stable release.
+`go install github.com/secured-port-knock/spk@latest` installs the latest stable release.
 Binary filenames still embed the full four-part version (e.g. `spk_1.0.2.1044p-linux-amd64`).
 
 **Inputs:**

@@ -42,8 +42,13 @@ Use `--cfgdir` and `--logdir` to override these defaults on any platform.
 ## Project Source Structure
 
 ```
-cmd/spk/            - Application entry point, Windows service handler
+main.go             - Entry point: calls app.Run()
 internal/
+  app/
+    app.go            - CLI flags, mode detection, version, dispatch
+    svc_stub.go       - Windows service stub (no-op on non-Windows)
+    svc_windows.go    - Windows Service Control Manager handler
+    version_test.go   - Version resolution unit tests
   client/           - Client-side logic (setup, WAN IP detection, STUN)
   config/           - TOML config parsing and validation
   crypto/           - ML-KEM key management, AES-256-GCM, TOTP, dynamic port, bundle export

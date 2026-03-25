@@ -15,7 +15,7 @@ BUILD_NUMBER_FILE=version/build_number.txt
 BUILD_NUMBER=$(shell if [ -f $(BUILD_NUMBER_FILE) ]; then cat $(BUILD_NUMBER_FILE); else echo 0; fi)
 NEXT_BUILD=$(shell echo $$(( $(BUILD_NUMBER) + 1 )))
 FULL_VERSION=$(VERSION).$(NEXT_BUILD)
-LDFLAGS_BASE=-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildNumber=$(NEXT_BUILD) -s -w
+LDFLAGS_BASE=-X github.com/secured-port-knock/spk/internal/app.version=$(VERSION) -X github.com/secured-port-knock/spk/internal/app.commit=$(COMMIT) -X github.com/secured-port-knock/spk/internal/app.buildNumber=$(NEXT_BUILD) -s -w
 BUILD_DIR=build
 
 # pcap is dynamically loaded at runtime -- no SDK or headers needed.
@@ -28,10 +28,10 @@ all: test build
 build:
 	@echo $(NEXT_BUILD) > $(BUILD_NUMBER_FILE)
 ifdef NOPCAP
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./cmd/spk/
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./
 else
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION)p ./cmd/spk/ || \
-		(echo "CGO build failed, falling back to no-pcap"; CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./cmd/spk/)
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION)p ./ || \
+		(echo "CGO build failed, falling back to no-pcap"; CGO_ENABLED=0 go build -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./)
 endif
 
 test:

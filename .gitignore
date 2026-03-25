@@ -1,4 +1,4 @@
-# Binaries (root-level only -- /spk avoids matching cmd/spk/)
+# Binaries
 /spk
 /spk.exe
 *.exe
