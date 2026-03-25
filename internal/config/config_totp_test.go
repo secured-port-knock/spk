@@ -26,7 +26,7 @@ func TestTOTPFieldsDefaultOff(t *testing.T) {
 func TestTOTPConfigRoundTrip(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.TOTPEnabled = true
-	cfg.TOTPSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PX"
+	cfg.TOTPSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
 
 	path := filepath.Join(t.TempDir(), "totp_test.toml")
 	if err := cfg.Save(path); err != nil {
@@ -41,7 +41,7 @@ func TestTOTPConfigRoundTrip(t *testing.T) {
 	if !loaded.TOTPEnabled {
 		t.Error("TOTPEnabled should be true after round-trip")
 	}
-	if loaded.TOTPSecret != "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PX" {
+	if loaded.TOTPSecret != "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP" {
 		t.Errorf("TOTPSecret = %q, want original secret", loaded.TOTPSecret)
 	}
 }

@@ -295,6 +295,13 @@ const MaxPaddingBytes = 2048
 // Base KEM-768 packet (no padding): ~1148 bytes. Available: ~324 bytes, conservative limit -> 96 bytes.
 const MaxPaddingMTUSafe768 = 96
 
+// TOTPMinSecretLen is the minimum accepted length of a TOTP secret string.
+// The setup wizard generates 20 random bytes (160 bits) and encodes them with
+// base32 (no padding), which always produces exactly 32 characters.
+// This matches RFC 6238 and the secret size produced by GenerateTOTPSecret().
+// A shorter secret would provide less than 160-bit entropy.
+const TOTPMinSecretLen = 32
+
 // Validate checks config values for sanity and returns any issues.
 func (c *Config) Validate() []string {
 	var errs []string
@@ -309,11 +316,19 @@ func (c *Config) Validate() []string {
 	}
 
 	// Dynamic port parameter validation
+	if c.DynPortMin != 0 && (c.DynPortMin < 1 || c.DynPortMin > 65535) {
+		errs = append(errs, fmt.Sprintf("dynamic_port_min (%d) out of valid port range [1, 65535]", c.DynPortMin))
+	}
+	if c.DynPortMax != 0 && (c.DynPortMax < 1 || c.DynPortMax > 65535) {
+		errs = append(errs, fmt.Sprintf("dynamic_port_max (%d) out of valid port range [1, 65535]", c.DynPortMax))
+	}
 	if c.DynPortMin > 0 && c.DynPortMax > 0 && c.DynPortMin >= c.DynPortMax {
 		errs = append(errs, fmt.Sprintf("dynamic_port_min (%d) must be less than dynamic_port_max (%d)", c.DynPortMin, c.DynPortMax))
 	}
-	if c.DynPortWindow < 0 {
-		errs = append(errs, "dynamic_port_window must be >= 0")
+	// 0 means "use default (600)"; any non-zero value must be in [60, 86400].
+	// Lower bound matches the server setup wizard; upper bound matches MaxDynPortWaitSeconds.
+	if c.DynPortWindow != 0 && (c.DynPortWindow < 60 || c.DynPortWindow > 86400) {
+		errs = append(errs, fmt.Sprintf("dynamic_port_window %d out of range [60, 86400]", c.DynPortWindow))
 	}
 	if c.PortSeed != "" {
 		// Validate hex format
@@ -373,6 +388,9 @@ func (c *Config) Validate() []string {
 	}
 
 	// TOTP secret validation
+	// The setup wizard generates 20-byte (160-bit) secrets encoded as 32 base32 chars.
+	// Accepting anything shorter than TOTPMinSecretLen (32) would allow weak secrets
+	// below RFC 6238's recommended 160-bit minimum entropy level.
 	if c.TOTPEnabled && c.TOTPSecret != "" {
 		validBase32 := true
 		for _, ch := range c.TOTPSecret {
@@ -382,10 +400,10 @@ func (c *Config) Validate() []string {
 			}
 		}
 		if !validBase32 {
-			errs = append(errs, "totp_secret must be a valid base32 string")
+			errs = append(errs, "totp_secret must be a valid base32 string (uppercase A-Z and digits 2-7)")
 		}
-		if len(c.TOTPSecret) < 16 {
-			errs = append(errs, fmt.Sprintf("totp_secret too short (%d chars), need at least 16", len(c.TOTPSecret)))
+		if len(c.TOTPSecret) < TOTPMinSecretLen {
+			errs = append(errs, fmt.Sprintf("totp_secret too short (%d chars), need at least %d (160-bit / 20 bytes base32-encoded)", len(c.TOTPSecret), TOTPMinSecretLen))
 		}
 	}
 

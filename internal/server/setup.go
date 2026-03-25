@@ -90,10 +90,10 @@ func RunSetup() {
 		wStr := readLine(reader)
 		if wStr != "" {
 			w, err := strconv.Atoi(wStr)
-			if err == nil && w >= 60 && w <= 86400 {
+			if err == nil && w >= crypto.MinDynPortWindowSeconds && w <= crypto.MaxDynPortWaitSeconds {
 				cfg.DynPortWindow = w
 			} else {
-				fmt.Println("  Invalid (must be 60-86400), using default 600s")
+				fmt.Printf("  Invalid (must be %d-%d), using default 600s\n", crypto.MinDynPortWindowSeconds, crypto.MaxDynPortWaitSeconds)
 				cfg.DynPortWindow = 600
 			}
 		} else {

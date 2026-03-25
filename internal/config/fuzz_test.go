@@ -14,10 +14,10 @@ import (
 // FuzzConfigValidate tests config validation with random field values.
 func FuzzConfigValidate(f *testing.F) {
 	f.Add(0, 0, 0, 0, 60, 0, 0, "udp", false, 0, 0, "", 0, 0, false)
-	f.Add(22, 80, 3600, 86400, 30, 120, 10000, "pcap", true, 64, 512, "ABCDEFGHIJKLMNOP", 768, 0, true)
+	f.Add(22, 80, 3600, 86400, 30, 120, 10000, "pcap", true, 64, 512, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", 768, 0, true)
 	f.Add(-1, -1, -1, -1, -1, -1, -1, "invalid", true, -1, -1, "short", 0, -1, false)
 	f.Add(65535, 65535, 604800, 604800, 3600, 3600, 100000, "afpacket", false, 2048, 2048, "", 1024, 65000, false)
-	f.Add(65536, 65536, 0, 0, 0, 0, 0, "windivert", true, 0, 0, "AAAAAAAAAAAAAAAA", 512, 100, true)
+	f.Add(65536, 65536, 0, 0, 0, 0, 0, "windivert", true, 0, 0, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 512, 100, true)
 
 	f.Fuzz(func(t *testing.T, listenPort, serverPort, defaultDur, maxDur, tsTolerance,
 		nonceExpiry, maxNonceCache int, snifferMode string, paddingEnabled bool,
@@ -231,7 +231,8 @@ func TestConfigValidate_TOTPSecret(t *testing.T) {
 	}{
 		{"disabled_no_secret", false, "", false},
 		{"disabled_with_secret", false, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", false},
-		{"valid_secret", true, "JBSWY3DPEHPK3PXP", false},
+		{"valid_32char", true, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", false},
+		{"sixteen_chars_too_short", true, "JBSWY3DPEHPK3PXP", true},  // was incorrectly accepted before
 		{"too_short", true, "JBSWY3D", true},
 		{"invalid_chars", true, "jbswy3dpehpk3pxp", true}, // lowercase not valid base32
 		{"numbers_invalid", true, "1234567890123456", true},
@@ -347,6 +348,11 @@ func TestConfigValidate_DynPortRange(t *testing.T) {
 		{"min_equals_max", 50000, 50000, true},
 		{"min_greater_than_max", 65000, 10000, true},
 		{"both_zero", 0, 0, false},
+		{"min_negative", -1, 65000, true},
+		{"max_negative", 10000, -1, true},
+		{"min_too_large", 65536, 65000, true},
+		{"max_too_large", 10000, 99999, true},
+		{"both_valid_small", 1024, 2048, false},
 	}
 
 	for _, tt := range tests {

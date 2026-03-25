@@ -12,6 +12,11 @@ import (
 // DynPortWindowSeconds is the default time window for dynamic port rotation (10 minutes).
 const DynPortWindowSeconds = 600
 
+// MinDynPortWindowSeconds is the minimum allowed rotation window (60 seconds).
+// The server setup wizard rejects values below this; callers that accept user
+// input should validate against this constant.
+const MinDynPortWindowSeconds = 60
+
 // ComputeDynamicPort derives a deterministic port from a shared seed and time window.
 // Uses the default window of 600 seconds.
 func ComputeDynamicPort(seed []byte) int {
@@ -46,8 +51,8 @@ func DynPortSecondsUntilChange() int {
 }
 
 // DynPortSecondsUntilChangeWithWindow returns seconds until next rotation for a custom window.
-// The result is capped at MaxDynPortWaitSeconds to prevent integer overflow
-// when converting to time.Duration (nanoseconds).
+// The result is in [1, windowSeconds] and is capped at MaxDynPortWaitSeconds to prevent
+// integer overflow when converting to time.Duration (nanoseconds).
 func DynPortSecondsUntilChangeWithWindow(windowSeconds int) int {
 	if windowSeconds <= 0 {
 		windowSeconds = DynPortWindowSeconds
@@ -58,9 +63,6 @@ func DynPortSecondsUntilChangeWithWindow(windowSeconds int) int {
 	secs := nextWindow - now
 	if secs > MaxDynPortWaitSeconds {
 		secs = MaxDynPortWaitSeconds
-	}
-	if secs < 60 {
-		secs = 60
 	}
 	return int(secs)
 }

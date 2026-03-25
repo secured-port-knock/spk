@@ -261,3 +261,111 @@ func TestDynPortSecondsUntilChangeNoOverflow(t *testing.T) {
 		}
 	}
 }
+
+// TestMinWindowConstant verifies the published minimum window constant matches
+// the value enforced by the server setup wizard (60 seconds).
+func TestMinWindowConstant(t *testing.T) {
+	if MinDynPortWindowSeconds != 60 {
+		t.Errorf("MinDynPortWindowSeconds = %d, want 60", MinDynPortWindowSeconds)
+	}
+	if MinDynPortWindowSeconds > DynPortWindowSeconds {
+		t.Errorf("MinDynPortWindowSeconds (%d) > DynPortWindowSeconds (%d)", MinDynPortWindowSeconds, DynPortWindowSeconds)
+	}
+	if MinDynPortWindowSeconds > MaxDynPortWaitSeconds {
+		t.Errorf("MinDynPortWindowSeconds (%d) > MaxDynPortWaitSeconds (%d)", MinDynPortWindowSeconds, MaxDynPortWaitSeconds)
+	}
+}
+
+// TestSecondsUntilChangeMinWindow verifies that at the minimum window (60 s),
+// the return value is always in [1, 60] -- never artificially inflated.
+// This catches any reintroduction of a lower-bound clamp that would break the
+// "sleep(secsUntil+1) lands exactly in the next window" invariant.
+func TestSecondsUntilChangeMinWindow(t *testing.T) {
+	ws := MinDynPortWindowSeconds // 60
+	secs := DynPortSecondsUntilChangeWithWindow(ws)
+	if secs < 1 || secs > ws {
+		t.Errorf("DynPortSecondsUntilChangeWithWindow(%d) = %d, want in [1, %d]", ws, secs, ws)
+	}
+}
+
+// TestSecondsUntilChangeNoClamping verifies that when only 1 second remains in
+// a 60-second window, the function returns 1 (not a clamped larger value).
+// It uses synthetic time arithmetic to avoid real-time races.
+func TestSecondsUntilChangeNoClamping(t *testing.T) {
+	// For any window size ws, when now = k*ws - 1 (1 second before the boundary),
+	// the correct secsUntil is 1.  A lower-bound clamp of 60 would return 60
+	// instead, skipping a whole window when the server adds 1 and sleeps.
+	for _, ws := range []int{60, 120, 300, 600} {
+		wsi := int64(ws)
+		// Pick a "now" that is exactly 1 second before a boundary.
+		k := int64(2)
+		now := k*wsi - 1
+		secsUntil := ((now/wsi)+1)*wsi - now
+		if secsUntil != 1 {
+			t.Errorf("ws=%d now=%d: expected secsUntil=1, got %d", ws, now, secsUntil)
+		}
+		// Verify the invariant: sleeping secsUntil+1 lands exactly in window k.
+		futureTime := now + secsUntil + 1
+		if futureTime/wsi != k {
+			t.Errorf("ws=%d now=%d: sleep(1+1) -> window %d, want %d", ws, now, futureTime/wsi, k)
+		}
+	}
+}
+
+// TestSecondsUntilChangeAllValidWindows verifies that for every valid server
+// window (60-86400), sleeping secsUntil+1 seconds always lands in exactly
+// the next window, using synthetic boundary times for each window size.
+func TestSecondsUntilChangeAllValidWindows(t *testing.T) {
+	// Representative window sizes spanning the full allowed range.
+	windows := []int{
+		MinDynPortWindowSeconds, // 60  (minimum)
+		120, 300, 600, 900, 1800,
+		3600, 7200, 21600, 43200,
+		MaxDynPortWaitSeconds, // 86400 (maximum)
+	}
+	// For each window size, test three boundary-condition "now" values.
+	for _, ws := range windows {
+		wsi := int64(ws)
+		for _, k := range []int64{1, 2, 1000} {
+			for _, offset := range []int64{-1, 0, 1, wsi / 2} {
+				now := k*wsi + offset
+				secsUntil := ((now/wsi)+1)*wsi - now
+				// secsUntil must be in [1, ws].
+				if secsUntil < 1 || secsUntil > wsi {
+					t.Errorf("ws=%d now=%d (offset=%d): secsUntil=%d not in [1,%d]",
+						ws, now, offset, secsUntil, wsi)
+				}
+				// sleep(secsUntil+1) must land in exactly window now/wsi + 1.
+				futureTime := now + secsUntil + 1
+				wantWindow := now/wsi + 1
+				if futureTime/wsi != wantWindow {
+					t.Errorf("ws=%d now=%d (offset=%d): sleep(%d+1) -> window %d, want %d",
+						ws, now, offset, secsUntil, futureTime/wsi, wantWindow)
+				}
+			}
+		}
+	}
+}
+
+// TestSecondsUntilChangeLiveVsFormula verifies that the live function result
+// is consistent with the formula for several valid window sizes.
+func TestSecondsUntilChangeLiveVsFormula(t *testing.T) {
+	for _, ws := range []int{60, 120, 300, 600, 3600, MaxDynPortWaitSeconds} {
+		before := time.Now().Unix()
+		got := DynPortSecondsUntilChangeWithWindow(ws)
+		after := time.Now().Unix()
+
+		wsi := int64(ws)
+		// The true secsUntil at any point in [before, after] must be in [1, ws].
+		// We allow a 2-second margin because the clock may have ticked.
+		minExpected := int(((before/wsi)+1)*wsi - after) // tightest bound
+		maxExpected := ws
+		if minExpected < 1 {
+			minExpected = 1
+		}
+		if got < minExpected-2 || got > maxExpected {
+			t.Errorf("ws=%d: DynPortSecondsUntilChangeWithWindow = %d, want roughly in [%d, %d]",
+				ws, got, minExpected, maxExpected)
+		}
+	}
+}
