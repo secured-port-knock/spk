@@ -300,12 +300,12 @@ func TestTimestampPastErrorMessage(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	// Build packet, wait, then parse with tight tolerance
-	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	// Craft a packet with a timestamp 10s in the past -- no sleep required.
+	opts := protocol.KnockOptions{Timestamp: time.Now().Unix() - 10}
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket: %v", err)
 	}
-	time.Sleep(2 * time.Second)
 
 	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
@@ -332,11 +332,12 @@ func TestTimestampErrorIncludesTolerance(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
+	// Craft a packet with a timestamp 5s in the past -- no sleep required.
+	opts := protocol.KnockOptions{Timestamp: time.Now().Unix() - 5}
+	packet, err := protocol.BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0, opts)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket: %v", err)
 	}
-	time.Sleep(3 * time.Second)
 
 	_, err = protocol.ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {

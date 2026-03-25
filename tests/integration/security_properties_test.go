@@ -218,16 +218,14 @@ func TestReplayPreventionTimestamp(t *testing.T) {
 		t.Fatalf("30s tolerance should pass: %v", err)
 	}
 
-	// With 0s tolerance - might pass if very fast, but -1 guarantees reject
-	// Actually a negative tolerance would mean nothing passes; use 0 which means drift=0 passes
-	// Let's test a very tight window then wait
-	pkt2, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
+	// Craft a packet with timestamp 10s in the past -- no sleep required.
+	opts := protocol.KnockOptions{Timestamp: time.Now().Unix() - 10}
+	pkt2, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0, opts)
 	if err != nil {
-		t.Fatalf("BuildKnockPacket: %v", err)
+		t.Fatalf("BuildKnockPacket with past timestamp: %v", err)
 	}
-	time.Sleep(2 * time.Second)
 
-	// With 1s tolerance, a 2s old packet should fail
+	// With 1s tolerance, a 10s old packet should fail
 	_, err = protocol.ParseKnockPacket(dk, pkt2, "127.0.0.1", 1)
 	if err == nil {
 		t.Error("packet older than tolerance should be rejected")

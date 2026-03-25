@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -363,6 +364,9 @@ func parseChoice(s string, max int) int {
 }
 
 func readLine(reader *bufio.Reader) string {
-	line, _ := reader.ReadString('\n')
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to read input: %v\n", err)
+	}
 	return strings.TrimSpace(line)
 }

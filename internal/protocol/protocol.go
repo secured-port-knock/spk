@@ -77,8 +77,9 @@ func DefaultPaddingConfig() PaddingConfig {
 
 // KnockOptions holds optional parameters for building a knock packet.
 type KnockOptions struct {
-	Padding PaddingConfig // Padding configuration
-	TOTP    string        // 6-digit TOTP code (empty = no TOTP)
+	Padding   PaddingConfig // Padding configuration
+	TOTP      string        // 6-digit TOTP code (empty = no TOTP)
+	Timestamp int64         // Unix timestamp override (0 = use time.Now(); for testing only)
 }
 
 // ValidateCommand checks that a command string is well-formed before sending.
@@ -204,6 +205,11 @@ func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, open
 	// Apply options
 	if len(opts) > 0 {
 		opt := opts[0]
+
+		// Timestamp override (for testing timestamp-sensitive behavior)
+		if opt.Timestamp != 0 {
+			payload.Timestamp = opt.Timestamp
+		}
 
 		// TOTP code
 		if opt.TOTP != "" {

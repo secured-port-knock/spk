@@ -326,7 +326,7 @@ func (c *Config) Validate() []string {
 		errs = append(errs, fmt.Sprintf("dynamic_port_min (%d) must be less than dynamic_port_max (%d)", c.DynPortMin, c.DynPortMax))
 	}
 	// 0 means "use default (600)"; any non-zero value must be in [60, 86400].
-	// Lower bound matches the server setup wizard; upper bound matches MaxDynPortWaitSeconds.
+	// Lower bound matches the server setup wizard; upper bound matches MaxDynPortWindowSeconds.
 	if c.DynPortWindow != 0 && (c.DynPortWindow < 60 || c.DynPortWindow > 86400) {
 		errs = append(errs, fmt.Sprintf("dynamic_port_window %d out of range [60, 86400]", c.DynPortWindow))
 	}

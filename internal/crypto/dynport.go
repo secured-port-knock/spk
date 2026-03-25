@@ -72,3 +72,10 @@ func DynPortSecondsUntilChangeWithWindow(windowSeconds int) int {
 // time.Duration (nanoseconds). Capped at ~24 hours which is well beyond any
 // reasonable rotation window.
 const MaxDynPortWaitSeconds = 86400
+
+// MaxDynPortWindowSeconds is the maximum allowed dynamic port rotation window.
+// User-facing validation (setup wizard, config) must reject values above this.
+// Kept in sync with MaxDynPortWaitSeconds; the two constants have distinct roles:
+// MaxDynPortWaitSeconds caps the sleep duration, MaxDynPortWindowSeconds caps
+// the user-configurable window.
+const MaxDynPortWindowSeconds = 86400

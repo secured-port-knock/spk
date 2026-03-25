@@ -21,14 +21,28 @@ func TestTimestampPastSpecificError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	ek := dk.EncapsulationKey()
 
-	// Build packet, wait 3s, then parse with 1s tolerance
-	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	if err != nil {
-		t.Fatalf("BuildKnockPacket: %v", err)
+	// Craft a payload with timestamp 10s in the past using encodePayload + direct
+	// encryption -- no sleep required.
+	nonceRaw := make([]byte, NonceBytes)
+	if _, err := rand.Read(nonceRaw); err != nil {
+		t.Fatalf("rand.Read: %v", err)
 	}
-	time.Sleep(3 * time.Second)
+	pastPayload := &KnockPayload{
+		Version:   ProtocolVersion,
+		Timestamp: time.Now().Unix() - 10,
+		Nonce:     hex.EncodeToString(nonceRaw),
+		ClientIP:  "10.0.0.1",
+		Command:   "open-t22",
+	}
+	plaintext, err := encodePayload(pastPayload)
+	if err != nil {
+		t.Fatalf("encodePayload: %v", err)
+	}
+	packet, err := crypto.EncapsulateAndEncrypt(dk.EncapsulationKey(), plaintext)
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
 
 	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
@@ -56,13 +70,27 @@ func TestTimestampErrorFormatIncludesDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	ek := dk.EncapsulationKey()
 
-	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 0)
-	if err != nil {
-		t.Fatalf("BuildKnockPacket: %v", err)
+	// Craft a payload 5s in the past -- no sleep required.
+	nonceRaw := make([]byte, NonceBytes)
+	if _, err := rand.Read(nonceRaw); err != nil {
+		t.Fatalf("rand.Read: %v", err)
 	}
-	time.Sleep(3 * time.Second)
+	pastPayload := &KnockPayload{
+		Version:   ProtocolVersion,
+		Timestamp: time.Now().Unix() - 5,
+		Nonce:     hex.EncodeToString(nonceRaw),
+		ClientIP:  "10.0.0.1",
+		Command:   "open-t22",
+	}
+	plaintext, err := encodePayload(pastPayload)
+	if err != nil {
+		t.Fatalf("encodePayload: %v", err)
+	}
+	packet, err := crypto.EncapsulateAndEncrypt(dk.EncapsulationKey(), plaintext)
+	if err != nil {
+		t.Fatalf("EncapsulateAndEncrypt: %v", err)
+	}
 
 	_, err = ParseKnockPacket(dk, packet, "10.0.0.1", 1)
 	if err == nil {
@@ -70,7 +98,7 @@ func TestTimestampErrorFormatIncludesDrift(t *testing.T) {
 	}
 
 	msg := err.Error()
-	// Should contain drift like "3s" or "2s"
+	// Should contain drift like "5s"
 	if !strings.Contains(msg, "s in the past") {
 		t.Errorf("expected drift in seconds in error, got: %s", msg)
 	}

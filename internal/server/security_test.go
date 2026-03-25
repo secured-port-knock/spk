@@ -96,3 +96,59 @@ func TestIsValidIPString(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateCommandServerCaseInsensitive verifies that validateCommandServer
+// accepts uppercase variants of open-/close- prefixes and protocol letters
+// (t for TCP, u for UDP), since command strings may arrive in any case.
+func TestValidateCommandServerCaseInsensitive(t *testing.T) {
+	tests := []struct {
+		cmd      string
+		wantErr  bool
+		wantType string // expected command type ("open", "close", "cust", "")
+	}{
+		// Lowercase (canonical forms)
+		{"open-t22", false, "open"},
+		{"open-u53", false, "open"},
+		{"close-t443", false, "close"},
+		{"close-all", false, "close"},
+		{"cust-ping", false, "cust"},
+		// Uppercase prefix
+		{"OPEN-t22", false, "open"},
+		{"CLOSE-t443", false, "close"},
+		{"OPEN-ALL", false, "open"},
+		{"CLOSE-ALL", false, "close"},
+		// Mixed prefix case
+		{"Open-t22", false, "open"},
+		{"Close-T443", false, "close"},
+		// Uppercase protocol letter
+		{"open-T22", false, "open"},
+		{"open-U53", false, "open"},
+		{"close-T443", false, "close"},
+		{"close-U53", false, "close"},
+		// All uppercase
+		{"OPEN-T22", false, "open"},
+		{"CLOSE-U53", false, "close"},
+		// Batch with mixed case
+		{"open-T22,U53", false, "open"},
+		{"OPEN-t22,T443,u53", false, "open"},
+		{"close-T22,u443", false, "close"},
+		// Invalid commands
+		{"xxx-t22", true, ""},
+		{"open-", true, ""},
+		{"close-", true, ""},
+		{"open-t0", true, ""},
+		{"open-t99999", true, ""},
+	}
+
+	for _, tc := range tests {
+		cmdType, _, err := validateCommandServer(tc.cmd)
+		gotErr := err != nil
+		if gotErr != tc.wantErr {
+			t.Errorf("validateCommandServer(%q) err=%v, wantErr=%v", tc.cmd, err, tc.wantErr)
+			continue
+		}
+		if !tc.wantErr && cmdType != tc.wantType {
+			t.Errorf("validateCommandServer(%q) type=%q, want %q", tc.cmd, cmdType, tc.wantType)
+		}
+	}
+}

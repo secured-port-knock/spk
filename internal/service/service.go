@@ -12,6 +12,7 @@ package service
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,6 +190,9 @@ func isWindows() bool {
 }
 
 func readLine(reader *bufio.Reader) string {
-	line, _ := reader.ReadString('\n')
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		fmt.Fprintf(os.Stderr, "  Warning: failed to read input: %v\n", err)
+	}
 	return strings.TrimSpace(line)
 }

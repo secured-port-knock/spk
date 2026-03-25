@@ -461,15 +461,24 @@ func TestValidateCommandOpenClose(t *testing.T) {
 		{"close-all", false},
 		{"open-t22,t443,u53", false},
 		{"open-all", false},
-		{"Open-T22", false},   // case-insensitive
-		{"", true},            // unknown prefix
-		{"xxx-t22", true},     // unknown prefix
-		{"open-", true},       // empty spec
-		{"close-", true},      // empty spec
-		{"open-x22", true},    // bad protocol prefix
-		{"open-t0", true},     // port 0
-		{"open-t99999", true}, // port > 65535
-		{"open-tabc", true},   // non-numeric port
+		// Case-insensitive: prefix and protocol letter may be any case
+		{"Open-T22", false},          // mixed prefix, uppercase T
+		{"OPEN-t22", false},          // uppercase prefix, lowercase t
+		{"OPEN-T22", false},          // all uppercase
+		{"Close-T443", false},        // mixed case close
+		{"CLOSE-ALL", false},         // uppercase close-all
+		{"open-U53", false},          // uppercase U
+		{"close-u53", false},         // lowercase close-u
+		{"OPEN-T22,U53", false},      // uppercase batch
+		{"Open-T22,t443,U53", false}, // mixed case batch
+		{"", true},                   // unknown prefix
+		{"xxx-t22", true},            // unknown prefix
+		{"open-", true},              // empty spec
+		{"close-", true},             // empty spec
+		{"open-x22", true},           // bad protocol prefix
+		{"open-t0", true},            // port 0
+		{"open-t99999", true},        // port > 65535
+		{"open-tabc", true},          // non-numeric port
 	}
 	for _, tc := range tests {
 		err := ValidateCommand(tc.cmd)

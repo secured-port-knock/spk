@@ -232,7 +232,7 @@ func TestConfigValidate_TOTPSecret(t *testing.T) {
 		{"disabled_no_secret", false, "", false},
 		{"disabled_with_secret", false, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", false},
 		{"valid_32char", true, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", false},
-		{"sixteen_chars_too_short", true, "JBSWY3DPEHPK3PXP", true},  // was incorrectly accepted before
+		{"sixteen_chars_too_short", true, "JBSWY3DPEHPK3PXP", true}, // was incorrectly accepted before
 		{"too_short", true, "JBSWY3D", true},
 		{"invalid_chars", true, "jbswy3dpehpk3pxp", true}, // lowercase not valid base32
 		{"numbers_invalid", true, "1234567890123456", true},
