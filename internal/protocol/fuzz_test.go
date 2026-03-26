@@ -656,7 +656,7 @@ func TestPacketTampering_WrongKey(t *testing.T) {
 	}
 }
 
-// TestPacketUniqueness verifies every packet is unique (forward secrecy via fresh KEM encapsulation).
+// TestPacketUniqueness verifies every packet is unique (key freshness via fresh KEM encapsulation).
 func TestPacketUniqueness(t *testing.T) {
 	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
 	if err != nil {

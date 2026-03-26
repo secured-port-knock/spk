@@ -58,7 +58,7 @@ The server's ML-KEM public key is **never transmitted over the network** during 
 ### What's NOT Protected
 
 - **Traffic analysis**: An observer can see that a UDP packet was sent to the server (but not its contents or which port was opened). Enable padding to randomize packet sizes and make fingerprinting harder.
-- **Key compromise**: If the private key is stolen, an attacker can decrypt new packets. Rotate keys using `--server --setup`.
+- **Key compromise**: If the private key is stolen, an attacker can decrypt all previously recorded traffic and any new packets until the key is rotated. SPK does not provide forward secrecy -- see [Key Freshness](#key-freshness) for details. Rotate keys using `--server --setup`.
 - **Network-level DoS**: A sustained UDP flood can consume the server's network bandwidth or CPU. Dynamic port rotation is the primary defense (attackers must discover the port before flooding). Bandwidth saturation requires upstream filtering (cloud firewall, ISP null-routing, etc.).
 - **Physical access**: An attacker with root access to the server can read the private key.
 
@@ -117,6 +117,15 @@ The system enforces `nonce_expiry >= timestamp_tolerance` on startup (auto-corre
 | 2min+ (nonce expired) | **REJECT** (too old) | Would also reject | Still blocked |
 
 **Bottom line**: An attacker with a captured packet can never replay it. The authenticated encryption prevents modification, nonce tracking prevents exact replay, and the timestamp window eventually makes the packet unusable.
+
+### Key Freshness
+
+Each knock derives a completely independent symmetric key: the client calls ML-KEM `Encapsulate` with a fresh random seed every time, producing a new ciphertext and a new 32-byte shared key that is fed into AES-256-GCM. No two knocks ever share key material.
+
+**What this provides:**
+- Compromising the AES-256-GCM key for one knock reveals nothing about the keys used in any other knock.
+- An attacker who somehow learns the plaintext of one packet gains zero advantage against any other packet.
+- Every knock is cryptographically isolated from every other knock.
 
 ### Client IP Detection
 

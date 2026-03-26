@@ -33,7 +33,7 @@ Tests cover the following areas:
 - **Future timestamp injection**: Knocks with timestamps far in the future are rejected; packets within tolerance are accepted
 - **Command injection**: Shell metacharacter prevention in IP/port/command fields
 - **IP binding**: Client IP embedded in encrypted payload and verified against source
-- **Forward secrecy**: Each knock uses ephemeral keys; no key reuse across knocks
+- **Key freshness**: Each knock generates a fresh shared secret via ML-KEM encapsulation; no key reuse across knocks
 - **State recovery**: Crash recovery with state.json, close_ports_on_crash behavior
 - **Security hardening**: Systemd unit sandboxing, directory permissions
 - **Server policy enforcement**: open-all denied when disabled, unlisted ports denied, TOTP required enforcement
@@ -71,7 +71,7 @@ Tests cover the following areas:
 - **End-to-end**: Full knock flow with both KEM sizes (768, 1024)
 - **TOTP integration**: Knock with TOTP code, rejection without code
 - **Padding integration**: Padded knocks across KEM sizes
-- **Security properties**: Forward secrecy verification, hardening checks
+- **Security properties**: Key freshness verification, hardening checks
 - **Config directory**: Custom cfgdir/logdir via flags
 - **Vulnerability scanning**: govulncheck for known CVEs in dependencies
 

@@ -14,7 +14,7 @@ import (
 // Security Property Tests
 // These tests verify the cryptographic properties claimed in the README:
 //   - No key reuse (every knock generates a new symmetric key)
-//   - Forward secrecy (compromising one packet reveals nothing about others)
+//   - Key freshness (each knock generates a fresh, unrelated symmetric key)
 //   - Replay prevention (nonce + timestamp)
 //   - IP binding (encrypted IP verified against UDP source)
 // ------------------------------------------------------------------------
@@ -53,11 +53,11 @@ func TestNoKeyReuse(t *testing.T) {
 	}
 }
 
-// TestForwardSecrecy verifies that each packet's encryption is independent:
+// TestKeyFreshness verifies that each packet's encryption is independent:
 // knowing one decrypted packet gives no advantage in decrypting another.
 // We verify this by showing each packet uses a completely different KEM
 // ciphertext (and thus a different AES-256-GCM key).
-func TestForwardSecrecy(t *testing.T) {
+func TestKeyFreshness(t *testing.T) {
 	dk, err := crypto.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
@@ -78,7 +78,7 @@ func TestForwardSecrecy(t *testing.T) {
 	ct1 := pkt1[:crypto.CiphertextSize]
 	ct2 := pkt2[:crypto.CiphertextSize]
 	if string(ct1) == string(ct2) {
-		t.Fatal("two packets have identical KEM ciphertext - forward secrecy violated")
+		t.Fatal("two packets have identical KEM ciphertext - key freshness violated")
 	}
 
 	// AES-GCM nonces must differ

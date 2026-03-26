@@ -52,9 +52,9 @@ The core issue: **services must be reachable to be usable, but reachable means a
 | Single Packet | One UDP packet carries the full encapsulated key + encrypted payload |
 | Replay Protection | Timestamp window combined with unique nonce tracking ensures captured packets cannot be reused |
 | IP Spoofing Protection | Client IP is encrypted inside the payload; server decrypts and rejects any mismatch |
-| Forward Secrecy | Each packet uses an ephemeral key -- compromising one reveals nothing about past or future knocks |
+| Key Freshness | Each knock generates a fresh independent shared secret via ML-KEM encapsulation -- compromising one knock's AES key reveals nothing about any other (see [docs/security.md](docs/security.md#key-freshness)) |
 | Tamper Detection | AES-256-GCM authenticated encryption covers the entire payload, making any modification detectable |
-| Key Exchange | Asymmetric (ML-KEM) -- every knock generates a new symmetric key, so no two knocks share cryptographic material |
+| Key Exchange | Asymmetric (ML-KEM) -- the server holds a static keypair; each client encapsulation produces a brand-new 32-byte AES key delivered to the server |
 | Secure Key Storage | Server public key stored in OS credential manager (Windows DPAPI, macOS Keychain, Linux Secret Service) -- encrypted at rest, bound to user account |
 | 2FA / TOTP | Optional second factor via RFC 6238 time-based codes (Google Authenticator, Authy, etc.) |
 | Cross-Platform | Windows, Linux, macOS |
