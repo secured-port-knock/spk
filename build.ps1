@@ -21,6 +21,7 @@
 #   .\build.ps1 -linux -deb       # Build linux + create .deb packages
 #   .\build.ps1 -linux -rpm       # Build linux + create .rpm packages
 #   .\build.ps1 -linux -deb -rpm  # Build linux + both .deb and .rpm
+#   .\build.ps1 -upx              # Enable UPX binary compression (requires upx in PATH)
 #
 # pcap (dynamic loading -- no SDK or headers needed at compile time):
 #   Windows    -- always built with pcap (pure Go, CGO_ENABLED=0).
@@ -34,7 +35,7 @@
 #   spk_<VERSION>p-<OS>-<ARCH>[.exe]   (pcap-capable build)
 #   spk_<VERSION>-<OS>-<ARCH>[.exe]    (no pcap support)
 #
-# UPX: If upx is installed, binaries are automatically compressed.
+# UPX: Pass -upx to enable UPX compression. Falls back gracefully if upx is not in PATH.
 param(
     [switch]$windows,
     [switch]$linux,
@@ -48,7 +49,8 @@ param(
     [switch]$coverage,
     [switch]$clean,
     [switch]$deb,
-    [switch]$rpm
+    [switch]$rpm,
+    [switch]$upx
 )
 
 $Binary = "spk"
@@ -132,10 +134,13 @@ $UPXAvailable = $false
 $UPXPath = Get-Command upx -ErrorAction SilentlyContinue
 if ($UPXPath) {
     $UPXAvailable = $true
-    Write-Host "UPX:     found ($($UPXPath.Source))" -ForegroundColor Green
-} else {
-    Write-Host "UPX:     not found (binaries will not be compressed)" -ForegroundColor Yellow
+    if ($upx.IsPresent) {
+        Write-Host "UPX:     found ($($UPXPath.Source))" -ForegroundColor Green
+    }
+} elseif ($upx.IsPresent) {
+    Write-Host "UPX:     not found (-upx supplied but upx is not in PATH, skipping compression)" -ForegroundColor Yellow
 }
+$UseUPX = $upx.IsPresent -and $UPXAvailable
 
 # Zig (needed only for cross-compiling Linux/Darwin with pcap)
 $ZigAvailable = $false
@@ -316,7 +321,7 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
         Write-Host "  Building $output..."
     }
 
-    $buildArgs = @("build", "-ldflags", "$ldflags -s -w", "-o", $output, "./")
+    $buildArgs = @("build", "-trimpath", "-ldflags", "$ldflags -s -w", "-o", $output, "./")
 
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) {
@@ -326,7 +331,7 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
     }
 
     $origSize = (Get-Item $output).Length
-    if ($UPXAvailable) {
+    if ($script:UseUPX) {
         upx --best --lzma -q $output 2>$null
         if ($LASTEXITCODE -eq 0) {
             $newSize = (Get-Item $output).Length

@@ -550,9 +550,12 @@ jobs:
               echo "$RELEASE_DESC"
               echo ""
             fi
+            echo ""
+            echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/commits/${TAG_NAME}"
+            echo ""
             echo "---"
             echo ""
-            echo "### Downloads"
+            echo "### Download Files"
             echo ""
             echo "| Platform | Architecture | File | PCAP |"
             echo "|---|---|---|---|"

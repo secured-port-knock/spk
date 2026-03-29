@@ -21,6 +21,7 @@
 #   ./build.sh -linux -deb        # Build linux + create .deb packages
 #   ./build.sh -linux -rpm        # Build linux + create .rpm packages
 #   ./build.sh -linux -deb -rpm   # Build linux + both .deb and .rpm
+#   ./build.sh -upx               # Enable UPX binary compression (requires upx in PATH)
 #
 # pcap (dynamic loading -- no SDK or headers needed at compile time):
 #   Windows    -- always built with pcap (pure Go, CGO_ENABLED=0).
@@ -99,6 +100,7 @@ RUN_CLEAN=false
 DISABLE_PCAP=false
 BUILD_DEB=false
 BUILD_RPM=false
+USE_UPX_FLAG=false
 HAS_PLATFORM=false
 HAS_ARCH=false
 
@@ -117,7 +119,8 @@ for arg in "$@"; do
     -nopcap)       DISABLE_PCAP=true ;;
     -deb)          BUILD_DEB=true ;;
     -rpm)          BUILD_RPM=true ;;
-    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testSniffer] [-coverage] [-clean] [-deb] [-rpm]"; exit 1 ;;
+    -upx)          USE_UPX_FLAG=true ;;
+    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testSniffer] [-coverage] [-clean] [-deb] [-rpm] [-upx]"; exit 1 ;;
   esac
 done
 
@@ -255,10 +258,14 @@ fi
 UPX_AVAILABLE=false
 if command -v upx &>/dev/null; then
   UPX_AVAILABLE=true
-  echo "UPX: found ($(command -v upx))"
-else
-  echo "UPX: not found (binaries will not be compressed)"
+  if $USE_UPX_FLAG; then
+    echo "UPX: found ($(command -v upx))"
+  fi
+elif $USE_UPX_FLAG; then
+  echo "UPX: not found (-upx supplied but upx is not in PATH, skipping compression)"
 fi
+USE_UPX=false
+if $USE_UPX_FLAG && $UPX_AVAILABLE; then USE_UPX=true; fi
 
 # Check for nfpm (needed for -deb / -rpm packaging)
 NFPM_AVAILABLE=false
@@ -328,10 +335,10 @@ build_one() {
   if (
     export GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED="${cgo_enabled}"
     if [ -n "$cc" ]; then export CC="$cc"; fi
-    go build -ldflags "${ldflags}" -o "${output}" ./
+    go build -trimpath -ldflags "${ldflags}" -o "${output}" ./
   ); then
-    # UPX compress if available
-    if $UPX_AVAILABLE && [ -f "${output}" ]; then
+    # UPX compress if requested and available
+    if $USE_UPX && [ -f "${output}" ]; then
       local orig_size
       orig_size=$(stat -f%z "${output}" 2>/dev/null || stat -c%s "${output}" 2>/dev/null || echo 0)
       if upx --best --lzma -q "${output}" 2>/dev/null; then

@@ -9,7 +9,7 @@ This document covers building SPK from source, cross-compilation, and Linux pack
 | **Go 1.25+** | Yes | `crypto/mlkem` standard library support (`go 1.25.0` in `go.mod`) |
 | **zig** | Optional | Cross-compile Linux/macOS with pcap (`zig cc` as CGO compiler) |
 | **GCC** | Optional | Native builds with pcap (fallback when zig is not installed) |
-| **UPX** | Optional | Compress binaries (~50% smaller) |
+| **UPX** | Optional | Compress binaries (~50% smaller); pass `-upx` to enable |
 | **nfpm** | Optional | Build `.deb` / `.rpm` Linux packages |
 
 Install zig: [ziglang.org/download](https://ziglang.org/download/) (`winget install zig.zig` / `brew install zig` / `snap install zig`)
@@ -71,6 +71,7 @@ for client-only use (sending knock packets) or quick testing.
 .\build.ps1 -linux -deb           # Build linux + create .deb packages
 .\build.ps1 -linux -rpm           # Build linux + create .rpm packages
 .\build.ps1 -linux -deb -rpm      # Build linux + both .deb and .rpm
+.\build.ps1 -upx                  # Enable UPX compression (requires upx in PATH)
 ```
 
 **Linux/macOS:**
@@ -86,6 +87,7 @@ for client-only use (sending knock packets) or quick testing.
 ./build.sh -linux -deb             # Build linux + create .deb packages
 ./build.sh -linux -rpm             # Build linux + create .rpm packages
 ./build.sh -linux -deb -rpm        # Build linux + both .deb and .rpm
+./build.sh -upx                    # Enable UPX compression (requires upx in PATH)
 ```
 
 **Makefile:**
@@ -198,16 +200,16 @@ No pcap SDK or development headers are needed at **compile** time. Install the r
 
 ```bash
 # Windows pcap: pure Go, no CGO needed (wpcap.dll loaded at runtime)
-GOOS=windows CGO_ENABLED=0 go build -ldflags "-s -w" -o spk.exe ./
+GOOS=windows CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o spk.exe ./
 
 # Linux pcap: CGO with dlfcn.h only, no pcap SDK needed (libpcap.so loaded at runtime)
-CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -ldflags "-s -w" -o spk_linux ./
+CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu" go build -trimpath -ldflags "-s -w" -o spk_linux ./
 
 # macOS pcap (native host): CGO with clang (native toolchain)
-CGO_ENABLED=1 go build -ldflags "-s -w" -o spk_darwin ./
+CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o spk_darwin ./
 
 # Build without pcap (pure Go, no CGO dependency, any host/target)
-CGO_ENABLED=0 go build -ldflags "-s -w" -o spk ./
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o spk ./
 ```
 
 > **Note:** Cross-compiling darwin with CGO (e.g. via `zig cc -target x86_64-macos`) is not
