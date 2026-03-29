@@ -25,7 +25,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Run unit tests
         run: go test ./... -count=1 -timeout 120s
@@ -40,7 +41,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Run tests with coverage
         run: go test ./... -coverprofile=coverage.out -count=1 -timeout 120s
@@ -71,7 +73,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Run integration tests
         run: go test -v -count=1 -timeout 120s ./tests/integration/
@@ -86,7 +89,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install libpcap
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
@@ -112,7 +116,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Run sniffer tests (pcap auto-skipped without Npcap)
         run: go test -v -count=1 -timeout 120s ./internal/sniffer/
@@ -127,25 +132,43 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Run all sniffer tests (pcap + parse + dynamic ports)
         run: sudo go test -v -count=1 -timeout 180s ./internal/sniffer/
 
   # ---------------------------------------------------------------
-  # Lint / vet
+  # Lint
   # ---------------------------------------------------------------
-  vet:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
-      - name: go vet
+      - name: Vet
         run: go vet ./...
+
+      - name: Format check
+        run: |
+          gofmt -l .
+          test -z "$(gofmt -l .)"
+
+      - name: Install linters
+        run: |
+          go install github.com/gordonklaus/ineffassign@latest
+          go install github.com/client9/misspell/cmd/misspell@latest
+
+      - name: Ineffectual assignments
+        run: ineffassign ./...
+
+      - name: Spelling
+        run: misspell -error .
 
   # ---------------------------------------------------------------
   # Vulnerability check (informational -- does not block CI)
@@ -158,7 +181,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest

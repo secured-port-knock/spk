@@ -27,7 +27,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Zig
         uses: mlugg/setup-zig@v1
@@ -72,7 +73,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Zig
         uses: mlugg/setup-zig@v1
@@ -108,7 +110,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Zig
         uses: mlugg/setup-zig@v1
@@ -145,7 +148,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install libpcap (for native linux/amd64 pcap without zig)
         run: sudo apt-get update -qq && sudo apt-get install -y libpcap-dev
@@ -181,7 +185,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Build all platforms (no zig installed)
         run: chmod +x build.sh && ./build.sh -all
@@ -213,7 +218,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Build all platforms (no zig installed)
         run: .\build.ps1 -all
@@ -251,7 +257,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Zig
         uses: mlugg/setup-zig@v1
@@ -288,7 +295,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+          cache: true
 
       - name: Build all platforms (no zig installed)
         run: chmod +x build.sh && ./build.sh -all
