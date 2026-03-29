@@ -25,13 +25,13 @@ import (
 //
 //	[ip:4][open_duration:4][cmd_len:1][cmd_type:1][cmd_data:...]
 const (
-	bpfVersion   = 1           // version byte
-	bpfFlags     = 1           // flags byte
-	bpfTimestamp = 8           // Unix timestamp (big-endian uint64)
-	bpfIPv4      = 4           // IPv4 address
-	bpfIPv6      = 16          // IPv6 address
-	bpfOpenDur   = 4           // open_duration (big-endian uint32)
-	bpfCmdLen    = 1           // cmd_len byte
+	bpfVersion   = 1  // version byte
+	bpfFlags     = 1  // flags byte
+	bpfTimestamp = 8  // Unix timestamp (big-endian uint64)
+	bpfIPv4      = 4  // IPv4 address
+	bpfIPv6      = 16 // IPv6 address
+	bpfOpenDur   = 4  // open_duration (big-endian uint32)
+	bpfCmdLen    = 1  // cmd_len byte
 )
 
 // FuzzDecodePayload feeds arbitrary bytes into the binary payload decoder.
