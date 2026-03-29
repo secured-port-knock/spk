@@ -19,6 +19,21 @@ import (
 
 // --- Fuzz tests ---
 
+// Binary payload field sizes used when computing byte offsets in tests.
+// These must stay in sync with the wire format documented in encodePayload.
+// Wire layout (IPv4): [version:1][flags:1][timestamp:8][nonce:NonceBytes]
+//
+//	[ip:4][open_duration:4][cmd_len:1][cmd_type:1][cmd_data:...]
+const (
+	bpfVersion   = 1           // version byte
+	bpfFlags     = 1           // flags byte
+	bpfTimestamp = 8           // Unix timestamp (big-endian uint64)
+	bpfIPv4      = 4           // IPv4 address
+	bpfIPv6      = 16          // IPv6 address
+	bpfOpenDur   = 4           // open_duration (big-endian uint32)
+	bpfCmdLen    = 1           // cmd_len byte
+)
+
 // FuzzDecodePayload feeds arbitrary bytes into the binary payload decoder.
 // Must never panic; must always return either a valid payload or an error.
 func FuzzDecodePayload(f *testing.F) {
@@ -264,8 +279,9 @@ func TestDecodePayload_InvalidCommandType(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The command type byte is at offset: 1(ver) + 1(flags) + 8(ts) + 32(nonce) + 4(ip) + 4(dur) + 1(cmdlen) = 51
-	cmdTypeOffset := 1 + 1 + 8 + NonceBytes + 4 + 4 + 1
+	// The command type byte immediately follows cmd_len in the binary payload
+	// (IPv4 case): version + flags + timestamp + nonce + ipv4 + open_duration + cmd_len.
+	cmdTypeOffset := bpfVersion + bpfFlags + bpfTimestamp + NonceBytes + bpfIPv4 + bpfOpenDur + bpfCmdLen
 	if cmdTypeOffset >= len(encoded) {
 		t.Fatal("encoded too short to find command type")
 	}
@@ -521,7 +537,13 @@ func TestParseKnockPacket_IPMismatchDetection(t *testing.T) {
 	}
 }
 
-// TestBuildKnockPacket_MaxDuration verifies maximum allowed duration.
+// TestBuildKnockPacket_MaxDuration verifies maximum allowed duration values.
+//
+// The open_duration field is stored as a uint32 on the wire, but the
+// KnockPayload.OpenDuration field is a Go int. The server enforces a
+// maximum of 604800 seconds (7 days) regardless of the wire capacity.
+// math.MaxInt32 is used as a safe cross-platform upper bound for int->uint32
+// conversion; math.MaxUint32 would overflow int on 32-bit platforms.
 func TestBuildKnockPacket_MaxDuration(t *testing.T) {
 	dk, err := crypto.GenerateKeyPair(crypto.KEM768)
 	if err != nil {
@@ -529,19 +551,37 @@ func TestBuildKnockPacket_MaxDuration(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	// Duration at uint32 max
-	packet, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", math.MaxInt32)
+	// Duration at the enforced application maximum (7 days): must always succeed.
+	packetMaxAllowed, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604800)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("BuildKnockPacket(604800) should succeed: %v", err)
+	}
+	payloadMaxAllowed, err := ParseKnockPacket(dk, packetMaxAllowed, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("ParseKnockPacket(604800) should succeed: %v", err)
+	}
+	if payloadMaxAllowed.OpenDuration != 604800 {
+		t.Errorf("duration mismatch: got %d, want 604800", payloadMaxAllowed.OpenDuration)
 	}
 
-	payload, err := ParseKnockPacket(dk, packet, "10.0.0.1", 30)
+	// One second above the enforced maximum must be rejected by the server.
+	packetOverMax, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", 604801)
 	if err != nil {
-		// Might be rejected by duration check -- that's also valid
-		return
+		t.Fatalf("BuildKnockPacket(604801): %v", err)
 	}
-	if payload.OpenDuration != math.MaxInt32 {
-		t.Errorf("duration mismatch: got %d, want %d", payload.OpenDuration, math.MaxInt32)
+	_, err = ParseKnockPacket(dk, packetOverMax, "10.0.0.1", 30)
+	if err == nil {
+		t.Error("ParseKnockPacket should reject open_duration > 604800")
+	}
+
+	// math.MaxInt32 is well above the enforced limit and must be rejected.
+	packetMax32, err := BuildKnockPacket(ek, "10.0.0.1", "open-t22", math.MaxInt32)
+	if err != nil {
+		t.Fatalf("BuildKnockPacket(MaxInt32): %v", err)
+	}
+	_, err = ParseKnockPacket(dk, packetMax32, "10.0.0.1", 30)
+	if err == nil {
+		t.Error("ParseKnockPacket should reject open_duration == math.MaxInt32 (exceeds 604800)")
 	}
 }
 

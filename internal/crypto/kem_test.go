@@ -488,16 +488,6 @@ func TestCiphertextSizeFor(t *testing.T) {
 	}
 }
 
-func TestKEMSizeConstants(t *testing.T) {
-	// Verify backward-compat aliases still point to 1024
-	if EncapsulationKeySize != EncapsulationKeySize1024 {
-		t.Errorf("EncapsulationKeySize alias = %d, want %d", EncapsulationKeySize, EncapsulationKeySize1024)
-	}
-	if CiphertextSize != CiphertextSize1024 {
-		t.Errorf("CiphertextSize alias = %d, want %d", CiphertextSize, CiphertextSize1024)
-	}
-}
-
 // contains is a simple string search helper for tests.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)

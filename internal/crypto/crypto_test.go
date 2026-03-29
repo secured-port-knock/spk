@@ -26,11 +26,11 @@ func TestGenerateKeyPair(t *testing.T) {
 		t.Errorf("seed length = %d, want %d", len(seed), DecapsulationSeedSize)
 	}
 
-	// Verify encapsulation key size
+	// Verify encapsulation key size (GenerateKeyPair defaults to KEM1024)
 	ek := dk.EncapsulationKey()
 	ekBytes := ek.Bytes()
-	if len(ekBytes) != EncapsulationKeySize {
-		t.Errorf("encapsulation key length = %d, want %d", len(ekBytes), EncapsulationKeySize)
+	if len(ekBytes) != EncapsulationKeySize1024 {
+		t.Errorf("encapsulation key length = %d, want %d", len(ekBytes), EncapsulationKeySize1024)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestEncapsulateDecapsulate(t *testing.T) {
 
 	// Verify packet size
 	// Should be: ciphertext(1568) + nonce(12) + encrypted payload + tag(16)
-	minSize := CiphertextSize + 12 + len(plaintext) + 16
+	minSize := CiphertextSize1024 + 12 + len(plaintext) + 16
 	if len(packet) < minSize {
 		t.Errorf("packet size %d < expected minimum %d", len(packet), minSize)
 	}

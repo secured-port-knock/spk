@@ -29,14 +29,6 @@ const (
 	PublicKeyPEMType1024  = "MLKEM1024 PUBLIC KEY"
 )
 
-// Deprecated: PrivateKeyPEMType defaults to ML-KEM-1024. Use PrivateKeyPEMType768
-// or PrivateKeyPEMType1024 directly to be explicit about the key size.
-const PrivateKeyPEMType = PrivateKeyPEMType1024
-
-// Deprecated: PublicKeyPEMType defaults to ML-KEM-1024. Use PublicKeyPEMType768
-// or PublicKeyPEMType1024 directly to be explicit about the key size.
-const PublicKeyPEMType = PublicKeyPEMType1024
-
 // Per-size constants.
 const (
 	EncapsulationKeySize768  = 1184
@@ -47,14 +39,6 @@ const (
 	DecapsulationSeedSize = 64 // Same for both sizes
 	SharedKeySize         = 32 // Same for both sizes
 )
-
-// Deprecated: EncapsulationKeySize defaults to ML-KEM-1024. Use
-// EncapsulationKeySize768 or EncapsulationKeySize1024 directly.
-const EncapsulationKeySize = EncapsulationKeySize1024
-
-// Deprecated: CiphertextSize defaults to ML-KEM-1024. Use CiphertextSize768
-// or CiphertextSize1024 directly.
-const CiphertextSize = CiphertextSize1024
 
 // EncapsulationKeySizeFor returns the encapsulation key byte size for a KEM size.
 func EncapsulationKeySizeFor(size KEMSize) int {

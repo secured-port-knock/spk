@@ -29,6 +29,8 @@ func TestNoKeyReuse(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
+	ctSize := crypto.CiphertextSizeFor(dk.KEMSize())
+
 	const n = 50
 	ciphertexts := make([][]byte, n)
 	for i := 0; i < n; i++ {
@@ -36,20 +38,33 @@ func TestNoKeyReuse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildKnockPacket #%d: %v", i, err)
 		}
-		// ML-KEM-1024 ciphertext is the first 1568 bytes
-		ct := make([]byte, crypto.CiphertextSize)
-		copy(ct, packet[:crypto.CiphertextSize])
+		ct := make([]byte, ctSize)
+		copy(ct, packet[:ctSize])
 		ciphertexts[i] = ct
 	}
 
-	// Every ciphertext should be unique (different KEM encapsulation = different shared key)
+	// Every ciphertext must be unique (different KEM encapsulation = different shared key).
 	seen := make(map[string]bool)
 	for i, ct := range ciphertexts {
-		key := string(ct)
-		if seen[key] {
+		if seen[string(ct)] {
 			t.Errorf("ciphertext %d reuses a previous KEM encapsulation - key reuse detected!", i)
 		}
-		seen[key] = true
+		seen[string(ct)] = true
+	}
+
+	// Additionally verify at the cryptographic level: the derived AES-256-GCM
+	// keys must all be distinct. Different ML-KEM ciphertexts always produce
+	// different shared keys, but this check makes key freshness explicit.
+	seenKeys := make(map[string]bool)
+	for i, ct := range ciphertexts {
+		sharedKey, err := dk.Decapsulate(ct)
+		if err != nil {
+			t.Fatalf("Decapsulate #%d: %v", i, err)
+		}
+		if seenKeys[string(sharedKey)] {
+			t.Errorf("derived AES-GCM key %d is not unique - key freshness violated at cryptographic level", i)
+		}
+		seenKeys[string(sharedKey)] = true
 	}
 }
 
@@ -74,23 +89,25 @@ func TestKeyFreshness(t *testing.T) {
 		t.Fatalf("BuildKnockPacket: %v", err)
 	}
 
-	// Ciphertexts must differ (fresh KEM encapsulation each time)
-	ct1 := pkt1[:crypto.CiphertextSize]
-	ct2 := pkt2[:crypto.CiphertextSize]
+	ctSize := crypto.CiphertextSizeFor(dk.KEMSize())
+
+	// Ciphertexts must differ (fresh KEM encapsulation each time).
+	ct1 := pkt1[:ctSize]
+	ct2 := pkt2[:ctSize]
 	if string(ct1) == string(ct2) {
 		t.Fatal("two packets have identical KEM ciphertext - key freshness violated")
 	}
 
-	// AES-GCM nonces must differ
-	nonce1 := pkt1[crypto.CiphertextSize : crypto.CiphertextSize+12]
-	nonce2 := pkt2[crypto.CiphertextSize : crypto.CiphertextSize+12]
+	// AES-GCM nonces must differ.
+	nonce1 := pkt1[ctSize : ctSize+12]
+	nonce2 := pkt2[ctSize : ctSize+12]
 	if string(nonce1) == string(nonce2) {
 		t.Fatal("two packets have identical AES-GCM nonce")
 	}
 
-	// Encrypted payload must differ
-	enc1 := pkt1[crypto.CiphertextSize+12:]
-	enc2 := pkt2[crypto.CiphertextSize+12:]
+	// Encrypted payload must differ.
+	enc1 := pkt1[ctSize+12:]
+	enc2 := pkt2[ctSize+12:]
 	if string(enc1) == string(enc2) {
 		t.Fatal("two packets have identical encrypted payload - should differ due to different keys and nonces")
 	}
@@ -164,7 +181,8 @@ func TestReplayPreventionNonceTracker(t *testing.T) {
 
 	tracker := protocol.NewNonceTrackerWithLimit(5*time.Minute, 10000)
 
-	// Send 100 unique knocks
+	// Build and accept 100 unique packets; record the nonces.
+	nonces := make([]string, 100)
 	for i := 0; i < 100; i++ {
 		pkt, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
 		if err != nil {
@@ -177,24 +195,15 @@ func TestReplayPreventionNonceTracker(t *testing.T) {
 		if !tracker.Check(payload.Nonce) {
 			t.Errorf("nonce %d should be unique and accepted", i)
 		}
+		nonces[i] = payload.Nonce
 	}
 
-	// Re-parse the same packets - same nonces should be rejected
-	// (this simulates storing and replaying old packets)
-	for i := 0; i < 100; i++ {
-		pkt, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0)
-		if err != nil {
-			t.Fatalf("BuildKnockPacket: %v", err)
-		}
-		payload, err := protocol.ParseKnockPacket(dk, pkt, "127.0.0.1", 30)
-		if err != nil {
-			t.Fatalf("ParseKnockPacket: %v", err)
-		}
-		// First check passes
-		tracker.Check(payload.Nonce)
-		// Second check for same nonce must fail
-		if tracker.Check(payload.Nonce) {
-			t.Errorf("replay of nonce %d should be rejected", i)
+	// Replay the original 100 nonces: every re-submission must be rejected.
+	// This directly tests that previously seen nonces are blocked, simulating
+	// an attacker replaying captured packets.
+	for i, nonce := range nonces {
+		if tracker.Check(nonce) {
+			t.Errorf("replay of original nonce %d should be rejected", i)
 		}
 	}
 }
@@ -219,8 +228,8 @@ func TestReplayPreventionTimestamp(t *testing.T) {
 	}
 
 	// Craft a packet with timestamp 10s in the past -- no sleep required.
-	opts := protocol.KnockOptions{Timestamp: time.Now().Unix() - 10}
-	pkt2, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0, opts)
+	pastTimestampOpts := protocol.KnockOptions{Timestamp: time.Now().Unix() - 10}
+	pkt2, err := protocol.BuildKnockPacket(ek, "127.0.0.1", "open-t22", 0, pastTimestampOpts)
 	if err != nil {
 		t.Fatalf("BuildKnockPacket with past timestamp: %v", err)
 	}
@@ -347,19 +356,21 @@ func TestCiphertextAuthenticityPerPacket(t *testing.T) {
 		t.Fatalf("BuildKnockPacket: %v", err)
 	}
 
-	// Try swapping ciphertext from pkt1 with payload from pkt2
+	ctSize := crypto.CiphertextSizeFor(dk.KEMSize())
+
+	// Try swapping ciphertext from pkt1 with payload from pkt2.
 	hybrid := make([]byte, len(pkt1))
-	copy(hybrid[:crypto.CiphertextSize], pkt1[:crypto.CiphertextSize]) // KEM from pkt1
-	copy(hybrid[crypto.CiphertextSize:], pkt2[crypto.CiphertextSize:]) // AES-GCM from pkt2
+	copy(hybrid[:ctSize], pkt1[:ctSize]) // KEM from pkt1
+	copy(hybrid[ctSize:], pkt2[ctSize:]) // AES-GCM from pkt2
 	_, err = protocol.ParseKnockPacket(dk, hybrid, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("hybrid packet (KEM from pkt1 + AES-GCM from pkt2) should fail decryption")
 	}
 
-	// Swap the other way
+	// Swap the other way.
 	hybrid2 := make([]byte, len(pkt2))
-	copy(hybrid2[:crypto.CiphertextSize], pkt2[:crypto.CiphertextSize])
-	copy(hybrid2[crypto.CiphertextSize:], pkt1[crypto.CiphertextSize:])
+	copy(hybrid2[:ctSize], pkt2[:ctSize])
+	copy(hybrid2[ctSize:], pkt1[ctSize:])
 	_, err = protocol.ParseKnockPacket(dk, hybrid2, "10.0.0.1", 30)
 	if err == nil {
 		t.Error("reversed hybrid should also fail decryption")
