@@ -119,36 +119,11 @@ func parseSTUNResponse(data []byte, txID [12]byte) (string, error) {
 		// XOR-MAPPED-ADDRESS (0x0020) - preferred
 		// MAPPED-ADDRESS (0x0001) - fallback
 		if (attrType == 0x0020 || attrType == 0x0001) && attrLen >= 8 {
-			family := attrData[1]
-			if family == 0x01 { // IPv4
-				var ip [4]byte
-				copy(ip[:], attrData[4:8])
-
-				if attrType == 0x0020 {
-					// XOR with magic cookie (RFC 5389 Sec.15.2)
-					ip[0] ^= 0x21
-					ip[1] ^= 0x12
-					ip[2] ^= 0xA4
-					ip[3] ^= 0x42
-				}
-
-				return fmt.Sprintf("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]), nil
+			if ip, ok := parseSTUNAttrIPv4(attrType, attrData); ok {
+				return ip, nil
 			}
-			if family == 0x02 && attrLen >= 20 { // IPv6
-				var ip [16]byte
-				copy(ip[:], attrData[4:20])
-
-				if attrType == 0x0020 {
-					// XOR with magic cookie + transaction ID
-					xor := make([]byte, 16)
-					copy(xor[0:4], stunMagicCookie)
-					copy(xor[4:16], txID[:])
-					for i := 0; i < 16; i++ {
-						ip[i] ^= xor[i]
-					}
-				}
-
-				return net.IP(ip[:]).String(), nil
+			if ip, ok := parseSTUNAttrIPv6(attrType, attrData, txID); ok {
+				return ip, nil
 			}
 		}
 
@@ -161,6 +136,44 @@ func parseSTUNResponse(data []byte, txID [12]byte) (string, error) {
 	}
 
 	return "", fmt.Errorf("no mapped address found in STUN response")
+}
+
+// parseSTUNAttrIPv4 extracts an IPv4 address from a MAPPED-ADDRESS or
+// XOR-MAPPED-ADDRESS attribute. Returns the IP string and true on success.
+func parseSTUNAttrIPv4(attrType int, attrData []byte) (string, bool) {
+	if len(attrData) < 8 || attrData[1] != 0x01 {
+		return "", false
+	}
+	var ip [4]byte
+	copy(ip[:], attrData[4:8])
+	if attrType == 0x0020 {
+		// XOR with magic cookie (RFC 5389 Sec.15.2)
+		ip[0] ^= 0x21
+		ip[1] ^= 0x12
+		ip[2] ^= 0xA4
+		ip[3] ^= 0x42
+	}
+	return fmt.Sprintf("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]), true
+}
+
+// parseSTUNAttrIPv6 extracts an IPv6 address from a MAPPED-ADDRESS or
+// XOR-MAPPED-ADDRESS attribute. Returns the IP string and true on success.
+func parseSTUNAttrIPv6(attrType int, attrData []byte, txID [12]byte) (string, bool) {
+	if len(attrData) < 20 || attrData[1] != 0x02 {
+		return "", false
+	}
+	var ip [16]byte
+	copy(ip[:], attrData[4:20])
+	if attrType == 0x0020 {
+		// XOR with magic cookie + transaction ID
+		xor := make([]byte, 16)
+		copy(xor[0:4], stunMagicCookie)
+		copy(xor[4:16], txID[:])
+		for i := 0; i < 16; i++ {
+			ip[i] ^= xor[i]
+		}
+	}
+	return net.IP(ip[:]).String(), true
 }
 
 // reservedIPv4Ranges contains non-public IPv4 ranges beyond what Go's

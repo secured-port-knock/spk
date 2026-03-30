@@ -459,58 +459,12 @@ func (s *PcapSniffer) findDevices() ([]string, error) {
 	loopbackDev := pcapFindLoopbackDev(alldevsPtr)
 
 	if isWildcardAddr(s.address) {
-		// Capture on every physical routable interface plus the Npcap loopback
-		// adapter so intra-host knocks are captured as well.
-		devs := pcapFindAllRoutableDev(alldevsPtr)
-		if loopbackDev != "" {
-			devs = appendUnique(devs, loopbackDev)
-		}
-		if len(devs) == 0 {
-			// Absolute fallback: use first device.
-			dev := (*pcapIfT)(alldevsPtr)
-			devs = []string{goString(dev.name)}
-		}
-		return devs, nil
+		return s.findWildcardDevices(alldevsPtr, loopbackDev), nil
 	}
 
-	// Find device whose address list contains the requested IP (IPv4 or IPv6).
-	targetIP := net.ParseIP(s.address)
-	if targetIP == nil {
-		return nil, fmt.Errorf("invalid listen address %q", s.address)
-	}
-	matchDev := ""
-outer:
-	for devPtr := alldevsPtr; devPtr != nil; {
-		dev := (*pcapIfT)(devPtr)
-		for addrPtr := dev.addresses; addrPtr != nil; {
-			addr := (*pcapAddrT)(addrPtr)
-			if addr.addr != nil {
-				if ip4 := sockaddrIPv4(addr.addr); ip4 != "" {
-					if targetIP.Equal(net.ParseIP(ip4)) {
-						matchDev = goString(dev.name)
-						break outer
-					}
-				}
-				if ip6 := sockaddrIPv6(addr.addr); ip6 != "" {
-					if targetIP.Equal(net.ParseIP(ip6)) {
-						matchDev = goString(dev.name)
-						break outer
-					}
-				}
-			}
-			addrPtr = addr.next
-		}
-		devPtr = dev.next
-	}
-
-	if matchDev == "" {
-		// Address not found on any pcap device -- surface a clear error.
-		return nil, fmt.Errorf(
-			"no Npcap device found with address %s; "+
-				"use 0.0.0.0 to capture on all IPv4 interfaces, "+
-				"or verify the address is assigned to a local adapter",
-			s.address,
-		)
+	matchDev, err := pcapFindIPMatchDev(alldevsPtr, s.address)
+	if err != nil {
+		return nil, err
 	}
 
 	devs := []string{matchDev}
@@ -519,6 +473,52 @@ outer:
 		devs = append(devs, loopbackDev)
 	}
 	return devs, nil
+}
+
+// findWildcardDevices returns all routable physical NICs plus the Npcap loopback
+// adapter. Falls back to the first available device if none are routable.
+func (s *PcapSniffer) findWildcardDevices(alldevsPtr unsafe.Pointer, loopbackDev string) []string {
+	devs := pcapFindAllRoutableDev(alldevsPtr)
+	if loopbackDev != "" {
+		devs = appendUnique(devs, loopbackDev)
+	}
+	if len(devs) == 0 {
+		// Absolute fallback: use first device.
+		dev := (*pcapIfT)(alldevsPtr)
+		devs = []string{goString(dev.name)}
+	}
+	return devs
+}
+
+// pcapFindIPMatchDev scans the Npcap device list for a device whose address
+// matches the given IP (IPv4 or IPv6). Returns the device name or an error.
+func pcapFindIPMatchDev(alldevsPtr unsafe.Pointer, address string) (string, error) {
+	targetIP := net.ParseIP(address)
+	if targetIP == nil {
+		return "", fmt.Errorf("invalid listen address %q", address)
+	}
+	for devPtr := alldevsPtr; devPtr != nil; {
+		dev := (*pcapIfT)(devPtr)
+		for addrPtr := dev.addresses; addrPtr != nil; {
+			addr := (*pcapAddrT)(addrPtr)
+			if addr.addr != nil {
+				if ip4 := sockaddrIPv4(addr.addr); ip4 != "" && targetIP.Equal(net.ParseIP(ip4)) {
+					return goString(dev.name), nil
+				}
+				if ip6 := sockaddrIPv6(addr.addr); ip6 != "" && targetIP.Equal(net.ParseIP(ip6)) {
+					return goString(dev.name), nil
+				}
+			}
+			addrPtr = addr.next
+		}
+		devPtr = dev.next
+	}
+	return "", fmt.Errorf(
+		"no Npcap device found with address %s; "+
+			"use 0.0.0.0 to capture on all IPv4 interfaces, "+
+			"or verify the address is assigned to a local adapter",
+		address,
+	)
 }
 
 // testPcap tests if pcap/Npcap is available and working.

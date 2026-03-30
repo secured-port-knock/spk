@@ -206,40 +206,18 @@ func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, open
 	if len(opts) > 0 {
 		opt := opts[0]
 
-		// Timestamp override (for testing timestamp-sensitive behavior)
 		if opt.Timestamp != 0 {
 			payload.Timestamp = opt.Timestamp
 		}
-
-		// TOTP code
 		if opt.TOTP != "" {
 			payload.TOTP = opt.TOTP
 		}
-
-		// Random padding
 		if opt.Padding.Enabled {
-			pc := opt.Padding
-			minB := pc.MinBytes
-			maxB := pc.MaxBytes
-			if minB < 1 {
-				minB = 64
+			pad, err := generateRandomPadding(opt.Padding)
+			if err != nil {
+				return nil, err
 			}
-			if maxB < minB {
-				maxB = minB + 256
-			}
-			padLen := minB
-			if maxB > minB {
-				var lenBuf [2]byte
-				if _, err := io.ReadFull(rand.Reader, lenBuf[:]); err != nil {
-					return nil, fmt.Errorf("generate padding length: %w", err)
-				}
-				padLen = minB + int(int(lenBuf[0])<<8|int(lenBuf[1]))%(maxB-minB+1)
-			}
-			padBytes := make([]byte, padLen)
-			if _, err := io.ReadFull(rand.Reader, padBytes); err != nil {
-				return nil, fmt.Errorf("generate padding: %w", err)
-			}
-			payload.Padding = hex.EncodeToString(padBytes)
+			payload.Padding = pad
 		}
 	}
 
@@ -255,6 +233,32 @@ func BuildKnockPacket(ek crypto.EncapsulationKey, clientIP, command string, open
 	}
 
 	return packet, nil
+}
+
+// generateRandomPadding generates a random hex-encoded padding string using
+// the bounds from pc. Returns the hex string or an error.
+func generateRandomPadding(pc PaddingConfig) (string, error) {
+	minB := pc.MinBytes
+	maxB := pc.MaxBytes
+	if minB < 1 {
+		minB = 64
+	}
+	if maxB < minB {
+		maxB = minB + 256
+	}
+	padLen := minB
+	if maxB > minB {
+		var lenBuf [2]byte
+		if _, err := io.ReadFull(rand.Reader, lenBuf[:]); err != nil {
+			return "", fmt.Errorf("generate padding length: %w", err)
+		}
+		padLen = minB + int(int(lenBuf[0])<<8|int(lenBuf[1]))%(maxB-minB+1)
+	}
+	padBytes := make([]byte, padLen)
+	if _, err := io.ReadFull(rand.Reader, padBytes); err != nil {
+		return "", fmt.Errorf("generate padding: %w", err)
+	}
+	return hex.EncodeToString(padBytes), nil
 }
 
 // ParseKnockPacket decrypts and validates a knock packet.

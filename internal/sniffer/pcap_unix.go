@@ -478,24 +478,35 @@ func (s *PcapSniffer) findDevice() (string, error) {
 
 	// Binding to all interfaces
 	if isWildcardAddr(s.address) {
-		// Prefer "any" device on Linux (captures all interfaces, IPv4 + IPv6)
-		for dev := alldevs; dev != nil; dev = C.pcap_if_next(dev) {
-			name := C.GoString(C.pcap_if_name(dev))
-			if name == "any" {
-				return name, nil
-			}
-		}
-		// No "any" device (macOS). Find device matching default route.
-		if dev := pcapFindDefaultRouteDevUnix(alldevs); dev != "" {
-			return dev, nil
-		}
-		return C.GoString(C.pcap_if_name(alldevs)), nil
+		return pcapFindWildcardDevUnix(alldevs), nil
 	}
 
-	// Find device whose address list contains the requested IP (IPv4 or IPv6).
-	targetIP := net.ParseIP(s.address)
+	return pcapFindIPDevUnix(alldevs, s.address)
+}
+
+// pcapFindWildcardDevUnix returns the best device for wildcard capture.
+// Prefers the Linux "any" device, then falls back to default-route matching,
+// then the first available device.
+func pcapFindWildcardDevUnix(alldevs *C.struct_pcap_if_s) string {
+	// Prefer "any" device on Linux (captures all interfaces, IPv4 + IPv6)
+	for dev := alldevs; dev != nil; dev = C.pcap_if_next(dev) {
+		if C.GoString(C.pcap_if_name(dev)) == "any" {
+			return "any"
+		}
+	}
+	// No "any" device (macOS). Find device matching default route.
+	if dev := pcapFindDefaultRouteDevUnix(alldevs); dev != "" {
+		return dev
+	}
+	return C.GoString(C.pcap_if_name(alldevs))
+}
+
+// pcapFindIPDevUnix scans all device addresses for an exact match of address
+// (IPv4 or IPv6). Returns an error if no device has the requested address.
+func pcapFindIPDevUnix(alldevs *C.struct_pcap_if_s, address string) (string, error) {
+	targetIP := net.ParseIP(address)
 	if targetIP == nil {
-		return "", fmt.Errorf("invalid listen address %q", s.address)
+		return "", fmt.Errorf("invalid listen address %q", address)
 	}
 	for dev := alldevs; dev != nil; dev = C.pcap_if_next(dev) {
 		for addr := C.pcap_if_addresses(dev); addr != nil; addr = C.pcap_addr_next(addr) {
@@ -503,14 +514,12 @@ func (s *PcapSniffer) findDevice() (string, error) {
 			if sa == nil {
 				continue
 			}
-			// Check IPv4
 			var buf4 [64]C.char
 			if C.sockaddr_ipv4_str(sa, &buf4[0], 64) == 0 {
 				if targetIP.Equal(net.ParseIP(C.GoString(&buf4[0]))) {
 					return C.GoString(C.pcap_if_name(dev)), nil
 				}
 			}
-			// Check IPv6
 			var buf6 [64]C.char
 			if C.sockaddr_ipv6_str(sa, &buf6[0], 64) == 0 {
 				if targetIP.Equal(net.ParseIP(C.GoString(&buf6[0]))) {
@@ -519,13 +528,11 @@ func (s *PcapSniffer) findDevice() (string, error) {
 			}
 		}
 	}
-
-	// Address not found on any pcap device -- surface a clear error.
 	return "", fmt.Errorf(
 		"no pcap device found with address %s; "+
 			"use 0.0.0.0 for all IPv4 interfaces, :: for all IPv6, "+
 			"or verify the address is assigned to a local interface",
-		s.address,
+		address,
 	)
 }
 

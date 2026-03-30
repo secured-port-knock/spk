@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/secured-port-knock/spk/internal/config"
+	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
 // exeDir returns the directory containing the test binary.
@@ -188,4 +189,82 @@ func TestActivationBundleCandidatesExeDirBeforeConfigDir(t *testing.T) {
 	if exeIdx > cfgIdx {
 		t.Errorf("exe-dir entry (index %d) should come before cfg-dir entry (index %d)", exeIdx, cfgIdx)
 	}
+}
+
+// TestApplyBundleConfig verifies that applyBundleConfig copies bundle fields
+// into the client config, including dynamic-port and KEM size handling.
+func TestApplyBundleConfig(t *testing.T) {
+	t.Run("static port and policies", func(t *testing.T) {
+		cfg := config.DefaultClientConfig()
+		bundle := &crypto.ExportBundle{
+			Port:                    54321,
+			AllowCustomOpenDuration: true,
+			AllowCustomPort:         true,
+			AllowOpenAll:            true,
+			DefaultOpenDuration:     7200,
+			DynPortWindow:           300,
+			KEMSize:                 768,
+		}
+		applyBundleConfig(cfg, bundle)
+		if cfg.ServerPort != 54321 {
+			t.Errorf("ServerPort = %d, want 54321", cfg.ServerPort)
+		}
+		if !cfg.AllowCustomOpenDuration {
+			t.Error("AllowCustomOpenDuration should be true")
+		}
+		if !cfg.AllowCustomPort {
+			t.Error("AllowCustomPort should be true")
+		}
+		if !cfg.AllowOpenAll {
+			t.Error("AllowOpenAll should be true")
+		}
+		if cfg.DefaultOpenDuration != 7200 {
+			t.Errorf("DefaultOpenDuration = %d, want 7200", cfg.DefaultOpenDuration)
+		}
+		if cfg.DynPortWindow != 300 {
+			t.Errorf("DynPortWindow = %d, want 300", cfg.DynPortWindow)
+		}
+		if cfg.KEMSize != 768 {
+			t.Errorf("KEMSize = %d, want 768", cfg.KEMSize)
+		}
+	})
+
+	t.Run("dynamic port with seed", func(t *testing.T) {
+		cfg := config.DefaultClientConfig()
+		bundle := &crypto.ExportBundle{
+			Port:        0,
+			DynamicPort: true,
+			PortSeed:    []byte{0xde, 0xad, 0xbe, 0xef},
+			KEMSize:     1024,
+		}
+		applyBundleConfig(cfg, bundle)
+		if !cfg.DynamicPort {
+			t.Error("DynamicPort should be true")
+		}
+		if cfg.PortSeed != "deadbeef" {
+			t.Errorf("PortSeed = %q, want deadbeef", cfg.PortSeed)
+		}
+		if cfg.KEMSize != 1024 {
+			t.Errorf("KEMSize = %d, want 1024", cfg.KEMSize)
+		}
+	})
+
+	t.Run("zero port does not override existing", func(t *testing.T) {
+		cfg := config.DefaultClientConfig()
+		cfg.ServerPort = 9999
+		bundle := &crypto.ExportBundle{Port: 0, KEMSize: 768}
+		applyBundleConfig(cfg, bundle)
+		if cfg.ServerPort != 9999 {
+			t.Errorf("ServerPort = %d, want 9999 (zero port should not override)", cfg.ServerPort)
+		}
+	})
+
+	t.Run("zero KEMSize defaults to 1024", func(t *testing.T) {
+		cfg := config.DefaultClientConfig()
+		bundle := &crypto.ExportBundle{KEMSize: 0}
+		applyBundleConfig(cfg, bundle)
+		if cfg.KEMSize != 1024 {
+			t.Errorf("KEMSize = %d, want 1024 when bundle KEMSize is 0", cfg.KEMSize)
+		}
+	})
 }

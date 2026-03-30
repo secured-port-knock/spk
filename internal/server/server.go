@@ -46,6 +46,233 @@ func Stop() {
 }
 
 // Run starts the server in listening mode.
+// initFileLogger sets up the rotating file logger for the server.
+// Returns the structured logger (or nil when file logging is unavailable) and the
+// formatted logLine function used for startup/fatal messages.
+func initFileLogger(cfg *config.Config, logger *log.Logger, logLine func(string, string)) (*logging.Logger, func(string, ...interface{})) {
+	logCfg := logging.Config{
+		MaxSizeMB:    cfg.LogMaxSizeMB,
+		MaxBackups:   cfg.LogMaxBackups,
+		MaxAgeDays:   cfg.LogMaxAgeDays,
+		FloodLimitPS: cfg.LogFloodLimit,
+	}
+	if logCfg.MaxSizeMB == 0 {
+		logCfg = logging.DefaultConfig()
+	}
+	srvLogger, logErr := logging.New("spk_server.log", logCfg, "server")
+	if logErr != nil {
+		if logging.LogDirInitError() != nil {
+			logLine("WARN", fmt.Sprintf("File logging disabled: %v", logging.LogDirInitError()))
+		} else {
+			logLine("WARN", fmt.Sprintf("could not initialize file logging: %v", logErr))
+			logLine("WARN", "Fix log directory permissions or specify --logdir to enable file logging")
+		}
+		logf := func(format string, v ...interface{}) {
+			logLine("INFO", fmt.Sprintf(format, v...))
+		}
+		return nil, logf
+	}
+	logf := func(format string, v ...interface{}) {
+		srvLogger.Printf(format, v...)
+	}
+	return srvLogger, logf
+}
+
+// resolveListenPort decodes the port seed (if dynamic) and returns the current
+// listen port plus the decoded seed bytes. When decoding fails portSeed is nil
+// and the static listen port from cfg is used.
+func resolveListenPort(cfg *config.Config, dynPortWindow int, logf func(string, ...interface{})) (listenPort int, portSeed []byte) {
+	listenPort = cfg.ListenPort
+	if !cfg.DynamicPort || cfg.PortSeed == "" {
+		return listenPort, nil
+	}
+	var decErr error
+	portSeed, decErr = hexDecodePortSeed(cfg.PortSeed)
+	if decErr != nil {
+		logf("  Warning: invalid port_seed, using static port %d", cfg.ListenPort)
+		return listenPort, nil
+	}
+	listenPort = crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+	logf("  Dynamic port enabled (seed: %s...)", cfg.PortSeed[:8])
+	logf("  Current dynamic port: %d (changes every %ds)", listenPort, dynPortWindow)
+	return listenPort, portSeed
+}
+
+// runStaticMode runs the sniffer in static port mode and blocks until the server
+// shuts down or the sniffer reports a fatal error.
+func runStaticMode(sniff sniffer.Sniffer, knockHandler func([]byte, string), logLine func(string, string)) {
+	snifferDone := make(chan error, 1)
+	go func() {
+		snifferDone <- sniff.Start(knockHandler)
+	}()
+
+	select {
+	case <-shutdownCh:
+		// Graceful shutdown requested.
+	case err := <-snifferDone:
+		if err != nil {
+			logLine("FATAL", fmt.Sprintf("Sniffer error: %v", err))
+			os.Exit(1)
+		}
+	}
+}
+
+// attemptRebind tries to create a new sniffer on newPort; on failure it falls
+// back to currentPort. Returns the active sniffer and port after the attempt.
+func attemptRebind(
+	cfg *config.Config,
+	portSeed []byte,
+	sniff sniffer.Sniffer,
+	currentPort, newPort int,
+	snifferMu *sync.Mutex,
+	currentSnifferRef *sniffer.Sniffer,
+	knockHandler func([]byte, string),
+	logf func(string, ...interface{}),
+) (activeSniffer sniffer.Sniffer, activePort int) {
+	logf("  Dynamic port rotating: %d -> %d", currentPort, newPort)
+	sniff.Stop()
+	time.Sleep(100 * time.Millisecond)
+
+	newSniff, sErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
+	if sErr == nil {
+		snifferMu.Lock()
+		*currentSnifferRef = newSniff
+		snifferMu.Unlock()
+		go newSniff.Start(knockHandler)
+		return newSniff, newPort
+	}
+
+	logf("[ERROR] Failed to create sniffer on port %d: %v", newPort, sErr)
+	// Try falling back to the old port.
+	fallback, fErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, currentPort)
+	if fErr != nil {
+		logf("[ERROR] Cannot re-bind to old port %d either: %v", currentPort, fErr)
+		return sniff, currentPort
+	}
+	snifferMu.Lock()
+	*currentSnifferRef = fallback
+	snifferMu.Unlock()
+	go fallback.Start(knockHandler)
+	return fallback, currentPort
+}
+
+// retryBindLoop keeps retrying sniffer creation every 60 s when both the new
+// and old ports are unavailable. It exits when a bind succeeds or shutdown is
+// requested. Returns the sniffer and port that eventually became active, plus
+// a bool that is false when shutdown was requested.
+func retryBindLoop(
+	cfg *config.Config,
+	portSeed []byte,
+	dynPortWindow int,
+	targetPort int,
+	snifferMu *sync.Mutex,
+	currentSnifferRef *sniffer.Sniffer,
+	knockHandler func([]byte, string),
+	logf func(string, ...interface{}),
+) (activeSniffer sniffer.Sniffer, activePort int, ok bool) {
+	logf("[ERROR] Cannot bind to any port -- will retry every 60s")
+	newPort := targetPort
+	for {
+		select {
+		case <-shutdownCh:
+			return nil, newPort, false
+		case <-time.After(60 * time.Second):
+		}
+		retryPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+		if retryPort != newPort {
+			logf("[INFO] Dynamic port changed during retry: %d -> %d, attempting new port", newPort, retryPort)
+			newPort = retryPort
+		}
+		retrySniff, rErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
+		if rErr != nil {
+			logf("[ERROR] Retry: still cannot bind to port %d: %v -- will retry in 60s", newPort, rErr)
+			continue
+		}
+		logf("[INFO] Successfully bound to port %d after retry", newPort)
+		snifferMu.Lock()
+		*currentSnifferRef = retrySniff
+		snifferMu.Unlock()
+		go retrySniff.Start(knockHandler)
+		return retrySniff, newPort, true
+	}
+}
+
+// runDynamicPortMode runs the dynamic port rotation loop.
+// It starts the initial sniffer and then sleeps until each window boundary,
+// rotating to a new port when needed.
+func runDynamicPortMode(
+	cfg *config.Config,
+	initialSniff sniffer.Sniffer,
+	portSeed []byte,
+	dynPortWindow int,
+	listenPort int,
+	snifferMu *sync.Mutex,
+	currentSnifferRef *sniffer.Sniffer,
+	knockHandler func([]byte, string),
+	logf func(string, ...interface{}),
+) {
+	go initialSniff.Start(knockHandler)
+
+	sniff := initialSniff
+	currentPort := listenPort
+
+	for {
+		secsUntil := crypto.DynPortSecondsUntilChangeWithWindow(dynPortWindow)
+		select {
+		case <-shutdownCh:
+			return
+		case <-time.After(time.Duration(secsUntil+1) * time.Second):
+		}
+
+		newPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+		if newPort == currentPort {
+			continue
+		}
+
+		// Stop existing sniffer and try to rebind.
+		sniff.Stop()
+		time.Sleep(100 * time.Millisecond)
+
+		newSniff, sErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
+		if sErr == nil {
+			logf("  Dynamic port rotating: %d -> %d", currentPort, newPort)
+			snifferMu.Lock()
+			*currentSnifferRef = newSniff
+			snifferMu.Unlock()
+			go newSniff.Start(knockHandler)
+			sniff = newSniff
+			currentPort = newPort
+			continue
+		}
+
+		logf("[ERROR] Failed to create sniffer on port %d: %v", newPort, sErr)
+		// Try the old port as a fallback.
+		fallback, fErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, currentPort)
+		if fErr == nil {
+			snifferMu.Lock()
+			*currentSnifferRef = fallback
+			snifferMu.Unlock()
+			go fallback.Start(knockHandler)
+			sniff = fallback
+			// currentPort stays the same
+			continue
+		}
+
+		logf("[ERROR] Cannot re-bind to old port %d either: %v -- entering retry loop", currentPort, fErr)
+		// Enter retry loop (blocks until bind succeeds or shutdown).
+		retrySniff, retryPort, ok := retryBindLoop(
+			cfg, portSeed, dynPortWindow, newPort,
+			snifferMu, currentSnifferRef, knockHandler, logf,
+		)
+		if !ok {
+			return // shutdown requested
+		}
+		sniff = retrySniff
+		currentPort = retryPort
+	}
+}
+
+// Run starts the server in listening mode.
 func Run() {
 	// Bootstrap logger (stdout only until file logger is ready)
 	logger := log.New(os.Stdout, "", 0)
@@ -72,43 +299,15 @@ func Run() {
 		os.Exit(1)
 	}
 
-	// Initialize structured logger with rotation
-	logCfg := logging.Config{
-		MaxSizeMB:    cfg.LogMaxSizeMB,
-		MaxBackups:   cfg.LogMaxBackups,
-		MaxAgeDays:   cfg.LogMaxAgeDays,
-		FloodLimitPS: cfg.LogFloodLimit,
-	}
-	if logCfg.MaxSizeMB == 0 {
-		logCfg = logging.DefaultConfig()
-	}
-	srvLogger, logErr := logging.New("spk_server.log", logCfg, "server")
-	if logErr != nil {
-		if logging.LogDirInitError() != nil {
-			// /var/log/spk is not accessible -- file logging is disabled.
-			logLine("WARN", fmt.Sprintf("File logging disabled: %v", logging.LogDirInitError()))
-		} else {
-			logLine("WARN", fmt.Sprintf("could not initialize file logging: %v", logErr))
-			logLine("WARN", "Fix log directory permissions or specify --logdir to enable file logging")
-		}
-		// Continue with stdout-only logging
-	} else {
+	srvLogger, logf := initFileLogger(cfg, logger, logLine)
+	if srvLogger != nil {
 		defer srvLogger.Close()
 		logLine("INFO", fmt.Sprintf("Logging to: %s", srvLogger.FilePath()))
 	}
 
-	// Use the structured logger if available; otherwise keep using logLine so
-	// that all messages have consistent "LEVEL | timestamp [server] ..." format
-	// even when file logging is disabled.
 	var srvLog serverLogger = logger
-	logf := func(format string, v ...interface{}) {
-		logLine("INFO", fmt.Sprintf(format, v...))
-	}
 	if srvLogger != nil {
 		srvLog = srvLogger
-		logf = func(format string, v ...interface{}) {
-			srvLogger.Printf(format, v...)
-		}
 	}
 
 	// Load private key
@@ -119,7 +318,7 @@ func Run() {
 		os.Exit(1)
 	}
 
-	// Initialize nonce tracker
+	// Initialize nonce tracker with configurable expiry and cache size.
 	nonceExpiry := time.Duration(cfg.NonceExpiry) * time.Second
 	if nonceExpiry == 0 {
 		nonceExpiry = 120 * time.Second
@@ -130,18 +329,15 @@ func Run() {
 	}
 	nonceTracker := protocol.NewNonceTrackerWithLimit(nonceExpiry, maxNonceCache)
 
-	// Dynamic port window
 	dynPortWindow := cfg.DynPortWindow
 	if dynPortWindow == 0 {
 		dynPortWindow = crypto.DynPortWindowSeconds
 	}
 
-	// Initialize port tracker with state recovery
 	tracker := NewTracker(config.StatePath(), srvLog, cfg.ClosePortsOnCrash, commandTimeout(cfg))
 	tracker.logCmdExec = cfg.LogCommandOutput
 	tracker.StartExpiryWatcher(10 * time.Second)
 
-	// Build allowed ports map for quick lookup
 	allowedPorts := make(map[string]bool)
 	for _, p := range cfg.AllowedPorts {
 		allowedPorts[strings.ToLower(p)] = true
@@ -152,7 +348,7 @@ func Run() {
 		timestampTolerance = 30
 	}
 
-	// Validate: nonce_expiry must be >= timestamp_tolerance to prevent replay gap
+	// Warn and auto-correct when nonce_expiry < timestamp_tolerance (replay gap).
 	if timestampTolerance > 0 && int64(nonceExpiry.Seconds()) < timestampTolerance {
 		logf("[WARN] nonce_expiry (%ds) < timestamp_tolerance (%ds) - replay window exists! Increasing nonce_expiry to match.",
 			int(nonceExpiry.Seconds()), timestampTolerance)
@@ -160,38 +356,16 @@ func Run() {
 		nonceTracker = protocol.NewNonceTrackerWithLimit(nonceExpiry, maxNonceCache)
 	}
 
-	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// snifferRef holds the current sniffer for graceful shutdown.
-	// Updated atomically when dynamic port rotation creates a new sniffer.
-	var snifferMu sync.Mutex
-	var currentSniffer sniffer.Sniffer
-
 	go func() {
 		sig := <-sigChan
 		logf("Received signal %v, shutting down...", sig)
-		Stop() // signal the main loop to exit
+		Stop()
 	}()
 
-	// Determine listen port (dynamic or static)
-	listenPort := cfg.ListenPort
-	var portSeed []byte
-	if cfg.DynamicPort && cfg.PortSeed != "" {
-		var decErr error
-		portSeed, decErr = hexDecodePortSeed(cfg.PortSeed)
-		if decErr == nil {
-			listenPort = crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
-			logf("  Dynamic port enabled (seed: %s...)", cfg.PortSeed[:8])
-			logf("  Current dynamic port: %d (changes every %ds)", listenPort, dynPortWindow)
-		} else {
-			logf("  Warning: invalid port_seed, using static port %d", cfg.ListenPort)
-			portSeed = nil
-		}
-	}
+	listenPort, portSeed := resolveListenPort(cfg, dynPortWindow, logf)
 
-	// Warn about dynamic port + UDP sniffer combination
 	if cfg.DynamicPort && portSeed != nil && strings.EqualFold(cfg.SnifferMode, "udp") {
 		logf("")
 		logf("  !! WARNING: dynamic_port + sniffer_mode=\"udp\" !!")
@@ -203,20 +377,19 @@ func Run() {
 		logf("")
 	}
 
-	// Create sniffer
 	sniff, err := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, listenPort)
 	if err != nil {
 		logLine("FATAL", fmt.Sprintf("Failed to create sniffer: %v", err))
 		os.Exit(1)
 	}
-
-	// Validate sniffer backend works before starting the server.
 	if err := sniffer.TestSniffer(cfg.SnifferMode); err != nil {
 		logLine("FATAL", fmt.Sprintf("Sniffer startup check failed (%s): %v", cfg.SnifferMode, err))
 		logf("  Hint: verify the capture backend is installed and the service/driver is running.")
 		os.Exit(1)
 	}
 
+	var snifferMu sync.Mutex
+	var currentSniffer sniffer.Sniffer = sniff
 	snifferMu.Lock()
 	currentSniffer = sniff
 	snifferMu.Unlock()
@@ -233,12 +406,52 @@ func Run() {
 	}
 	logf("  Listening for knock packets...")
 
-	// Packet handler -- each knock is dispatched via a semaphore-bounded
-	// goroutine pool (maxConcurrentKnocks) so that a slow or stuck command
-	// never blocks the sniffer receive loop, while preventing resource
-	// exhaustion from packet floods.
+	knockHandler := makeKnockHandler(srvLog, dk, cfg, nonceTracker, tracker, allowedPorts, timestampTolerance, logf)
+
+	if portSeed != nil {
+		runDynamicPortMode(cfg, sniff, portSeed, dynPortWindow, listenPort,
+			&snifferMu, &currentSniffer, knockHandler, logf)
+	} else {
+		runStaticMode(sniff, knockHandler, logLine)
+	}
+
+	logf("Cleaning up...")
+	snifferMu.Lock()
+	if currentSniffer != nil {
+		if err := currentSniffer.Stop(); err != nil {
+			logf("  Sniffer stop warning: %v", err)
+		}
+	}
+	snifferMu.Unlock()
+	time.Sleep(200 * time.Millisecond)
+	tracker.CloseAll()
+	logf("Shutdown complete.")
+}
+
+// commandTimeout returns the configured command execution timeout as a Duration.
+// Defaults to 500ms if not configured.
+func commandTimeout(cfg *config.Config) time.Duration {
+	if cfg.CommandTimeout > 0 {
+		return time.Duration(cfg.CommandTimeout * float64(time.Second))
+	}
+	return 500 * time.Millisecond
+}
+
+// makeKnockHandler returns a PacketHandler that dispatches knock packets via a
+// bounded semaphore (maxConcurrentKnocks). Excess packets are dropped with a
+// warning rather than blocking the sniffer goroutine.
+func makeKnockHandler(
+	srvLog serverLogger,
+	dk crypto.DecapsulationKey,
+	cfg *config.Config,
+	nonceTracker *protocol.NonceTracker,
+	tracker *Tracker,
+	allowedPorts map[string]bool,
+	timestampTolerance int64,
+	logf func(string, ...interface{}),
+) sniffer.PacketHandler {
 	knockSem := make(chan struct{}, maxConcurrentKnocks)
-	knockHandler := func(data []byte, sourceIP string) {
+	return func(data []byte, sourceIP string) {
 		select {
 		case knockSem <- struct{}{}:
 			go func() {
@@ -249,127 +462,6 @@ func Run() {
 			logf("[WARN] knock processing pool exhausted (%d concurrent) -- dropping packet from %s", maxConcurrentKnocks, sourceIP)
 		}
 	}
-
-	// Dynamic port rotation: wake up precisely at each window boundary, then re-check
-	if portSeed != nil {
-		// Run initial sniffer in a goroutine (not blocking main)
-		go sniff.Start(knockHandler)
-
-		currentPort := listenPort
-	rotationLoop:
-		for {
-			// Sleep until exactly 1 second past the next window boundary.
-			// DynPortSecondsUntilChangeWithWindow returns the integer seconds remaining
-			// in the current window; adding 1 guarantees we land in the new window
-			// regardless of sub-second timing, so the port check always sees the
-			// rotated value. No polling interval needed.
-			secsUntil := crypto.DynPortSecondsUntilChangeWithWindow(dynPortWindow)
-
-			select {
-			case <-shutdownCh:
-				break rotationLoop
-			case <-time.After(time.Duration(secsUntil+1) * time.Second):
-			}
-
-			newPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
-			if newPort != currentPort {
-				logf("  Dynamic port rotating: %d -> %d", currentPort, newPort)
-				sniff.Stop()
-				time.Sleep(100 * time.Millisecond) // Brief pause for socket cleanup
-				newSniff, sErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
-				if sErr != nil {
-					logf("[ERROR] Failed to create sniffer on port %d: %v", newPort, sErr)
-					// Try to re-listen on old port
-					fallback, fErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, currentPort)
-					if fErr != nil {
-						logf("[ERROR] Cannot re-bind to old port %d either: %v -- server cannot receive knocks", currentPort, fErr)
-						logf("[INFO] Will retry binding every 60s until a port becomes available or the next rotation window")
-						// Retry loop: try every 60s until we can bind to either port or the window changes
-					retryLoop:
-						for {
-							select {
-							case <-shutdownCh:
-								break rotationLoop
-							case <-time.After(60 * time.Second):
-							}
-							// Check if the dynamic port has changed (new window)
-							retryPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
-							if retryPort != newPort {
-								logf("[INFO] Dynamic port changed during retry: %d -> %d, attempting new port", newPort, retryPort)
-								newPort = retryPort
-							}
-							retrySniff, rErr := sniffer.NewSniffer(cfg.SnifferMode, cfg.ListenAddresses, newPort)
-							if rErr != nil {
-								logf("[ERROR] Retry: still cannot bind to port %d: %v -- will retry in 60s", newPort, rErr)
-								continue
-							}
-							logf("[INFO] Successfully bound to port %d after retry", newPort)
-							sniff = retrySniff
-							currentPort = newPort
-							snifferMu.Lock()
-							currentSniffer = sniff
-							snifferMu.Unlock()
-							go sniff.Start(knockHandler)
-							break retryLoop
-						}
-						continue
-					}
-					sniff = fallback
-					snifferMu.Lock()
-					currentSniffer = sniff
-					snifferMu.Unlock()
-					go sniff.Start(knockHandler)
-					continue
-				}
-				currentPort = newPort
-				sniff = newSniff
-				snifferMu.Lock()
-				currentSniffer = sniff
-				snifferMu.Unlock()
-				go sniff.Start(knockHandler)
-			}
-		}
-	} else {
-		// Static port mode: run sniffer in a goroutine and wait for shutdown.
-		snifferDone := make(chan error, 1)
-		go func() {
-			snifferDone <- sniff.Start(knockHandler)
-		}()
-
-		select {
-		case <-shutdownCh:
-			// Graceful shutdown requested
-		case err := <-snifferDone:
-			if err != nil {
-				logLine("FATAL", fmt.Sprintf("Sniffer error: %v", err))
-				os.Exit(1)
-			}
-		}
-	}
-
-	// Graceful cleanup: stop sniffer, close ports, let deferred logger.Close() flush.
-	logf("Cleaning up...")
-	snifferMu.Lock()
-	if currentSniffer != nil {
-		if err := currentSniffer.Stop(); err != nil {
-			logf("  Sniffer stop warning: %v", err)
-		}
-	}
-	snifferMu.Unlock()
-	// Brief pause for driver/socket cleanup (WinDivert, AF_PACKET, etc.)
-	time.Sleep(200 * time.Millisecond)
-	tracker.CloseAll()
-	logf("Shutdown complete.")
-	// Run() returns; deferred srvLogger.Close() flushes and closes the log file.
-}
-
-// commandTimeout returns the configured command execution timeout as a Duration.
-// Defaults to 500ms if not configured.
-func commandTimeout(cfg *config.Config) time.Duration {
-	if cfg.CommandTimeout > 0 {
-		return time.Duration(cfg.CommandTimeout * float64(time.Second))
-	}
-	return 500 * time.Millisecond
 }
 
 // validateCommandServer performs server-side command sanitization.
@@ -454,6 +546,76 @@ func validateASCIIServer(s string) error {
 	return nil
 }
 
+// verifyTOTP checks the TOTP code from the payload against the server config.
+// Returns false and logs the rejection if TOTP is required but invalid.
+func verifyTOTP(logger serverLogger, cfg *config.Config, payload *protocol.KnockPayload, sourceIP string) bool {
+	if !cfg.TOTPEnabled || cfg.TOTPSecret == "" {
+		return true
+	}
+	if payload.TOTP == "" {
+		logger.Printf("[REJECT] from %s: TOTP required but not provided (client must use --totp flag)", sourceIP)
+		return false
+	}
+	if !crypto.ValidateTOTP(cfg.TOTPSecret, payload.TOTP) {
+		logger.Printf("[REJECT] from %s: TOTP verification failed (possible clock skew or wrong secret)", sourceIP)
+		return false
+	}
+	return true
+}
+
+// resolveOpenDuration determines the effective port-open duration from the
+// client request and server policy.
+func resolveOpenDuration(cfg *config.Config, requested int) int {
+	if !cfg.AllowCustomOpenDuration || requested <= 0 {
+		return cfg.DefaultOpenDuration
+	}
+	if cfg.MaxOpenDuration > 0 && requested > cfg.MaxOpenDuration {
+		return cfg.MaxOpenDuration
+	}
+	return requested
+}
+
+// dispatchKnockCommand routes a validated knock command to the appropriate handler.
+func dispatchKnockCommand(
+	logger serverLogger,
+	cfg *config.Config,
+	tracker *Tracker,
+	allowedPorts map[string]bool,
+	clientIP, cmd string,
+	openDuration int,
+) {
+	cmdType, _, _ := validateCommandServer(cmd) // already validated; error impossible here
+
+	switch cmdType {
+	case "open":
+		if cmd == "open-all" {
+			handleOpenAll(logger, cfg, tracker, allowedPorts, clientIP, openDuration)
+		} else {
+			for _, spec := range strings.Split(cmd[5:], ",") {
+				spec = strings.TrimSpace(spec)
+				if spec != "" {
+					handleOpen(logger, cfg, tracker, allowedPorts, clientIP, spec, openDuration)
+				}
+			}
+		}
+
+	case "close":
+		if cmd == "close-all" {
+			handleCloseAll(logger, cfg, tracker, clientIP)
+		} else {
+			for _, spec := range strings.Split(cmd[6:], ",") {
+				spec = strings.TrimSpace(spec)
+				if spec != "" {
+					handleClose(logger, cfg, tracker, allowedPorts, clientIP, spec)
+				}
+			}
+		}
+
+	case "cust":
+		handleCustomCommand(logger, cfg, clientIP, cmd[5:])
+	}
+}
+
 func handleKnock(
 	logger serverLogger,
 	dk crypto.DecapsulationKey,
@@ -479,96 +641,85 @@ func handleKnock(
 		return
 	}
 
-	// Validate client IP is present in payload
 	if payload.ClientIP == "" {
 		logger.Printf("[REJECT] from %s: missing client IP in payload", sourceIP)
 		return
 	}
 
-	// Determine the IP to use for firewall commands
-	// When match_incoming_ip=true: sourceIP == payload.ClientIP (verified above)
-	// When match_incoming_ip=false: use payload.ClientIP (what client specified)
+	// Determine the IP to use for firewall commands.
+	// When match_incoming_ip=true: sourceIP == payload.ClientIP (verified above).
+	// When match_incoming_ip=false: use payload.ClientIP (what client specified).
 	clientIP := sourceIP
 	if !cfg.MatchIncomingIP {
 		clientIP = payload.ClientIP
 	}
 
-	// Check nonce (anti-replay)
+	// Anti-replay: reject duplicate nonces
 	if !nonceTracker.Check(payload.Nonce) {
 		logger.Printf("[REJECT] from %s: possible replay attack (duplicate nonce %s...)", sourceIP, payload.Nonce[:16])
 		return
 	}
 
-	// Verify TOTP if enabled
-	if cfg.TOTPEnabled && cfg.TOTPSecret != "" {
-		if payload.TOTP == "" {
-			logger.Printf("[REJECT] from %s: TOTP required but not provided (client must use --totp flag)", sourceIP)
-			return
-		}
-		if !crypto.ValidateTOTP(cfg.TOTPSecret, payload.TOTP) {
-			logger.Printf("[REJECT] from %s: TOTP verification failed (possible clock skew or wrong secret)", sourceIP)
-			return
-		}
+	if !verifyTOTP(logger, cfg, payload, sourceIP) {
+		return
 	}
 
 	// open_duration is the client-requested port-open duration in seconds (0 = use server default).
-	// This is NOT the cmd_timeout setting for command execution.
 	logger.Printf("[KNOCK] from %s (client=%s): cmd=%s open_duration=%d", sourceIP, clientIP, payload.Command, payload.OpenDuration)
 
-	// Determine open duration
-	openDuration := cfg.DefaultOpenDuration
-	if cfg.AllowCustomOpenDuration && payload.OpenDuration > 0 {
-		openDuration = payload.OpenDuration
-		if cfg.MaxOpenDuration > 0 && openDuration > cfg.MaxOpenDuration {
-			openDuration = cfg.MaxOpenDuration
-		}
-	}
+	openDuration := resolveOpenDuration(cfg, payload.OpenDuration)
 
-	// Process command
 	cmd := strings.ToLower(payload.Command)
-
-	// Server-side command validation/sanitization
-	cmdType, _, valErr := validateCommandServer(cmd)
-	if valErr != nil {
+	if _, _, valErr := validateCommandServer(cmd); valErr != nil {
 		logger.Printf("[REJECT] from %s: %v (raw: %q)", sourceIP, valErr, sanitizeForLog(cmd))
 		return
 	}
 
-	switch cmdType {
-	case "open":
-		if cmd == "open-all" {
-			handleOpenAll(logger, cfg, tracker, allowedPorts, clientIP, openDuration)
-		} else {
-			portSpecs := cmd[5:]
-			// Support batch: "open-t22,t443,u53"
-			specs := strings.Split(portSpecs, ",")
-			for _, spec := range specs {
-				spec = strings.TrimSpace(spec)
-				if spec != "" {
-					handleOpen(logger, cfg, tracker, allowedPorts, clientIP, spec, openDuration)
-				}
-			}
-		}
+	dispatchKnockCommand(logger, cfg, tracker, allowedPorts, clientIP, cmd, openDuration)
+}
 
-	case "close":
-		if cmd == "close-all" {
-			handleCloseAll(logger, cfg, tracker, clientIP)
-		} else {
-			portSpecs := cmd[6:]
-			// Support batch: "close-t22,t443,u53"
-			specs := strings.Split(portSpecs, ",")
-			for _, spec := range specs {
-				spec = strings.TrimSpace(spec)
-				if spec != "" {
-					handleClose(logger, cfg, tracker, allowedPorts, clientIP, spec)
-				}
-			}
+// buildPortOpenCloseCommands returns the open and close command strings for a
+// given protocol and IP (selecting IPv6 templates when the IP is IPv6).
+func buildPortOpenCloseCommands(cfg *config.Config, proto, portNum, ip string) (openCmd, closeCmd string) {
+	ipv6 := isIPv6(ip)
+	switch proto {
+	case "tcp":
+		if ipv6 && cfg.OpenTCP6Command != "" {
+			return BuildCommand(cfg.OpenTCP6Command, ip, portNum, proto),
+				BuildCommand(cfg.CloseTCP6Command, ip, portNum, proto)
 		}
-
-	case "cust":
-		cmdID := cmd[5:]
-		handleCustomCommand(logger, cfg, clientIP, cmdID)
+		return BuildCommand(cfg.OpenTCPCommand, ip, portNum, proto),
+			BuildCommand(cfg.CloseTCPCommand, ip, portNum, proto)
+	case "udp":
+		if ipv6 && cfg.OpenUDP6Command != "" {
+			return BuildCommand(cfg.OpenUDP6Command, ip, portNum, proto),
+				BuildCommand(cfg.CloseUDP6Command, ip, portNum, proto)
+		}
+		return BuildCommand(cfg.OpenUDPCommand, ip, portNum, proto),
+			BuildCommand(cfg.CloseUDPCommand, ip, portNum, proto)
 	}
+	return "", ""
+}
+
+// execPermanentOpen runs the open command immediately without tracking expiry.
+// Used when no close command is configured; the port stays open permanently.
+func execPermanentOpen(logger serverLogger, cfg *config.Config, ip, portNum, proto, openCmd string) {
+	logger.Printf("[OPEN] %s/%s for %s (permanent - no close command configured)", portNum, proto, ip)
+	if cfg.LogCommandOutput {
+		logger.Printf("[CMD-EXEC] %s", openCmd)
+	}
+	output, err := ExecuteCommandTimeout(openCmd, commandTimeout(cfg))
+	if err != nil {
+		logger.Printf("[ERROR] Open command failed for %s/%s %s: %v", portNum, proto, ip, err)
+		if cfg.LogCommandOutput && output != "" {
+			logger.Printf("[CMD-OUTPUT] %s", output)
+		}
+		return
+	}
+	if cfg.LogCommandOutput && output != "" {
+		logger.Printf("[CMD-OUTPUT] %s", output)
+	}
+	logger.Printf("[WARN] No close command configured for %s/%s - port will remain open permanently", portNum, proto)
 }
 
 func handleOpen(
@@ -586,37 +737,12 @@ func handleOpen(
 	}
 
 	portKey := strings.ToLower(portSpec) // e.g., "t22"
-
-	// Check if allowed
-	if !cfg.AllowCustomPort {
-		if !allowedPorts[portKey] {
-			logger.Printf("[DENY] from %s: port %s not in allowed list", ip, portSpec)
-			return
-		}
+	if !cfg.AllowCustomPort && !allowedPorts[portKey] {
+		logger.Printf("[DENY] from %s: port %s not in allowed list", ip, portSpec)
+		return
 	}
 
-	// Build commands (select IPv4 or IPv6 template based on client IP)
-	var openCmd, closeCmd string
-	ipv6 := isIPv6(ip)
-	switch proto {
-	case "tcp":
-		if ipv6 && cfg.OpenTCP6Command != "" {
-			openCmd = BuildCommand(cfg.OpenTCP6Command, ip, portNum, proto)
-			closeCmd = BuildCommand(cfg.CloseTCP6Command, ip, portNum, proto)
-		} else {
-			openCmd = BuildCommand(cfg.OpenTCPCommand, ip, portNum, proto)
-			closeCmd = BuildCommand(cfg.CloseTCPCommand, ip, portNum, proto)
-		}
-	case "udp":
-		if ipv6 && cfg.OpenUDP6Command != "" {
-			openCmd = BuildCommand(cfg.OpenUDP6Command, ip, portNum, proto)
-			closeCmd = BuildCommand(cfg.CloseUDP6Command, ip, portNum, proto)
-		} else {
-			openCmd = BuildCommand(cfg.OpenUDPCommand, ip, portNum, proto)
-			closeCmd = BuildCommand(cfg.CloseUDPCommand, ip, portNum, proto)
-		}
-	}
-
+	openCmd, closeCmd := buildPortOpenCloseCommands(cfg, proto, portNum, ip)
 	if openCmd == "" {
 		logger.Printf("[WARN] No open command template configured for %s", proto)
 		return
@@ -624,28 +750,12 @@ func handleOpen(
 
 	// When no close command is configured, execute the open command but skip
 	// the tracker -- there is nothing to close at expiry so no timer is needed.
-	// The port will remain open until manually closed.
 	if closeCmd == "" {
-		logger.Printf("[OPEN] %s/%s for %s (permanent - no close command configured)", portNum, proto, ip)
-		if cfg.LogCommandOutput {
-			logger.Printf("[CMD-EXEC] %s", openCmd)
-		}
-		output, err := ExecuteCommandTimeout(openCmd, commandTimeout(cfg))
-		if err != nil {
-			logger.Printf("[ERROR] Open command failed for %s/%s %s: %v", portNum, proto, ip, err)
-			if cfg.LogCommandOutput && output != "" {
-				logger.Printf("[CMD-OUTPUT] %s", output)
-			}
-			return
-		}
-		if cfg.LogCommandOutput && output != "" {
-			logger.Printf("[CMD-OUTPUT] %s", output)
-		}
-		logger.Printf("[WARN] No close command configured for %s/%s - port will remain open permanently", portNum, proto)
+		execPermanentOpen(logger, cfg, ip, portNum, proto, openCmd)
 		return
 	}
 
-	// Build entry and attempt atomic reservation
+	// Attempt atomic reservation; if already open, just refresh the timeout.
 	expiry := time.Now().Add(time.Duration(openDuration) * time.Second)
 	entry := &PortEntry{
 		IP:        ip,
@@ -660,13 +770,11 @@ func handleOpen(
 
 	reserved, _ := tracker.TryReserve(entry)
 	if !reserved {
-		// Port already open for this IP -- just refresh the timeout
 		tracker.RefreshExpiry(ip, portNum, proto, expiry)
 		logger.Printf("[REFRESH] %s/%s for %s (open duration extended to %ds)", portNum, proto, ip, openDuration)
 		return
 	}
 
-	// Execute open command
 	logger.Printf("[OPEN] %s/%s for %s (open duration: %ds)", portNum, proto, ip, openDuration)
 	if cfg.LogCommandOutput {
 		logger.Printf("[CMD-EXEC] %s", openCmd)
@@ -677,9 +785,7 @@ func handleOpen(
 		if cfg.LogCommandOutput && output != "" {
 			logger.Printf("[CMD-OUTPUT] %s", output)
 		}
-		// Keep the tracker entry so the expiry watcher executes the close command
-		// at the normal open-duration timeout. The open command may have partially
-		// succeeded, so we must still close at the scheduled time.
+		// Keep the tracker entry so expiry watcher still runs the close command.
 		logger.Printf("[WARN] Open failed for %s/%s %s - close command will run at expiry (%s)",
 			portNum, proto, ip, entry.ExpiresAt.Format("15:04:05"))
 		return
@@ -687,6 +793,24 @@ func handleOpen(
 	if cfg.LogCommandOutput && output != "" {
 		logger.Printf("[CMD-OUTPUT] %s", output)
 	}
+}
+
+// buildCloseCmd returns the close command string for a given protocol and IP.
+func buildCloseCmd(cfg *config.Config, proto, portNum, ip string) string {
+	ipv6 := isIPv6(ip)
+	switch proto {
+	case "tcp":
+		if ipv6 && cfg.CloseTCP6Command != "" {
+			return BuildCommand(cfg.CloseTCP6Command, ip, portNum, proto)
+		}
+		return BuildCommand(cfg.CloseTCPCommand, ip, portNum, proto)
+	case "udp":
+		if ipv6 && cfg.CloseUDP6Command != "" {
+			return BuildCommand(cfg.CloseUDP6Command, ip, portNum, proto)
+		}
+		return BuildCommand(cfg.CloseUDPCommand, ip, portNum, proto)
+	}
+	return ""
 }
 
 func handleClose(
@@ -703,31 +827,12 @@ func handleClose(
 	}
 
 	portKey := strings.ToLower(portSpec)
-
-	if !cfg.AllowCustomPort {
-		if !allowedPorts[portKey] {
-			logger.Printf("[DENY] from %s: port %s not in allowed list", ip, portSpec)
-			return
-		}
+	if !cfg.AllowCustomPort && !allowedPorts[portKey] {
+		logger.Printf("[DENY] from %s: port %s not in allowed list", ip, portSpec)
+		return
 	}
 
-	var closeCmd string
-	ipv6 := isIPv6(ip)
-	switch proto {
-	case "tcp":
-		if ipv6 && cfg.CloseTCP6Command != "" {
-			closeCmd = BuildCommand(cfg.CloseTCP6Command, ip, portNum, proto)
-		} else {
-			closeCmd = BuildCommand(cfg.CloseTCPCommand, ip, portNum, proto)
-		}
-	case "udp":
-		if ipv6 && cfg.CloseUDP6Command != "" {
-			closeCmd = BuildCommand(cfg.CloseUDP6Command, ip, portNum, proto)
-		} else {
-			closeCmd = BuildCommand(cfg.CloseUDPCommand, ip, portNum, proto)
-		}
-	}
-
+	closeCmd := buildCloseCmd(cfg, proto, portNum, ip)
 	if closeCmd == "" {
 		logger.Printf("[WARN] No close command template configured for %s", proto)
 		return
@@ -747,6 +852,86 @@ func handleClose(
 	tracker.Remove(ip, portNum, proto)
 }
 
+// buildOpenAllCommands selects the open-all and close-all command templates for the IP.
+func buildOpenAllCommands(cfg *config.Config, ip string) (cmd, closeCmd string) {
+	if isIPv6(ip) && cfg.OpenAll6Command != "" {
+		return BuildCommand(cfg.OpenAll6Command, ip, "", ""),
+			BuildCommand(cfg.CloseAll6Command, ip, "", "")
+	}
+	return BuildCommand(cfg.OpenAllCommand, ip, "", ""),
+		BuildCommand(cfg.CloseAllCommand, ip, "", "")
+}
+
+// execOpenAllCmd executes an open-all-command, managing tracker reservation and expiry.
+// Returns after the command completes (or fails).
+func execOpenAllCmd(
+	logger serverLogger,
+	cfg *config.Config,
+	tracker *Tracker,
+	ip string,
+	openDuration int,
+	cmd, closeCmd string,
+) {
+	// No close-all: run the command but skip the tracker (permanent open).
+	if closeCmd == "" {
+		logger.Printf("[OPEN-ALL] for %s (permanent - no close-all command configured)", ip)
+		if cfg.LogCommandOutput {
+			logger.Printf("[CMD-EXEC] %s", cmd)
+		}
+		output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
+		if err != nil {
+			logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
+			if cfg.LogCommandOutput && output != "" {
+				logger.Printf("[CMD-OUTPUT] %s", output)
+			}
+			return
+		}
+		if cfg.LogCommandOutput && output != "" {
+			logger.Printf("[CMD-OUTPUT] %s", output)
+		}
+		logger.Printf("[WARN] No close-all command configured - all ports will remain open permanently")
+		return
+	}
+
+	expiry := time.Now().Add(time.Duration(openDuration) * time.Second)
+	entry := &PortEntry{
+		IP:        ip,
+		Port:      "all",
+		Proto:     "all",
+		PortNum:   "all",
+		OpenedAt:  time.Now(),
+		ExpiresAt: expiry,
+		Command:   cmd,
+		CloseCmd:  closeCmd,
+	}
+
+	reserved, _ := tracker.TryReserve(entry)
+	if !reserved {
+		tracker.RefreshExpiry(ip, "all", "all", expiry)
+		logger.Printf("[REFRESH] open-all for %s (open duration extended to %ds)", ip, openDuration)
+		return
+	}
+
+	logger.Printf("[OPEN-ALL] for %s (open duration: %ds)", ip, openDuration)
+	if cfg.LogCommandOutput {
+		logger.Printf("[CMD-EXEC] %s", cmd)
+	}
+	output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
+	if err != nil {
+		logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
+		if cfg.LogCommandOutput && output != "" {
+			logger.Printf("[CMD-OUTPUT] %s", output)
+		}
+		// Keep the tracker entry so the expiry watcher executes the close-all command.
+		logger.Printf("[WARN] Open-all failed for %s - close-all command will run at expiry (%s)",
+			ip, entry.ExpiresAt.Format("15:04:05"))
+		return
+	}
+	if cfg.LogCommandOutput && output != "" {
+		logger.Printf("[CMD-OUTPUT] %s", output)
+	}
+}
+
 func handleOpenAll(
 	logger serverLogger,
 	cfg *config.Config,
@@ -760,82 +945,13 @@ func handleOpenAll(
 		return
 	}
 
-	// If open_all_command is set, use it directly
 	if cfg.OpenAllCommand != "" {
-		var cmd, closeCmd string
-		if isIPv6(ip) && cfg.OpenAll6Command != "" {
-			cmd = BuildCommand(cfg.OpenAll6Command, ip, "", "")
-			closeCmd = BuildCommand(cfg.CloseAll6Command, ip, "", "")
-		} else {
-			cmd = BuildCommand(cfg.OpenAllCommand, ip, "", "")
-			closeCmd = BuildCommand(cfg.CloseAllCommand, ip, "", "")
-		}
-
-		// When no close-all command is configured, execute the open-all command but
-		// skip the tracker -- no expiry timer is needed since nothing can be closed.
-		if closeCmd == "" {
-			logger.Printf("[OPEN-ALL] for %s (permanent - no close-all command configured)", ip)
-			if cfg.LogCommandOutput {
-				logger.Printf("[CMD-EXEC] %s", cmd)
-			}
-			output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
-			if err != nil {
-				logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
-				if cfg.LogCommandOutput && output != "" {
-					logger.Printf("[CMD-OUTPUT] %s", output)
-				}
-				return
-			}
-			if cfg.LogCommandOutput && output != "" {
-				logger.Printf("[CMD-OUTPUT] %s", output)
-			}
-			logger.Printf("[WARN] No close-all command configured - all ports will remain open permanently")
-			return
-		}
-
-		// Atomic reservation -- avoid duplicate open-all rules
-		expiry := time.Now().Add(time.Duration(openDuration) * time.Second)
-		entry := &PortEntry{
-			IP:        ip,
-			Port:      "all",
-			Proto:     "all",
-			PortNum:   "all",
-			OpenedAt:  time.Now(),
-			ExpiresAt: expiry,
-			Command:   cmd,
-			CloseCmd:  closeCmd,
-		}
-
-		reserved, _ := tracker.TryReserve(entry)
-		if !reserved {
-			tracker.RefreshExpiry(ip, "all", "all", expiry)
-			logger.Printf("[REFRESH] open-all for %s (open duration extended to %ds)", ip, openDuration)
-			return
-		}
-
-		logger.Printf("[OPEN-ALL] for %s (open duration: %ds)", ip, openDuration)
-		if cfg.LogCommandOutput {
-			logger.Printf("[CMD-EXEC] %s", cmd)
-		}
-		output, err := ExecuteCommandTimeout(cmd, commandTimeout(cfg))
-		if err != nil {
-			logger.Printf("[ERROR] Open-all command failed for %s: %v", ip, err)
-			if cfg.LogCommandOutput && output != "" {
-				logger.Printf("[CMD-OUTPUT] %s", output)
-			}
-			// Keep the tracker entry so the expiry watcher executes the close-all
-			// command at the normal open-duration timeout.
-			logger.Printf("[WARN] Open-all failed for %s - close-all command will run at expiry (%s)",
-				ip, entry.ExpiresAt.Format("15:04:05"))
-			return
-		}
-		if cfg.LogCommandOutput && output != "" {
-			logger.Printf("[CMD-OUTPUT] %s", output)
-		}
+		cmd, closeCmd := buildOpenAllCommands(cfg, ip)
+		execOpenAllCmd(logger, cfg, tracker, ip, openDuration, cmd, closeCmd)
 		return
 	}
 
-	// Otherwise open each allowed port individually
+	// No open_all_command: open each allowed port individually.
 	for portKey := range allowedPorts {
 		handleOpen(logger, cfg, tracker, allowedPorts, ip, portKey, openDuration)
 	}

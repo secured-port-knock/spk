@@ -163,12 +163,24 @@ jobs:
         run: |
           go install github.com/gordonklaus/ineffassign@latest
           go install github.com/client9/misspell/cmd/misspell@latest
+          go install github.com/uudashr/gocognit/cmd/gocognit@latest
 
       - name: Ineffectual assignments
         run: ineffassign ./...
 
       - name: Spelling
         run: misspell -error .
+
+      - name: Cognitive complexity
+        run: |
+          # Check production code only (exclude _test.go files) at threshold 25.
+          # Test helpers and table-driven tests are exempt from this limit.
+          result=$(gocognit -over 25 ./internal/... 2>&1 | grep -v '_test\.go' || true)
+          if [ -n "$result" ]; then
+            echo "Functions exceeding cognitive complexity 25:"
+            echo "$result"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------
   # Vulnerability check (informational -- does not block CI)

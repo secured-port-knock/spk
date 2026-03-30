@@ -302,20 +302,27 @@ const MaxPaddingMTUSafe768 = 96
 // A shorter secret would provide less than 160-bit entropy.
 const TOTPMinSecretLen = 32
 
-// Validate checks config values for sanity and returns any issues.
-func (c *Config) Validate() []string {
+// validatePortSeed checks the hex-encoded port seed string.
+func validatePortSeed(seed string) []string {
+	if seed == "" {
+		return nil
+	}
 	var errs []string
-
-	if c.ListenPort < 0 || c.ListenPort > 65535 {
-		errs = append(errs, fmt.Sprintf("listen_port out of range: %d", c.ListenPort))
+	for _, ch := range seed {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			errs = append(errs, fmt.Sprintf("port_seed must be hex-encoded, got invalid char: %c", ch))
+			break
+		}
 	}
-
-	// Server port validation (client config)
-	if c.ServerPort < 0 || c.ServerPort > 65535 {
-		errs = append(errs, fmt.Sprintf("server_port out of range: %d", c.ServerPort))
+	if len(seed) < 16 {
+		errs = append(errs, fmt.Sprintf("port_seed too short (%d chars), need at least 16 hex chars (8 bytes)", len(seed)))
 	}
+	return errs
+}
 
-	// Dynamic port parameter validation
+// validateDynPortParams checks dynamic port configuration fields.
+func (c *Config) validateDynPortParams() []string {
+	var errs []string
 	if c.DynPortMin != 0 && (c.DynPortMin < 1 || c.DynPortMin > 65535) {
 		errs = append(errs, fmt.Sprintf("dynamic_port_min (%d) out of valid port range [1, 65535]", c.DynPortMin))
 	}
@@ -325,38 +332,34 @@ func (c *Config) Validate() []string {
 	if c.DynPortMin > 0 && c.DynPortMax > 0 && c.DynPortMin >= c.DynPortMax {
 		errs = append(errs, fmt.Sprintf("dynamic_port_min (%d) must be less than dynamic_port_max (%d)", c.DynPortMin, c.DynPortMax))
 	}
-	// 0 means "use default (600)"; any non-zero value must be in [60, 86400].
-	// Lower bound matches the server setup wizard; upper bound matches MaxDynPortWindowSeconds.
 	if c.DynPortWindow != 0 && (c.DynPortWindow < 60 || c.DynPortWindow > 86400) {
 		errs = append(errs, fmt.Sprintf("dynamic_port_window %d out of range [60, 86400]", c.DynPortWindow))
 	}
-	if c.PortSeed != "" {
-		// Validate hex format
-		for _, ch := range c.PortSeed {
-			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
-				errs = append(errs, fmt.Sprintf("port_seed must be hex-encoded, got invalid char: %c", ch))
-				break
-			}
-		}
-		if len(c.PortSeed) < 16 {
-			errs = append(errs, fmt.Sprintf("port_seed too short (%d chars), need at least 16 hex chars (8 bytes)", len(c.PortSeed)))
-		}
-	}
+	errs = append(errs, validatePortSeed(c.PortSeed)...)
+	return errs
+}
 
-	// Padding validation
-	if c.PaddingEnabled {
-		if c.PaddingMinBytes < 0 {
-			errs = append(errs, "padding_min_bytes must be >= 0")
-		}
-		if c.PaddingMaxBytes > MaxPaddingBytes {
-			errs = append(errs, fmt.Sprintf("padding_max_bytes exceeds maximum %d", MaxPaddingBytes))
-		}
-		if c.PaddingMinBytes > c.PaddingMaxBytes && c.PaddingMaxBytes > 0 {
-			errs = append(errs, "padding_min_bytes must be <= padding_max_bytes")
-		}
+// validatePaddingCfg checks padding-related configuration fields.
+func (c *Config) validatePaddingCfg() []string {
+	if !c.PaddingEnabled {
+		return nil
 	}
+	var errs []string
+	if c.PaddingMinBytes < 0 {
+		errs = append(errs, "padding_min_bytes must be >= 0")
+	}
+	if c.PaddingMaxBytes > MaxPaddingBytes {
+		errs = append(errs, fmt.Sprintf("padding_max_bytes exceeds maximum %d", MaxPaddingBytes))
+	}
+	if c.PaddingMinBytes > c.PaddingMaxBytes && c.PaddingMaxBytes > 0 {
+		errs = append(errs, "padding_min_bytes must be <= padding_max_bytes")
+	}
+	return errs
+}
 
-	// Open duration validation
+// validateDurationCfg checks open-duration fields.
+func (c *Config) validateDurationCfg() []string {
+	var errs []string
 	if c.DefaultOpenDuration < 0 {
 		errs = append(errs, "default_open_duration must be >= 0")
 	}
@@ -366,13 +369,50 @@ func (c *Config) Validate() []string {
 	if c.DefaultOpenDuration > 0 && c.MaxOpenDuration > 0 && c.DefaultOpenDuration > c.MaxOpenDuration {
 		errs = append(errs, fmt.Sprintf("default_open_duration (%d) exceeds max_open_duration (%d)", c.DefaultOpenDuration, c.MaxOpenDuration))
 	}
+	return errs
+}
 
-	// Timestamp tolerance
+// validateTOTPCfg checks TOTP-related configuration fields.
+func (c *Config) validateTOTPCfg() []string {
+	if !c.TOTPEnabled || c.TOTPSecret == "" {
+		return nil
+	}
+	var errs []string
+	validBase32 := true
+	for _, ch := range c.TOTPSecret {
+		if !((ch >= 'A' && ch <= 'Z') || (ch >= '2' && ch <= '7') || ch == '=') {
+			validBase32 = false
+			break
+		}
+	}
+	if !validBase32 {
+		errs = append(errs, "totp_secret must be a valid base32 string (uppercase A-Z and digits 2-7)")
+	}
+	if len(c.TOTPSecret) < TOTPMinSecretLen {
+		errs = append(errs, fmt.Sprintf("totp_secret too short (%d chars), need at least %d (160-bit / 20 bytes base32-encoded)", len(c.TOTPSecret), TOTPMinSecretLen))
+	}
+	return errs
+}
+
+// Validate checks config values for sanity and returns any issues.
+func (c *Config) Validate() []string {
+	var errs []string
+
+	if c.ListenPort < 0 || c.ListenPort > 65535 {
+		errs = append(errs, fmt.Sprintf("listen_port out of range: %d", c.ListenPort))
+	}
+	if c.ServerPort < 0 || c.ServerPort > 65535 {
+		errs = append(errs, fmt.Sprintf("server_port out of range: %d", c.ServerPort))
+	}
+
+	errs = append(errs, c.validateDynPortParams()...)
+	errs = append(errs, c.validatePaddingCfg()...)
+	errs = append(errs, c.validateDurationCfg()...)
+
 	if c.TimestampTolerance < 0 {
 		errs = append(errs, "timestamp_tolerance must be >= 0")
 	}
 
-	// Sniffer mode validation
 	if c.SnifferMode != "" {
 		validSniffers := map[string]bool{"udp": true, "afpacket": true, "pcap": true, "windivert": true}
 		if !validSniffers[c.SnifferMode] {
@@ -380,32 +420,13 @@ func (c *Config) Validate() []string {
 		}
 	}
 
-	// Listen addresses validation
 	for _, addr := range c.ListenAddresses {
 		if net.ParseIP(addr) == nil {
 			errs = append(errs, fmt.Sprintf("invalid listen address: %q", addr))
 		}
 	}
 
-	// TOTP secret validation
-	// The setup wizard generates 20-byte (160-bit) secrets encoded as 32 base32 chars.
-	// Accepting anything shorter than TOTPMinSecretLen (32) would allow weak secrets
-	// below RFC 6238's recommended 160-bit minimum entropy level.
-	if c.TOTPEnabled && c.TOTPSecret != "" {
-		validBase32 := true
-		for _, ch := range c.TOTPSecret {
-			if !((ch >= 'A' && ch <= 'Z') || (ch >= '2' && ch <= '7') || ch == '=') {
-				validBase32 = false
-				break
-			}
-		}
-		if !validBase32 {
-			errs = append(errs, "totp_secret must be a valid base32 string (uppercase A-Z and digits 2-7)")
-		}
-		if len(c.TOTPSecret) < TOTPMinSecretLen {
-			errs = append(errs, fmt.Sprintf("totp_secret too short (%d chars), need at least %d (160-bit / 20 bytes base32-encoded)", len(c.TOTPSecret), TOTPMinSecretLen))
-		}
-	}
+	errs = append(errs, c.validateTOTPCfg()...)
 
 	return errs
 }
@@ -430,37 +451,10 @@ func Load(path string) (*Config, error) {
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse TOML config: %w", err)
 	}
-	isDynamic := false
-	if lp, ok := raw["listen_port"]; ok {
-		if lpStr, ok := lp.(string); ok && lpStr == "dynamic" {
-			isDynamic = true
-			// Replace "dynamic" with 0 so struct unmarshal succeeds
-			raw["listen_port"] = int64(0)
-		}
-	}
-	// Handle server_port = "dynamic" for client config (same semantics as listen_port)
-	isClientDynamic := false
-	if sp, ok := raw["server_port"]; ok {
-		if spStr, ok := sp.(string); ok && spStr == "dynamic" {
-			isClientDynamic = true
-			raw["server_port"] = int64(0)
-		}
-	}
-	// Check legacy dynamic_port = true
-	if dp, ok := raw["dynamic_port"]; ok {
-		if dpBool, ok := dp.(bool); ok && dpBool {
-			isDynamic = true
-			isClientDynamic = true
-		}
-		delete(raw, "dynamic_port") // remove before re-marshal to avoid struct mismatch
-	}
-	// Migrate legacy listen_address (string) to listen_addresses (array)
-	if la, ok := raw["listen_address"]; ok {
-		if laStr, ok := la.(string); ok {
-			raw["listen_addresses"] = []interface{}{laStr}
-			delete(raw, "listen_address")
-		}
-	}
+
+	isDynamic, isClientDynamic := preprocessDynPortFlags(raw)
+	migrateLegacyConfigKeys(raw)
+
 	// Re-marshal the cleaned raw map back to TOML, then unmarshal into struct
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(raw); err != nil {
@@ -494,6 +488,48 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	return &cfg, nil
+}
+
+// preprocessDynPortFlags detects and normalises dynamic-port flag values in the
+// raw TOML map before struct unmarshalling. It returns (isDynamic, isClientDynamic).
+// The map is modified in place so listen_port / server_port are numeric 0
+// where they were the string "dynamic", and legacy dynamic_port bool is removed.
+func preprocessDynPortFlags(raw map[string]interface{}) (isDynamic, isClientDynamic bool) {
+	if lp, ok := raw["listen_port"]; ok {
+		if lpStr, ok := lp.(string); ok && lpStr == "dynamic" {
+			isDynamic = true
+			// Replace "dynamic" with 0 so struct unmarshal succeeds
+			raw["listen_port"] = int64(0)
+		}
+	}
+	// Handle server_port = "dynamic" for client config (same semantics as listen_port)
+	if sp, ok := raw["server_port"]; ok {
+		if spStr, ok := sp.(string); ok && spStr == "dynamic" {
+			isClientDynamic = true
+			raw["server_port"] = int64(0)
+		}
+	}
+	// Check legacy dynamic_port = true
+	if dp, ok := raw["dynamic_port"]; ok {
+		if dpBool, ok := dp.(bool); ok && dpBool {
+			isDynamic = true
+			isClientDynamic = true
+		}
+		delete(raw, "dynamic_port") // remove before re-marshal to avoid struct mismatch
+	}
+	return isDynamic, isClientDynamic
+}
+
+// migrateLegacyConfigKeys converts old single-value config keys to their
+// array equivalents so subsequent struct unmarshalling always succeeds.
+func migrateLegacyConfigKeys(raw map[string]interface{}) {
+	// Migrate legacy listen_address (string) to listen_addresses (array)
+	if la, ok := raw["listen_address"]; ok {
+		if laStr, ok := la.(string); ok {
+			raw["listen_addresses"] = []interface{}{laStr}
+			delete(raw, "listen_address")
+		}
+	}
 }
 
 // Save writes the config as TOML.

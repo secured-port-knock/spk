@@ -28,10 +28,10 @@ all: test build
 build:
 	@echo $(NEXT_BUILD) > $(BUILD_NUMBER_FILE)
 ifdef NOPCAP
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./
+	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./
 else
-	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION)p ./ || \
-		(echo "CGO build failed, falling back to no-pcap"; CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./)
+	CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION)p ./ || \
+		(echo "CGO build failed, falling back to no-pcap"; CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS_BASE)" -o $(BINARY)_$(FULL_VERSION) ./)
 endif
 
 test:

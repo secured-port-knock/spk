@@ -177,8 +177,22 @@ Runs on every push and pull request to `main`/`master`.
 | **sniffer-tests-linux** | Ubuntu | Sniffer tests with libpcap + AF_PACKET (requires sudo) |
 | **sniffer-tests-windows** | Windows | Non-pcap sniffer tests (Npcap unavailable in CI) |
 | **sniffer-tests-macos** | macOS | Sniffer tests with built-in libpcap (requires sudo) |
-| **vet** | Ubuntu | `go vet ./...` static analysis |
+| **lint** | Ubuntu | `go vet`, `gofmt`, `ineffassign`, `misspell`, **gocognit** |
 | **govulncheck** | Ubuntu | Vulnerability scanning (informational, non-blocking) |
+
+The `lint` job enforces a cognitive complexity limit of **25** on all production code using
+[gocognit](https://github.com/uudashr/gocognit). Test helpers are exempt. Run it locally:
+
+```bash
+# Install gocognit
+go install github.com/uudashr/gocognit/cmd/gocognit@latest
+
+# Check all production code (threshold 25)
+gocognit -over 25 ./internal/app/ ./internal/client/ ./internal/config/ \
+  ./internal/crypto/ ./internal/logging/ ./internal/protocol/ \
+  ./internal/server/ ./internal/service/ \
+  | grep -v '_test\.go'
+```
 
 To run locally what the CI workflow runs:
 

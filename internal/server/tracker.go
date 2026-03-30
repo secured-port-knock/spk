@@ -265,40 +265,51 @@ func (t *Tracker) recoverState() {
 
 	now := time.Now()
 	for key, entry := range entries {
-		if entry == nil {
-			t.logger.Printf("[RECOVERY] Skipping nil entry for key %s", key)
-			continue
-		}
-		// Validate recovered commands to prevent state file injection
-		if entry.CloseCmd != "" && !isValidRecoveredCommand(entry.CloseCmd) {
-			t.logger.Printf("[RECOVERY] Skipping entry with suspicious close command: %s:%s:%s",
-				entry.IP, entry.PortNum, entry.Proto)
-			continue
-		}
-		if now.After(entry.ExpiresAt) {
-			// Port should have been closed - execute close command if configured
-			if t.closePortsOnCrash {
-				t.logger.Printf("[RECOVERY] Closing expired port %s/%s for %s", entry.PortNum, entry.Proto, entry.IP)
-				if t.logCmdExec && entry.CloseCmd != "" {
-					t.logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
-				}
-				if _, err := ExecuteCommandTimeout(entry.CloseCmd, t.cmdTimeout); err != nil {
-					t.logger.Printf("[ERROR] Recovery close failed for %s/%s %s: %v",
-						entry.PortNum, entry.Proto, entry.IP, err)
-				}
-			} else {
-				t.logger.Printf("[RECOVERY] Skipping close for expired port %s/%s for %s (close_ports_on_crash=false)",
-					entry.PortNum, entry.Proto, entry.IP)
-			}
-		} else {
-			// Port still valid, keep tracking
-			t.logger.Printf("[RECOVERY] Resuming tracking of port %s/%s for %s (expires %s)",
-				entry.PortNum, entry.Proto, entry.IP, entry.ExpiresAt.Format(time.RFC3339))
-			t.entries[key] = entry
-		}
+		t.recoverPortEntry(now, key, entry)
 	}
 
 	t.saveState()
+}
+
+// recoverPortEntry processes a single recovered state entry: validates the
+// close command, closes expired ports, or resumes tracking if still valid.
+func (t *Tracker) recoverPortEntry(now time.Time, key string, entry *PortEntry) {
+	if entry == nil {
+		t.logger.Printf("[RECOVERY] Skipping nil entry for key %s", key)
+		return
+	}
+	// Validate recovered commands to prevent state file injection
+	if entry.CloseCmd != "" && !isValidRecoveredCommand(entry.CloseCmd) {
+		t.logger.Printf("[RECOVERY] Skipping entry with suspicious close command: %s:%s:%s",
+			entry.IP, entry.PortNum, entry.Proto)
+		return
+	}
+	if now.After(entry.ExpiresAt) {
+		t.recoverExpiredEntry(entry)
+	} else {
+		// Port still valid, keep tracking
+		t.logger.Printf("[RECOVERY] Resuming tracking of port %s/%s for %s (expires %s)",
+			entry.PortNum, entry.Proto, entry.IP, entry.ExpiresAt.Format(time.RFC3339))
+		t.entries[key] = entry
+	}
+}
+
+// recoverExpiredEntry closes a port that should have expired while the server
+// was offline, if close_ports_on_crash is enabled.
+func (t *Tracker) recoverExpiredEntry(entry *PortEntry) {
+	if t.closePortsOnCrash {
+		t.logger.Printf("[RECOVERY] Closing expired port %s/%s for %s", entry.PortNum, entry.Proto, entry.IP)
+		if t.logCmdExec && entry.CloseCmd != "" {
+			t.logger.Printf("[CMD-EXEC] %s", entry.CloseCmd)
+		}
+		if _, err := ExecuteCommandTimeout(entry.CloseCmd, t.cmdTimeout); err != nil {
+			t.logger.Printf("[ERROR] Recovery close failed for %s/%s %s: %v",
+				entry.PortNum, entry.Proto, entry.IP, err)
+		}
+	} else {
+		t.logger.Printf("[RECOVERY] Skipping close for expired port %s/%s for %s (close_ports_on_crash=false)",
+			entry.PortNum, entry.Proto, entry.IP)
+	}
 }
 
 // isValidRecoveredCommand checks if a recovered close command looks safe.

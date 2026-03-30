@@ -321,7 +321,7 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
         Write-Host "  Building $output..."
     }
 
-    $buildArgs = @("build", "-trimpath", "-ldflags", "$ldflags -s -w", "-o", $output, "./")
+    $buildArgs = @("build", "-buildvcs=false", "-trimpath", "-ldflags", "$ldflags -s -w", "-o", $output, "./")
 
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) {

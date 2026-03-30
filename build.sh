@@ -335,7 +335,7 @@ build_one() {
   if (
     export GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED="${cgo_enabled}"
     if [ -n "$cc" ]; then export CC="$cc"; fi
-    go build -trimpath -ldflags "${ldflags}" -o "${output}" ./
+    go build -buildvcs=false -trimpath -ldflags "${ldflags}" -o "${output}" ./
   ); then
     # UPX compress if requested and available
     if $USE_UPX && [ -f "${output}" ]; then

@@ -134,6 +134,145 @@ func isPrivileged() bool {
 	return os.Getuid() == 0
 }
 
+// promptModeSelection asks the user to pick server or client mode with a 30s timeout.
+// Returns "server" or "client".
+func promptModeSelection() string {
+	fmt.Println("No configuration found (or both server and client configs exist).")
+	fmt.Println("Which mode would you like to run?")
+	fmt.Println("  1. Server (default)")
+	fmt.Println("  2. Client")
+	fmt.Fprintln(os.Stderr, "  (no input received in 30s -> server mode will be selected automatically)")
+	fmt.Print("Select [1]: ")
+
+	choiceCh := make(chan string, 1)
+	go func() {
+		var input string
+		fmt.Scanln(&input)
+		choiceCh <- strings.TrimSpace(input)
+	}()
+
+	timer := time.NewTimer(30 * time.Second)
+	select {
+	case choice := <-choiceCh:
+		timer.Stop()
+		switch choice {
+		case "2", "client", "c":
+			return "client"
+		}
+		return "server"
+	case <-timer.C:
+		fmt.Println()
+		fmt.Fprintln(os.Stderr, "[auto-detect] No input after 30s -> defaulting to server mode")
+		return "server"
+	}
+}
+
+// applyAutoDetect sets *serverMode or *clientMode based on existing config files
+// or user prompt, and enables setup if no config file is present for the chosen mode.
+func applyAutoDetect(serverMode, clientMode *bool, cmd *string, setup *bool) {
+	if *cmd != "" {
+		*clientMode = true
+		fmt.Fprintln(os.Stderr, "[auto-detect] Command specified -> client mode")
+		return
+	}
+
+	_, detectedMode := config.DetectConfigPath()
+	switch detectedMode {
+	case "server":
+		*serverMode = true
+		fmt.Fprintln(os.Stderr, "[auto-detect] Found server config -> server mode")
+	case "client":
+		*clientMode = true
+		fmt.Fprintln(os.Stderr, "[auto-detect] Found client config -> client mode")
+	default:
+		chosenMode := promptModeSelection()
+		if chosenMode == "client" {
+			*clientMode = true
+			if _, err := os.Stat(config.ClientConfigPath()); os.IsNotExist(err) {
+				*setup = true
+			}
+		} else {
+			*serverMode = true
+			if _, err := os.Stat(config.ServerConfigPath()); os.IsNotExist(err) {
+				*setup = true
+			}
+		}
+	}
+}
+
+// runServerMode dispatches the server sub-command (setup, export, or run).
+func runServerMode(setup, export *bool, cfgDir, svcName *string) {
+	_ = config.ConfigDir()
+	if *cfgDir == "" {
+		if cfgDirErr := config.ConfigDirInitError(); cfgDirErr != nil {
+			fmt.Fprintf(os.Stderr,
+				"Error: %v.\nTry running as root, fixing the directory permissions, or use --cfgdir <path>.\n",
+				cfgDirErr)
+			os.Exit(1)
+		}
+	}
+	switch {
+	case *setup:
+		server.RunSetup()
+	case *export:
+		server.RunExport()
+	default:
+		if _, err := os.Stat(config.ServerConfigPath()); os.IsNotExist(err) {
+			fmt.Fprintln(os.Stderr, "No server config found. Starting first-time setup...")
+			server.RunSetup()
+			return
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", versionString())
+		warnIfUnprivileged()
+		if ran, err := runAsWindowsService(*svcName, server.Run, server.Stop); ran {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		server.Run()
+	}
+}
+
+// warnIfUnprivileged prints a warning when the process is not running as root/Administrator.
+func warnIfUnprivileged() {
+	if isPrivileged() {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "===========================================================")
+	fmt.Fprintln(os.Stderr, "  WARNING: Not running as root / Administrator!")
+	fmt.Fprintln(os.Stderr, "  Many features will fail (firewall rules, raw sockets,")
+	fmt.Fprintln(os.Stderr, "  packet capture, WinDivert, AF_PACKET, etc.).")
+	if runtime.GOOS == "windows" {
+		fmt.Fprintln(os.Stderr, "  Restart with: Run as Administrator")
+	} else {
+		fmt.Fprintln(os.Stderr, "  Restart with: sudo spk --server")
+	}
+	fmt.Fprintln(os.Stderr, "===========================================================")
+	fmt.Fprintln(os.Stderr, "")
+}
+
+// runClientMode dispatches the client sub-command (setup or send command).
+func runClientMode(setup *bool, cmd, host, clientIP, totpCode *string, duration *int) {
+	switch {
+	case *setup:
+		client.RunSetup()
+	case *cmd != "":
+		client.RunCommand(*host, *cmd, *duration, *clientIP, *totpCode)
+	default:
+		if _, err := os.Stat(config.ClientConfigPath()); os.IsNotExist(err) {
+			fmt.Fprintln(os.Stderr, "No client config found. Starting first-time setup...")
+			client.RunSetup()
+			return
+		}
+		fmt.Fprintln(os.Stderr, "Error: --cmd is required in client mode")
+		fmt.Fprintln(os.Stderr, "Usage: spk --client --cmd open-t22")
+		os.Exit(1)
+	}
+}
+
 // Run is the application entry point, called from package main.
 func Run() {
 	// Define flags
@@ -223,7 +362,6 @@ func Run() {
 		os.Exit(0)
 	}
 
-	// Apply custom directory overrides before anything else
 	if *cfgDir != "" {
 		config.SetConfigDir(*cfgDir)
 	}
@@ -234,16 +372,12 @@ func Run() {
 		}
 	}
 
-	// Handle service install/uninstall (independent of mode flags)
 	if *installSvc || *uninstallSvc {
 		if *clientMode {
 			fmt.Fprintln(os.Stderr, "Error: --install/--uninstall is server only")
 			os.Exit(1)
 		}
-		svcCfg := service.ServiceConfig{
-			CfgDir: *cfgDir,
-			LogDir: *logDir,
-		}
+		svcCfg := service.ServiceConfig{CfgDir: *cfgDir, LogDir: *logDir}
 		var err error
 		if *installSvc {
 			err = service.Install(svcCfg)
@@ -262,136 +396,16 @@ func Run() {
 		os.Exit(1)
 	}
 
-	// Auto-detect mode from config files if neither flag specified
 	if !*serverMode && !*clientMode {
-		// If a command is specified, it must be client mode
-		if *cmd != "" {
-			*clientMode = true
-			fmt.Fprintln(os.Stderr, "[auto-detect] Command specified -> client mode")
-		} else {
-			_, detectedMode := config.DetectConfigPath()
-			switch detectedMode {
-			case "server":
-				*serverMode = true
-				fmt.Fprintln(os.Stderr, "[auto-detect] Found server config -> server mode")
-			case "client":
-				*clientMode = true
-				fmt.Fprintln(os.Stderr, "[auto-detect] Found client config -> client mode")
-			default:
-				// No config or both configs exist - ask user with 30s timeout
-				fmt.Println("No configuration found (or both server and client configs exist).")
-				fmt.Println("Which mode would you like to run?")
-				fmt.Println("  1. Server (default)")
-				fmt.Println("  2. Client")
-				fmt.Fprintln(os.Stderr, "  (no input received in 30s -> server mode will be selected automatically)")
-				fmt.Print("Select [1]: ")
-
-				choiceCh := make(chan string, 1)
-				go func() {
-					var input string
-					fmt.Scanln(&input)
-					choiceCh <- strings.TrimSpace(input)
-				}()
-
-				var choice string
-				timer := time.NewTimer(30 * time.Second)
-				select {
-				case choice = <-choiceCh:
-					timer.Stop()
-				case <-timer.C:
-					fmt.Println()
-					fmt.Fprintln(os.Stderr, "[auto-detect] No input after 30s -> defaulting to server mode")
-				}
-
-				switch choice {
-				case "2", "client", "c":
-					*clientMode = true
-					if _, err := os.Stat(config.ClientConfigPath()); os.IsNotExist(err) {
-						*setup = true
-					}
-				default:
-					// "1", "server", "s", "", or timeout
-					*serverMode = true
-					if _, err := os.Stat(config.ServerConfigPath()); os.IsNotExist(err) {
-						*setup = true
-					}
-				}
-			}
-		}
+		applyAutoDetect(serverMode, clientMode, cmd, setup)
 	}
 
 	if *serverMode {
-		// Ensure config dir is initialized and check for unrecoverable errors.
-		// ConfigDir() is idempotent so calling it explicitly here is safe even
-		// if it was already called during auto-detect mode.
-		_ = config.ConfigDir()
-		if *cfgDir == "" {
-			if cfgDirErr := config.ConfigDirInitError(); cfgDirErr != nil {
-				fmt.Fprintf(os.Stderr,
-					"Error: %v.\nTry running as root, fixing the directory permissions, or use --cfgdir <path>.\n",
-					cfgDirErr)
-				os.Exit(1)
-			}
-		}
-		switch {
-		case *setup:
-			server.RunSetup()
-		case *export:
-			server.RunExport()
-		default:
-			// Auto-detect: if no server config exists, run setup first
-			if _, err := os.Stat(config.ServerConfigPath()); os.IsNotExist(err) {
-				fmt.Fprintln(os.Stderr, "No server config found. Starting first-time setup...")
-				server.RunSetup()
-				return
-			}
-			fmt.Fprintf(os.Stderr, "%s\n", versionString())
-			if !isPrivileged() {
-				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "===========================================================")
-				fmt.Fprintln(os.Stderr, "  WARNING: Not running as root / Administrator!")
-				fmt.Fprintln(os.Stderr, "  Many features will fail (firewall rules, raw sockets,")
-				fmt.Fprintln(os.Stderr, "  packet capture, WinDivert, AF_PACKET, etc.).")
-				if runtime.GOOS == "windows" {
-					fmt.Fprintln(os.Stderr, "  Restart with: Run as Administrator")
-				} else {
-					fmt.Fprintln(os.Stderr, "  Restart with: sudo spk --server")
-				}
-				fmt.Fprintln(os.Stderr, "===========================================================")
-				fmt.Fprintln(os.Stderr, "")
-			}
-			// On Windows, check if the SCM launched us as a service and dispatch
-			// accordingly.  This must happen before server.Run() so the SCM timer
-			// (ERROR 1053) does not expire.
-			if ran, err := runAsWindowsService(*svcName, server.Run, server.Stop); ran {
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-					os.Exit(1)
-				}
-				return
-			}
-			server.Run()
-		}
+		runServerMode(setup, export, cfgDir, svcName)
 		return
 	}
 
 	if *clientMode {
-		switch {
-		case *setup:
-			client.RunSetup()
-		case *cmd != "":
-			client.RunCommand(*host, *cmd, *duration, *clientIP, *totpCode)
-		default:
-			// Auto-detect: if no client config exists, run setup first
-			if _, err := os.Stat(config.ClientConfigPath()); os.IsNotExist(err) {
-				fmt.Fprintln(os.Stderr, "No client config found. Starting first-time setup...")
-				client.RunSetup()
-				return
-			}
-			fmt.Fprintln(os.Stderr, "Error: --cmd is required in client mode")
-			fmt.Fprintln(os.Stderr, "Usage: spk --client --cmd open-t22")
-			os.Exit(1)
-		}
-		return
+		runClientMode(setup, cmd, host, clientIP, totpCode, duration)
 	}
 }
