@@ -390,9 +390,6 @@ func Run() {
 
 	var snifferMu sync.Mutex
 	var currentSniffer sniffer.Sniffer = sniff
-	snifferMu.Lock()
-	currentSniffer = sniff
-	snifferMu.Unlock()
 
 	logf("SPK server starting")
 	logf("  Mode:    %s", cfg.SnifferMode)
