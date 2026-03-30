@@ -187,11 +187,8 @@ The `lint` job enforces a cognitive complexity limit of **25** on all production
 # Install gocognit
 go install github.com/uudashr/gocognit/cmd/gocognit@latest
 
-# Check all production code (threshold 25)
-gocognit -over 25 ./internal/app/ ./internal/client/ ./internal/config/ \
-  ./internal/crypto/ ./internal/logging/ ./internal/protocol/ \
-  ./internal/server/ ./internal/service/ \
-  | grep -v '_test\.go'
+# Check all production code (threshold 25, test files excluded)
+gocognit -over 25 -ignore '_test\.go' ./internal/
 ```
 
 To run locally what the CI workflow runs:
