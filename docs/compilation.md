@@ -64,8 +64,10 @@ for client-only use (sending knock packets) or quick testing.
 .\build.ps1 -windows -amd64       # Build windows/amd64 only
 .\build.ps1 -linux -arm64         # Build linux/arm64 only
 .\build.ps1 -nopcap               # Disable pcap for all targets
-.\build.ps1 -test                  # Run unit tests
+.\build.ps1 -test                  # Run unit + integration tests + fuzz seed corpus
+.\build.ps1 -testall              # Run all tests: smoke, unit+integration, fuzz, sniffer
 .\build.ps1 -testSniffer          # Run sniffer hardware tests (requires Npcap)
+.\build.ps1 -testsmoke            # Run end-to-end smoke tests
 .\build.ps1 -coverage             # Run tests with coverage
 .\build.ps1 -clean                # Clean build artifacts
 .\build.ps1 -linux -deb           # Build linux + create .deb packages
@@ -82,8 +84,10 @@ for client-only use (sending knock packets) or quick testing.
 ./build.sh -darwin                 # darwin/amd64 + darwin/arm64
 ./build.sh -linux -amd64           # linux/amd64 only
 ./build.sh -nopcap                 # Disable pcap for all targets
-./build.sh -test                   # Run unit tests
+./build.sh -test                   # Run unit + integration tests + fuzz seed corpus
+./build.sh -testall                # Run all tests: smoke, unit+integration, fuzz, sniffer
 ./build.sh -testSniffer           # Run sniffer hardware tests (requires libpcap)
+./build.sh -testsmoke              # Run end-to-end smoke tests
 ./build.sh -linux -deb             # Build linux + create .deb packages
 ./build.sh -linux -rpm             # Build linux + create .rpm packages
 ./build.sh -linux -deb -rpm        # Build linux + both .deb and .rpm
@@ -96,7 +100,9 @@ for client-only use (sending knock packets) or quick testing.
 make build                  # Native build (attempts pcap)
 make build NOPCAP=1         # Native build without pcap
 make cross                  # All platforms (delegates to build.sh)
-make test                   # Run tests
+make test                   # Run unit + integration tests + fuzz seed corpus
+make testall                # Run all tests (delegates to build.sh -testall)
+make testfuzz               # Run fuzz seed corpus only
 make coverage               # Tests with coverage report
 ```
 
@@ -295,9 +301,8 @@ Runs automatically on every push and pull request to `main`/`master`.
 
 | Job | Platform(s) | Description |
 |---|---|---|
-| **unit-tests** | Ubuntu, Windows, macOS | All unit tests |
+| **unit-tests** | Ubuntu, Windows, macOS | Unit + integration tests (`./...`) |
 | **coverage** | Ubuntu | Coverage report uploaded as artifact |
-| **integration-tests** | Ubuntu, Windows, macOS | End-to-end knock flow tests |
 | **sniffer-tests-linux** | Ubuntu | Sniffer tests with libpcap + AF_PACKET |
 | **sniffer-tests-windows** | Windows | Non-pcap sniffer tests (Npcap unavailable in CI) |
 | **sniffer-tests-macos** | macOS | Sniffer tests with built-in libpcap |

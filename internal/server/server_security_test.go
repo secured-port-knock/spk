@@ -387,3 +387,34 @@ func TestTrackerRecoveryAcceptsNormalStateFile(t *testing.T) {
 		t.Errorf("expected 1 recovered entry, got %d", len(entries))
 	}
 }
+
+func TestTrackerRecoverySkipsNilStateEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := tmpDir + "/state.json"
+
+	stateJSON := `{
+		"10.0.0.1:22:tcp": null,
+		"10.0.0.2:80:tcp": {
+			"ip": "10.0.0.2",
+			"port": "t80",
+			"proto": "tcp",
+			"port_num": "80",
+			"close_command": "iptables -D INPUT -p tcp --dport 80 -s 10.0.0.2 -j ACCEPT",
+			"expires_at": "2099-01-01T00:00:00Z"
+		}
+	}`
+
+	if err := os.WriteFile(statePath, []byte(stateJSON), 0600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	logger := newTestLogger(t)
+	tracker := NewTracker(statePath, logger, false)
+
+	if got := len(tracker.GetByIP("10.0.0.1")); got != 0 {
+		t.Fatalf("nil entry should be skipped, got %d entries", got)
+	}
+	if got := len(tracker.GetByIP("10.0.0.2")); got != 1 {
+		t.Fatalf("valid entry should be recovered, got %d entries", got)
+	}
+}

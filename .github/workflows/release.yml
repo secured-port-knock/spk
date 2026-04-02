@@ -37,7 +37,13 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------
-  # 1. Run CI tests on all three platforms -- abort on any failure
+  # 1. Run all tests on all three platforms -- abort on any failure.
+  #    Uses -testall via the build scripts: smoke, unit+integration,
+  #    fuzz seed corpus, and sniffer tests.
+  #    Linux:   libpcap installed; pcap and AF_PACKET tests run.
+  #    macOS:   libpcap built-in; pcap tests run.
+  #    Windows: WinDivert installed; pcap tests auto-skip (Npcap
+  #             silent install not available without OEM license).
   # ---------------------------------------------------------------
   ci-tests:
     strategy:
@@ -53,11 +59,38 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run unit tests
-        run: go test ./... -count=1 -timeout 120s
+      - name: Install libpcap (Linux -- enables pcap and AF_PACKET tests)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libpcap-dev
 
-      - name: Run integration tests
-        run: go test -v -count=1 -timeout 120s ./tests/integration/
+      - name: Install WinDivert (Windows -- enables WinDivert sniffer tests)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://reqrypt.org/download/WinDivert-2.2.2-A.zip"
+          Invoke-WebRequest -Uri $url -OutFile windivert.zip
+          Expand-Archive -Path windivert.zip -DestinationPath windivert
+          $sys32 = "$env:SystemRoot\System32"
+          $dll = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert.dll" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          $sys = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert64.sys" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          if (-not $dll) { Write-Error "WinDivert.dll (x64) not found in archive"; exit 1 }
+          if (-not $sys) { Write-Error "WinDivert64.sys not found in archive"; exit 1 }
+          Copy-Item $dll.FullName $sys32
+          Copy-Item $sys.FullName $sys32
+          Write-Host "WinDivert installed to $sys32"
+
+      - name: Run all tests (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: chmod +x build.sh && ./build.sh -testall
+
+      - name: Run all tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\build.ps1 -testall
 
   # ---------------------------------------------------------------
   # 2. Resolve version and build number from version/ files,

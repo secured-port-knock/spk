@@ -4,6 +4,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -135,7 +136,9 @@ func TestCloseOnCrashRecoveryTrue(t *testing.T) {
 	}`
 	os.WriteFile(statePath, []byte(state), 0600)
 
-	logger := log.New(os.Stdout, "[TEST] ", 0)
+	// Use io.Discard logger: iptables fails with permission denied in CI (non-root),
+	// which is expected -- we only verify the expired entry is removed from tracking.
+	logger := log.New(io.Discard, "", 0)
 	tracker := NewTracker(statePath, logger, true) // closePortsOnCrash=true
 
 	// Entry should be removed (close command attempted during recovery)
@@ -336,7 +339,10 @@ func TestCrashRecoveryMixedWithFlag(t *testing.T) {
 	}`
 	os.WriteFile(statePath, []byte(state), 0600)
 
-	logger := log.New(os.Stdout, "[TEST] ", 0)
+	// Use io.Discard logger: the iptables command for the expired entry fails with
+	// permission denied in CI (non-root), which is expected -- we only verify the
+	// expired entry is removed and the valid one survives.
+	logger := log.New(io.Discard, "", 0)
 	tracker := NewTracker(statePath, logger, true) // closePortsOnCrash=true
 
 	entries := tracker.GetAll()

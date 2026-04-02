@@ -69,6 +69,24 @@ func TestEncodePayloadTOTPWrongLength(t *testing.T) {
 	}
 }
 
+func TestEncodePayloadTOTPTooLong(t *testing.T) {
+	p := &KnockPayload{
+		Version:   1,
+		Timestamp: 1000000,
+		Nonce:     hex.EncodeToString(make([]byte, 32)),
+		ClientIP:  "10.0.0.1",
+		Command:   "open-t22",
+		TOTP:      "1234567", // 7 digits, not 6
+	}
+	_, err := encodePayload(p)
+	if err == nil {
+		t.Fatal("expected error for 7-digit TOTP")
+	}
+	if !strings.Contains(err.Error(), "TOTP must be 6 digits") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestEncodePayloadInvalidNonce(t *testing.T) {
 	p := &KnockPayload{
 		Version:   1,
@@ -200,6 +218,61 @@ func TestDecodePayloadTruncatedTOTP(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "truncated TOTP") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDecodePayloadUnknownFlagBitsIgnored(t *testing.T) {
+	p := &KnockPayload{
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 60,
+	}
+
+	data, err := encodePayload(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	data[1] |= 0x80 // Unknown future flag bit.
+
+	decoded, err := decodePayload(data)
+	if err != nil {
+		t.Fatalf("decode with unknown flags should still succeed: %v", err)
+	}
+	if decoded.Command != "open-t22" {
+		t.Fatalf("command changed after unknown flags: got %q", decoded.Command)
+	}
+	if decoded.TOTP != "" {
+		t.Fatalf("unexpected TOTP parsed from unknown flag bit: %q", decoded.TOTP)
+	}
+}
+
+func TestDecodePayloadPaddingFlagWithoutPaddingBytes(t *testing.T) {
+	p := &KnockPayload{
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     "10.0.0.1",
+		Command:      "open-t22",
+		OpenDuration: 60,
+	}
+
+	data, err := encodePayload(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	data[1] |= flagPadding // Flag set but no trailing padding bytes.
+
+	decoded, err := decodePayload(data)
+	if err != nil {
+		t.Fatalf("decode should succeed with empty flagged padding: %v", err)
+	}
+	if decoded.Padding != "" {
+		t.Fatalf("expected empty padding, got %q", decoded.Padding)
 	}
 }
 
@@ -424,6 +497,49 @@ func TestEncodePayloadOpenDurationZero(t *testing.T) {
 	}
 }
 
+// checkFlagCombinationEncoding builds and round-trips a payload with the given flag combination.
+func checkFlagCombinationEncoding(t *testing.T, ipv6, totp, padding bool) {
+	t.Helper()
+	ip := "10.0.0.1"
+	if ipv6 {
+		ip = "2001:db8::1"
+	}
+	p := &KnockPayload{
+		Version:      1,
+		Timestamp:    1700000000,
+		Nonce:        hex.EncodeToString(make([]byte, 32)),
+		ClientIP:     ip,
+		Command:      "open-t22",
+		OpenDuration: 60,
+	}
+	if totp {
+		p.TOTP = "123456"
+	}
+	if padding {
+		p.Padding = hex.EncodeToString(make([]byte, 50))
+	}
+	data, err := encodePayload(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := decodePayload(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if totp && decoded.TOTP != "123456" {
+		t.Errorf("TOTP = %q, want %q", decoded.TOTP, "123456")
+	}
+	if !totp && decoded.TOTP != "" {
+		t.Errorf("TOTP = %q, want empty", decoded.TOTP)
+	}
+	if padding && decoded.Padding == "" {
+		t.Error("expected padding")
+	}
+	if !padding && decoded.Padding != "" {
+		t.Error("unexpected padding")
+	}
+}
+
 func TestEncodePayloadAllFlagCombinations(t *testing.T) {
 	// Test all 8 combinations of 3 flags (IPv6, TOTP, Padding)
 	tests := []struct {
@@ -443,44 +559,7 @@ func TestEncodePayloadAllFlagCombinations(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip := "10.0.0.1"
-			if tt.ipv6 {
-				ip = "2001:db8::1"
-			}
-			p := &KnockPayload{
-				Version:      1,
-				Timestamp:    1700000000,
-				Nonce:        hex.EncodeToString(make([]byte, 32)),
-				ClientIP:     ip,
-				Command:      "open-t22",
-				OpenDuration: 60,
-			}
-			if tt.totp {
-				p.TOTP = "123456"
-			}
-			if tt.padding {
-				p.Padding = hex.EncodeToString(make([]byte, 50))
-			}
-			data, err := encodePayload(p)
-			if err != nil {
-				t.Fatalf("encode: %v", err)
-			}
-			decoded, err := decodePayload(data)
-			if err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			if tt.totp && decoded.TOTP != "123456" {
-				t.Errorf("TOTP = %q, want %q", decoded.TOTP, "123456")
-			}
-			if !tt.totp && decoded.TOTP != "" {
-				t.Errorf("TOTP = %q, want empty", decoded.TOTP)
-			}
-			if tt.padding && decoded.Padding == "" {
-				t.Error("expected padding")
-			}
-			if !tt.padding && decoded.Padding != "" {
-				t.Error("unexpected padding")
-			}
+			checkFlagCombinationEncoding(t, tt.ipv6, tt.totp, tt.padding)
 		})
 	}
 }

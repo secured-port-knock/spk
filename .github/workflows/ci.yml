@@ -12,9 +12,97 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------
-  # Unit tests -- run on all three platforms
+  # Smoke tests -- Linux
+  # Installs libpcap so pcap sniffer smoke tests can run.
+  # Runs as root via sudo -E to allow pcap and AF_PACKET sniffer
+  # smoke tests. sudo -E preserves GOPATH, TMPDIR, and the Go
+  # module cache so the internal go build in TestMain succeeds.
+  # ---------------------------------------------------------------
+  smoke-tests-linux:
+    name: Smoke tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libpcap
+        run: sudo apt-get update -qq && sudo apt-get install -y libpcap-dev
+
+      - name: Run smoke tests (root required for pcap and AF_PACKET)
+        run: sudo -E go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+
+  # ---------------------------------------------------------------
+  # Smoke tests -- macOS
+  # libpcap (BPF) is built into macOS. Runs as root via sudo -E to
+  # allow the pcap sniffer smoke test. sudo -E preserves the Go
+  # environment so the internal go build in TestMain succeeds.
+  # ---------------------------------------------------------------
+  smoke-tests-macos:
+    name: Smoke tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run smoke tests (root required for pcap)
+        run: sudo -E go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+
+  # ---------------------------------------------------------------
+  # Smoke tests -- Windows
+  # Downloads WinDivert and copies the DLL and SYS files to
+  # System32 so the WinDivert sniffer smoke test can run.
+  # Npcap is not installed (silent install requires the paid OEM
+  # license); pcap smoke tests auto-skip. Windows CI runners
+  # already run as Administrator so no elevation is needed.
+  # ---------------------------------------------------------------
+  smoke-tests-windows:
+    name: Smoke tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install WinDivert
+        shell: pwsh
+        run: |
+          $url = "https://reqrypt.org/download/WinDivert-2.2.2-A.zip"
+          Invoke-WebRequest -Uri $url -OutFile windivert.zip
+          Expand-Archive -Path windivert.zip -DestinationPath windivert
+          $sys32 = "$env:SystemRoot\System32"
+          $dll = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert.dll" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          $sys = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert64.sys" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          if (-not $dll) { Write-Error "WinDivert.dll (x64) not found in archive"; exit 1 }
+          if (-not $sys) { Write-Error "WinDivert64.sys not found in archive"; exit 1 }
+          Copy-Item $dll.FullName $sys32
+          Copy-Item $sys.FullName $sys32
+          Write-Host "WinDivert installed to $sys32"
+
+      - name: Run smoke tests (WinDivert available, pcap auto-skipped)
+        run: go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+
+  # ---------------------------------------------------------------
+  # Unit tests + integration tests -- run on all three platforms
+  # Integration tests (tests/integration/) are pure Go, require no
+  # compiled binary or sniffer hardware, and run via ./... here.
   # ---------------------------------------------------------------
   unit-tests:
+    name: Unit + integration tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -28,11 +116,70 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run unit tests
-        run: go test ./... -count=1 -timeout 120s
+      - name: Run unit + integration tests
+        run: go test -buildvcs=false ./... -count=1 -timeout 120s
 
   # ---------------------------------------------------------------
-  # Unit tests with coverage (Linux only, uploaded as artifact)
+  # Fuzz seed corpus -- run all Fuzz* targets against their seed
+  # corpuses (seed-only, no mutation). Fast regression check that
+  # every known-good and known-bad input still behaves correctly.
+  # Linux only; corpus is platform-independent.
+  # ---------------------------------------------------------------
+  fuzz-seed-corpus:
+    name: Fuzz seed corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run fuzz seed corpus
+        run: go test -buildvcs=false -run=^Fuzz ./... -count=1 -timeout 120s
+
+  # ---------------------------------------------------------------
+  # Fuzz mutation -- run all Fuzz* targets with actual mutation for
+  # 10 s each. Mutation generates inputs beyond the seed corpus and
+  # finds bugs that seed-only testing misses. Each target gets its
+  # own go test invocation so failures are reported per-target.
+  # -run=^$ suppresses regular test execution so only the named
+  # fuzz target runs; this eliminates unrelated test log noise and
+  # ensures a non-zero exit from go test means the fuzzer itself
+  # found a failure (panic or invariant violation in the fuzz func).
+  # Linux only; mutation is platform-independent.
+  # ---------------------------------------------------------------
+  fuzz-mutation:
+    name: Fuzz mutation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run fuzz mutation (10s per target)
+        shell: bash
+        run: |
+          set -e
+          FUZZ_TIME="10s"
+          FAILED=false
+          for pkg in $(go list -buildvcs=false ./...); do
+            while IFS= read -r func; do
+              [ -z "$func" ] && continue
+              echo "=== Fuzzing $func in $pkg for $FUZZ_TIME ==="
+              go test -buildvcs=false -run='^$' -fuzz="^${func}$" -fuzztime="$FUZZ_TIME" -count=1 "$pkg" || FAILED=true
+            done < <(go test -buildvcs=false -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' || true)
+          done
+          if $FAILED; then exit 1; fi
+
+  # ---------------------------------------------------------------
+  # Coverage -- same tests as unit-tests but with -coverprofile.
+  # Linux only; result uploaded as artifact and sent to Codecov.
+  # Kept as a separate job so unit-tests stays fast without profiling.
   # ---------------------------------------------------------------
   coverage:
     runs-on: ubuntu-latest
@@ -45,7 +192,7 @@ jobs:
           cache: true
 
       - name: Run tests with coverage
-        run: go test ./... -coverprofile=coverage.out -count=1 -timeout 120s
+        run: go test -buildvcs=false ./... -coverprofile=coverage.out -count=1 -timeout 120s
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -58,26 +205,6 @@ jobs:
         with:
           files: ./coverage.out
           fail_ci_if_error: false
-
-  # ---------------------------------------------------------------
-  # Integration tests
-  # ---------------------------------------------------------------
-  integration-tests:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run integration tests
-        run: go test -v -count=1 -timeout 120s ./tests/integration/
 
   # ---------------------------------------------------------------
   # Sniffer tests -- Linux (pcap + AF_PACKET)
@@ -96,18 +223,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
       - name: Build sniffer test binary (verify pcap compiles)
-        run: go test -c -o /tmp/spk_sniffer_test ./internal/sniffer/
+        run: go test -buildvcs=false -c -o /tmp/spk_sniffer_test ./internal/sniffer/
 
       - name: Run all sniffer tests (pcap + AF_PACKET + parse + dynamic ports)
-        run: sudo go test -v -count=1 -timeout 180s ./internal/sniffer/
+        run: sudo go test -buildvcs=false -v -count=1 -timeout 180s ./internal/sniffer/
 
   # ---------------------------------------------------------------
   # Sniffer tests -- Windows
+  # Downloads WinDivert so WinDivert sniffer tests run alongside
+  # the parse, detection, UDP, and dynamic-port tests.
   # Npcap cannot be silently installed in CI without the paid OEM
-  # installer, so pcap tests auto-skip (loadPcapLibrary returns an
-  # error when wpcap.dll is absent).  All non-pcap tests still run:
-  # parse logic, UDP sniffer, WinDivert stubs, detection, dynamic
-  # ports, struct sizes, and pcap_dynamic creation/stop tests.
+  # license, so pcap tests auto-skip (loadPcapLibrary returns an
+  # error when wpcap.dll is absent).
   # ---------------------------------------------------------------
   sniffer-tests-windows:
     runs-on: windows-latest
@@ -119,8 +246,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run sniffer tests (pcap auto-skipped without Npcap)
-        run: go test -v -count=1 -timeout 120s ./internal/sniffer/
+      - name: Install WinDivert
+        shell: pwsh
+        run: |
+          $url = "https://reqrypt.org/download/WinDivert-2.2.2-A.zip"
+          Invoke-WebRequest -Uri $url -OutFile windivert.zip
+          Expand-Archive -Path windivert.zip -DestinationPath windivert
+          $sys32 = "$env:SystemRoot\System32"
+          $dll = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert.dll" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          $sys = Get-ChildItem -Path windivert -Recurse -Filter "WinDivert64.sys" |
+                 Where-Object { $_.FullName -match "x64" } |
+                 Select-Object -First 1
+          if (-not $dll) { Write-Error "WinDivert.dll (x64) not found in archive"; exit 1 }
+          if (-not $sys) { Write-Error "WinDivert64.sys not found in archive"; exit 1 }
+          Copy-Item $dll.FullName $sys32
+          Copy-Item $sys.FullName $sys32
+          Write-Host "WinDivert installed to $sys32"
+
+      - name: Run sniffer tests (WinDivert + pcap auto-skipped without Npcap)
+        run: go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/
 
   # ---------------------------------------------------------------
   # Sniffer tests -- macOS (pcap via built-in libpcap)
@@ -136,7 +282,7 @@ jobs:
           cache: true
 
       - name: Run all sniffer tests (pcap + parse + dynamic ports)
-        run: sudo go test -v -count=1 -timeout 180s ./internal/sniffer/
+        run: sudo go test -buildvcs=false -v -count=1 -timeout 180s ./internal/sniffer/
 
   # ---------------------------------------------------------------
   # Lint
@@ -152,7 +298,7 @@ jobs:
           cache: true
 
       - name: Vet
-        run: go vet ./...
+        run: go vet -buildvcs=false ./...
 
       - name: Format check
         run: |

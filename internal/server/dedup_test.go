@@ -329,6 +329,39 @@ func TestTryReserveConcurrentDifferentPorts(t *testing.T) {
 	}
 }
 
+func TestTrackerConcurrentRefreshAndReadStability(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	logger := log.New(os.Stdout, "[test] ", 0)
+	tracker := NewTracker(statePath, logger, true)
+
+	tracker.Add(&PortEntry{
+		IP: "10.0.0.10", Port: "t22", Proto: "tcp", PortNum: "22",
+		ExpiresAt: time.Now().Add(1 * time.Minute),
+	})
+
+	const goroutines = 40
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			future := time.Now().Add(time.Duration(2+idx%5) * time.Minute)
+			tracker.RefreshExpiry("10.0.0.10", "22", "tcp", future)
+			_ = tracker.GetExpired()
+			_ = tracker.GetAll()
+			_ = tracker.Has("10.0.0.10", "22", "tcp")
+		}(i)
+	}
+	wg.Wait()
+
+	if !tracker.Has("10.0.0.10", "22", "tcp") {
+		t.Fatal("tracked entry disappeared during concurrent refresh/read operations")
+	}
+	if len(tracker.GetExpired()) != 0 {
+		t.Fatal("entry should not be expired after concurrent refresh operations")
+	}
+}
+
 // ========================================================================
 // ExecuteCommandTimeout tests
 // ========================================================================

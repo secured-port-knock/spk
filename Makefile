@@ -5,7 +5,7 @@
 # (version/build_number.txt) is updated non-atomically; concurrent make
 # processes would produce duplicate build numbers or a corrupted file.
 # Always run make without the -j flag.
-.PHONY: build test clean all linux windows darwin cross vet coverage test-short
+.PHONY: build test testall testfuzz test-smoke clean all linux windows darwin cross vet coverage test-short
 .NOTPARALLEL:
 
 BINARY=spk
@@ -36,9 +36,19 @@ endif
 
 test:
 	go test $(shell go list ./... | grep -v /sniffer) -v -count=1
+	go test $(shell go list ./... | grep -v /sniffer) -count=1 -run "^Fuzz"
 
 test-short:
 	go test $(shell go list ./... | grep -v /sniffer) -count=1
+
+testfuzz:
+	go test $(shell go list ./... | grep -v /sniffer) -count=1 -run "^Fuzz"
+
+testall:
+	./build.sh -testall
+
+test-smoke:
+	go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
 
 coverage:
 	go test $(shell go list ./... | grep -v /sniffer) -coverprofile=coverage.out

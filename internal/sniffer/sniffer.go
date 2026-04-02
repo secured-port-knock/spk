@@ -51,24 +51,50 @@ const MaxPacketSize = 8192
 // ML-KEM-1024 packets are always larger, so this threshold validates both sizes.
 const MinPacketSize = 1088 + 12 + 16 + 2 // = 1118
 
-// Start begins listening for UDP packets.
-func (s *UDPSniffer) Start(handler PacketHandler) error {
+// bind pre-creates the UDP socket without entering the receive loop.
+// Called by NewSniffer for specific (non-wildcard) addresses to eliminate the
+// race between the server logging "Listening for knock packets..." and the
+// socket actually being ready to accept packets. Direct callers of
+// NewUDPSniffer (tests, dynamic port rotation) bind lazily in Start instead.
+func (s *UDPSniffer) bind() error {
 	addr, err := net.ResolveUDPAddr("udp", s.Address)
 	if err != nil {
 		return fmt.Errorf("resolve address %s: %w", s.Address, err)
 	}
-
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return fmt.Errorf("listen UDP %s: %w", s.Address, err)
 	}
-
+	conn.SetReadBuffer(256 * 1024) // 256 KB read buffer
 	s.mu.Lock()
 	s.conn = conn
 	s.mu.Unlock()
+	return nil
+}
 
-	// Set read buffer to limit memory usage from UDP floods
-	conn.SetReadBuffer(256 * 1024) // 256 KB read buffer
+// Start begins listening for UDP packets.
+// If the socket was pre-bound via bind() (called by NewSniffer), Start
+// enters the receive loop immediately without re-binding.
+func (s *UDPSniffer) Start(handler PacketHandler) error {
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+
+	if conn == nil {
+		// Not pre-bound; bind now (direct NewUDPSniffer usage).
+		addr, err := net.ResolveUDPAddr("udp", s.Address)
+		if err != nil {
+			return fmt.Errorf("resolve address %s: %w", s.Address, err)
+		}
+		conn, err = net.ListenUDP("udp", addr)
+		if err != nil {
+			return fmt.Errorf("listen UDP %s: %w", s.Address, err)
+		}
+		s.mu.Lock()
+		s.conn = conn
+		s.mu.Unlock()
+		conn.SetReadBuffer(256 * 1024) // 256 KB read buffer
+	}
 
 	buf := make([]byte, MaxPacketSize+1) // +1 to detect oversized packets
 	for {
@@ -121,6 +147,51 @@ func (s *UDPSniffer) Stop() error {
 	return nil
 }
 
+// newUDPSnifferForAddresses creates pre-bound UDPSniffer instances for the
+// given addresses. Wildcard addresses bind lazily in Start; specific IPs are
+// pre-bound so the socket is ready before the server logs "Listening...".
+// Returns a MultiSniffer when more than one address is requested.
+func newUDPSnifferForAddresses(addresses []string, port int) (Sniffer, error) {
+	if len(addresses) == 1 {
+		s := NewUDPSniffer(addresses[0], port)
+		if !isWildcardAddr(addresses[0]) {
+			if err := s.bind(); err != nil {
+				return nil, err
+			}
+		}
+		return s, nil
+	}
+	sniffers := make([]Sniffer, 0, len(addresses))
+	for _, addr := range addresses {
+		s := NewUDPSniffer(addr, port)
+		if !isWildcardAddr(addr) {
+			if err := s.bind(); err != nil {
+				for _, prev := range sniffers {
+					prev.Stop()
+				}
+				return nil, err
+			}
+		}
+		sniffers = append(sniffers, s)
+	}
+	return &MultiSniffer{sniffers: sniffers}, nil
+}
+
+// newStealthSnifferForAddresses creates sniffer instances for a stealth mode
+// (afpacket, pcap, windivert) using the provided factory. A wildcard address
+// or a single address yields one sniffer; multiple specific addresses are
+// wrapped in a MultiSniffer.
+func newStealthSnifferForAddresses(isWildcard bool, addresses []string, port int, factory func(string, int) Sniffer) Sniffer {
+	if isWildcard || len(addresses) == 1 {
+		return factory(addresses[0], port)
+	}
+	sniffers := make([]Sniffer, 0, len(addresses))
+	for _, addr := range addresses {
+		sniffers = append(sniffers, factory(addr, port))
+	}
+	return &MultiSniffer{sniffers: sniffers}
+}
+
 // NewSniffer creates a sniffer based on the configured mode.
 //
 // Address semantics:
@@ -155,54 +226,35 @@ func NewSniffer(mode string, addresses []string, port int) (Sniffer, error) {
 
 	switch mode {
 	case "udp", "":
-		if len(addresses) == 1 {
-			return NewUDPSniffer(addresses[0], port), nil
-		}
-		// Multiple addresses: one UDP listener per address (e.g. 0.0.0.0 + ::)
-		sniffers := make([]Sniffer, 0, len(addresses))
-		for _, addr := range addresses {
-			sniffers = append(sniffers, NewUDPSniffer(addr, port))
-		}
-		return &MultiSniffer{sniffers: sniffers}, nil
+		// Pre-bind the UDP socket for specific (non-wildcard) addresses so that
+		// the socket is ready before the server logs "Listening for knock
+		// packets...". Wildcard addresses (0.0.0.0, ::) are left to bind lazily
+		// in Start to avoid failures on systems without dual-stack IPv6.
+		return newUDPSnifferForAddresses(addresses, port)
 
 	case "afpacket":
 		// With a wildcard the AF_PACKET socket already captures every interface
 		// (dual IPv4+IPv6 sockets, no bind restriction). For specific IPs each
 		// sniffer binds to the interface that owns that IP.
-		if isWildcard || len(addresses) == 1 {
-			return NewAFPacketSniffer(addresses[0], port), nil
-		}
-		sniffers := make([]Sniffer, 0, len(addresses))
-		for _, addr := range addresses {
-			sniffers = append(sniffers, NewAFPacketSniffer(addr, port))
-		}
-		return &MultiSniffer{sniffers: sniffers}, nil
+		return newStealthSnifferForAddresses(isWildcard, addresses, port, func(addr string, p int) Sniffer {
+			return NewAFPacketSniffer(addr, p)
+		}), nil
 
 	case "pcap":
 		// Linux/pcap uses the "any" device for wildcards (captures all interfaces).
 		// macOS/Windows must pick one device; wildcards use the default-route NIC.
 		// For multiple specific addresses, open a handle per interface.
-		if isWildcard || len(addresses) == 1 {
-			return NewPcapSniffer(addresses[0], port), nil
-		}
-		sniffers := make([]Sniffer, 0, len(addresses))
-		for _, addr := range addresses {
-			sniffers = append(sniffers, NewPcapSniffer(addr, port))
-		}
-		return &MultiSniffer{sniffers: sniffers}, nil
+		return newStealthSnifferForAddresses(isWildcard, addresses, port, func(addr string, p int) Sniffer {
+			return NewPcapSniffer(addr, p)
+		}), nil
 
 	case "windivert":
 		// WinDivert intercepts at the WFP kernel layer for all interfaces.
 		// Specific addresses are validated above; interface filtering happens
 		// inside the sniffer via the packet handler IP check.
-		if isWildcard || len(addresses) == 1 {
-			return NewWinDivertSniffer(addresses[0], port), nil
-		}
-		sniffers := make([]Sniffer, 0, len(addresses))
-		for _, addr := range addresses {
-			sniffers = append(sniffers, NewWinDivertSniffer(addr, port))
-		}
-		return &MultiSniffer{sniffers: sniffers}, nil
+		return newStealthSnifferForAddresses(isWildcard, addresses, port, func(addr string, p int) Sniffer {
+			return NewWinDivertSniffer(addr, p)
+		}), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported sniffer mode: %s (available: udp, afpacket, pcap, windivert)", mode)

@@ -352,6 +352,34 @@ func TestParseIPv6UDPWithExtensionHeader(t *testing.T) {
 	}
 }
 
+func TestParseIPv6UDPExtensionLengthOverflow(t *testing.T) {
+	// Next Header = Hop-by-Hop, but extension length claims bytes we do not have.
+	pkt := make([]byte, 44)
+	pkt[0] = 0x60 // Version=6
+	pkt[6] = 0    // Hop-by-Hop extension follows the IPv6 header
+
+	// Extension header starts at offset 40.
+	pkt[40] = 17   // Would point to UDP
+	pkt[41] = 0xFF // (255+1)*8 bytes required -> far beyond packet length
+
+	srcIP, data := parseIPv6UDP(pkt)
+	if srcIP != "" || data != nil {
+		t.Error("expected rejection for extension header length overflow")
+	}
+}
+
+func TestParseIPv6UDPUnknownExtensionHeader(t *testing.T) {
+	// Unknown extension/header type must be rejected.
+	pkt := make([]byte, 56)
+	pkt[0] = 0x60 // Version=6
+	pkt[6] = 99   // Unknown next header (not UDP and not supported extension)
+
+	srcIP, data := parseIPv6UDP(pkt)
+	if srcIP != "" || data != nil {
+		t.Error("expected nil result for unknown IPv6 extension header")
+	}
+}
+
 func TestParseIPv6UDPNoNextHeader(t *testing.T) {
 	// IPv6 with Next Header = 59 (No Next Header)
 	pkt := make([]byte, 48)

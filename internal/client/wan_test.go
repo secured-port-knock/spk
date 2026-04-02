@@ -4,6 +4,7 @@ package client
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -328,5 +329,69 @@ func TestIsPrivateTargetCGNAT(t *testing.T) {
 	}
 	if !isPrivateTarget("100.100.100.100") {
 		t.Error("isPrivateTarget(100.100.100.100) should return true (CGNAT)")
+	}
+}
+
+func TestParseSTUNResponseMagicCookieMismatch(t *testing.T) {
+	txID := [12]byte{0x01, 0x02, 0x03, 0x04}
+
+	resp := make([]byte, 20)
+	resp[0], resp[1] = 0x01, 0x01 // Binding Success Response
+	resp[2], resp[3] = 0x00, 0x00
+	copy(resp[4:8], []byte{0x00, 0x00, 0x00, 0x00}) // Wrong magic cookie
+	copy(resp[8:20], txID[:])
+
+	_, err := parseSTUNResponse(resp, txID)
+	if err == nil {
+		t.Fatal("expected magic cookie mismatch error")
+	}
+}
+
+func TestParseSTUNResponseTruncatedAttributePayload(t *testing.T) {
+	txID := [12]byte{0xAA, 0xBB, 0xCC, 0xDD}
+
+	// Header says 8 bytes of attributes follow, but we only provide 4 bytes
+	// (attribute header without payload).
+	resp := make([]byte, 24)
+	resp[0], resp[1] = 0x01, 0x01
+	resp[2], resp[3] = 0x00, 0x08
+	copy(resp[4:8], stunMagicCookie)
+	copy(resp[8:20], txID[:])
+
+	// XOR-MAPPED-ADDRESS attribute with declared length 8, but no body included.
+	resp[20], resp[21] = 0x00, 0x20
+	resp[22], resp[23] = 0x00, 0x08
+
+	_, err := parseSTUNResponse(resp, txID)
+	if err == nil {
+		t.Fatal("expected error for truncated STUN attribute")
+	}
+}
+
+func TestDetectWANIPAllServersFailIncludesServerCount(t *testing.T) {
+	_, err := detectWANIP([]string{"not-a-valid-stun-server", "also-invalid"})
+	if err == nil {
+		t.Fatal("expected WAN detection failure")
+	}
+	if !strings.Contains(err.Error(), "tried 2 STUN servers") {
+		t.Fatalf("error should include attempted server count, got: %v", err)
+	}
+}
+
+func TestResolveClientIPManualIPv6Override(t *testing.T) {
+	manual := "2001:db8::1234"
+	ip, err := resolveClientIP("8.8.8.8", 12345, manual, nil)
+	if err != nil {
+		t.Fatalf("resolveClientIP: %v", err)
+	}
+	if ip != manual {
+		t.Fatalf("manual IPv6 override changed: got %q want %q", ip, manual)
+	}
+}
+
+func TestResolveClientIPNoSTUNInvalidHost(t *testing.T) {
+	_, err := resolveClientIP("definitely.invalid.host.invalid", 12345, "", nil)
+	if err == nil {
+		t.Fatal("expected error when host cannot be resolved and STUN is disabled")
 	}
 }

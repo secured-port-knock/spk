@@ -17,6 +17,20 @@ import (
 	"unsafe"
 )
 
+// etherTypeName returns a human-readable name for an Ethernet II EtherType.
+func etherTypeName(et uint16) string {
+	switch et {
+	case 0x0800:
+		return "IPv4"
+	case 0x0806:
+		return "ARP"
+	case 0x86DD:
+		return "IPv6"
+	default:
+		return fmt.Sprintf("0x%04x", et)
+	}
+}
+
 // TestPcapEnumerateAllDevices lists every device pcap sees with its addresses.
 // This exposes whether the "first device" chosen by findDevice is sensible.
 func TestPcapEnumerateAllDevices(t *testing.T) {
@@ -231,16 +245,7 @@ func TestPcapCaptureRaw(t *testing.T) {
 				proto := "?"
 				if linkType == dltEN10MB && len(raw) >= 14 {
 					et := uint16(raw[12])<<8 | uint16(raw[13])
-					switch et {
-					case 0x0800:
-						proto = "IPv4"
-					case 0x0806:
-						proto = "ARP"
-					case 0x86DD:
-						proto = "IPv6"
-					default:
-						proto = fmt.Sprintf("0x%04x", et)
-					}
+					proto = etherTypeName(et)
 				}
 				t.Logf("  Pkt %d: caplen=%d len=%d proto=%s", captured, hdr.caplen, hdr.pktLen, proto)
 			}

@@ -364,6 +364,44 @@ func TestBundleCRC32RawAndBase64Consistent(t *testing.T) {
 	}
 }
 
+type crcRoundTripCase struct {
+	name         string
+	port         int
+	customDur    bool
+	customPort   bool
+	openAll      bool
+	seed         []byte
+	dynamic      bool
+	openDuration int
+	window       int
+}
+
+// assertBundleFields checks that a decoded bundle matches the expected case values.
+func assertBundleFields(t *testing.T, bundle *ExportBundle, tc crcRoundTripCase) {
+	t.Helper()
+	if bundle.DynamicPort != tc.dynamic {
+		t.Errorf("DynamicPort = %v, want %v", bundle.DynamicPort, tc.dynamic)
+	}
+	if !tc.dynamic && bundle.Port != tc.port {
+		t.Errorf("Port = %d, want %d", bundle.Port, tc.port)
+	}
+	if bundle.AllowCustomOpenDuration != tc.customDur {
+		t.Errorf("AllowCustomOpenDuration = %v, want %v", bundle.AllowCustomOpenDuration, tc.customDur)
+	}
+	if bundle.AllowCustomPort != tc.customPort {
+		t.Errorf("AllowCustomPort = %v, want %v", bundle.AllowCustomPort, tc.customPort)
+	}
+	if bundle.AllowOpenAll != tc.openAll {
+		t.Errorf("AllowOpenAll = %v, want %v", bundle.AllowOpenAll, tc.openAll)
+	}
+	if bundle.DefaultOpenDuration != tc.openDuration {
+		t.Errorf("DefaultOpenDuration = %d, want %d", bundle.DefaultOpenDuration, tc.openDuration)
+	}
+	if bundle.DynPortWindow != tc.window {
+		t.Errorf("DynPortWindow = %d, want %d", bundle.DynPortWindow, tc.window)
+	}
+}
+
 // TestBundleCRC32AllFieldsRoundTrip verifies that every logical field survives
 // a full encode-then-decode cycle with CRC32 present.
 func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
@@ -373,17 +411,7 @@ func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	cases := []struct {
-		name         string
-		port         int
-		customDur    bool
-		customPort   bool
-		openAll      bool
-		seed         []byte
-		dynamic      bool
-		openDuration int
-		window       int
-	}{
+	cases := []crcRoundTripCase{
 		{"static-minimal", 22, false, false, false, nil, false, 0, 0},
 		{"static-all-flags", 443, true, true, true, nil, false, 3600, 900},
 		{"dynamic-no-flags", 0, false, false, false, []byte{1, 2, 3, 4, 5, 6, 7, 8}, true, 300, 120},
@@ -398,33 +426,11 @@ func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("encodeV1Binary: %v", err)
 			}
-
 			bundle, err := decodeBinary(raw)
 			if err != nil {
 				t.Fatalf("decodeBinary: %v", err)
 			}
-
-			if bundle.DynamicPort != tc.dynamic {
-				t.Errorf("DynamicPort = %v, want %v", bundle.DynamicPort, tc.dynamic)
-			}
-			if !tc.dynamic && bundle.Port != tc.port {
-				t.Errorf("Port = %d, want %d", bundle.Port, tc.port)
-			}
-			if bundle.AllowCustomOpenDuration != tc.customDur {
-				t.Errorf("AllowCustomOpenDuration = %v, want %v", bundle.AllowCustomOpenDuration, tc.customDur)
-			}
-			if bundle.AllowCustomPort != tc.customPort {
-				t.Errorf("AllowCustomPort = %v, want %v", bundle.AllowCustomPort, tc.customPort)
-			}
-			if bundle.AllowOpenAll != tc.openAll {
-				t.Errorf("AllowOpenAll = %v, want %v", bundle.AllowOpenAll, tc.openAll)
-			}
-			if bundle.DefaultOpenDuration != tc.openDuration {
-				t.Errorf("DefaultOpenDuration = %d, want %d", bundle.DefaultOpenDuration, tc.openDuration)
-			}
-			if bundle.DynPortWindow != tc.window {
-				t.Errorf("DynPortWindow = %d, want %d", bundle.DynPortWindow, tc.window)
-			}
+			assertBundleFields(t, bundle, tc)
 		})
 	}
 }

@@ -143,6 +143,39 @@ func FuzzValidateCommand(f *testing.F) {
 	})
 }
 
+// isTOTPValid returns false when totp is present and contains non-digit or wrong length chars.
+func isTOTPValid(totp string) bool {
+	if totp == "" {
+		return true
+	}
+	if len(totp) != 6 {
+		return false
+	}
+	for _, c := range totp {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// assertPayloadRoundtrip checks that decoded matches the original payload after encode->decode.
+func assertPayloadRoundtrip(t *testing.T, orig, decoded *KnockPayload) {
+	t.Helper()
+	if decoded.Version != orig.Version {
+		t.Errorf("version mismatch: got %d, want %d", decoded.Version, orig.Version)
+	}
+	if decoded.Command != orig.Command {
+		t.Errorf("command mismatch: got %q, want %q", decoded.Command, orig.Command)
+	}
+	if decoded.OpenDuration != orig.OpenDuration {
+		t.Errorf("duration mismatch: got %d, want %d", decoded.OpenDuration, orig.OpenDuration)
+	}
+	if decoded.TOTP != orig.TOTP {
+		t.Errorf("TOTP mismatch: got %q, want %q", decoded.TOTP, orig.TOTP)
+	}
+}
+
 // FuzzEncodeDecodePayloadRoundtrip tests that encode->decode is identity.
 func FuzzEncodeDecodePayloadRoundtrip(f *testing.F) {
 	f.Add("192.168.1.1", "open-t22", 3600, "", "")
@@ -151,21 +184,24 @@ func FuzzEncodeDecodePayloadRoundtrip(f *testing.F) {
 	f.Add("2001:db8::1", "cust-restart", 600, "999999", "00112233")
 
 	f.Fuzz(func(t *testing.T, ip, cmd string, duration int, totp, paddingHex string) {
-		// Constrain inputs to valid ranges for meaningful roundtrip tests
 		if duration < 0 || duration > 604800 {
 			return
 		}
 		if err := ValidateCommand(cmd); err != nil {
 			return
 		}
-		if totp != "" && len(totp) != 6 {
+		// The protocol canonicalizes command prefixes to lowercase
+		// (e.g. "Cust-0" → "cust-0"), so normalize before comparison.
+		cmdType, cmdData, err := encodeCommandBinary(cmd)
+		if err != nil {
 			return
 		}
-		// Verify TOTP is digit-only if present
-		for _, c := range totp {
-			if c < '0' || c > '9' {
-				return
-			}
+		cmd, err = decodeCommandBinary(cmdType, cmdData)
+		if err != nil {
+			return
+		}
+		if !isTOTPValid(totp) {
+			return
 		}
 
 		nonceBytes := make([]byte, NonceBytes)
@@ -194,18 +230,7 @@ func FuzzEncodeDecodePayloadRoundtrip(f *testing.F) {
 			t.Fatalf("roundtrip decode failed: %v", err)
 		}
 
-		if decoded.Version != payload.Version {
-			t.Errorf("version mismatch: got %d, want %d", decoded.Version, payload.Version)
-		}
-		if decoded.Command != payload.Command {
-			t.Errorf("command mismatch: got %q, want %q", decoded.Command, payload.Command)
-		}
-		if decoded.OpenDuration != payload.OpenDuration {
-			t.Errorf("duration mismatch: got %d, want %d", decoded.OpenDuration, payload.OpenDuration)
-		}
-		if decoded.TOTP != payload.TOTP {
-			t.Errorf("TOTP mismatch: got %q, want %q", decoded.TOTP, payload.TOTP)
-		}
+		assertPayloadRoundtrip(t, payload, decoded)
 	})
 }
 
@@ -330,6 +355,53 @@ func TestDecodePayload_TruncatedAtEveryOffset(t *testing.T) {
 	}
 }
 
+// buildPayloadFromFlags creates a KnockPayload for the given flag byte and nonce.
+func buildPayloadFromFlags(t *testing.T, flags byte, nonce []byte) *KnockPayload {
+	t.Helper()
+	ipStr := "10.0.0.1"
+	if flags&flagIPv6 != 0 {
+		ipStr = "2001:db8::1"
+	}
+	p := &KnockPayload{
+		Version:      ProtocolVersion,
+		Timestamp:    time.Now().Unix(),
+		Nonce:        hex.EncodeToString(nonce),
+		ClientIP:     ipStr,
+		Command:      "open-t22",
+		OpenDuration: 3600,
+	}
+	if flags&flagTOTP != 0 {
+		p.TOTP = "123456"
+	}
+	if flags&flagPadding != 0 {
+		padBytes := make([]byte, 64)
+		if _, err := io.ReadFull(rand.Reader, padBytes); err != nil {
+			t.Fatal(err)
+		}
+		p.Padding = hex.EncodeToString(padBytes)
+	}
+	return p
+}
+
+// checkFlagsRoundtrip encodes then decodes a payload and asserts field equality.
+func checkFlagsRoundtrip(t *testing.T, payload *KnockPayload) {
+	t.Helper()
+	encoded, err := encodePayload(payload)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := decodePayload(encoded)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if decoded.Command != payload.Command {
+		t.Errorf("command: got %q, want %q", decoded.Command, payload.Command)
+	}
+	if decoded.TOTP != payload.TOTP {
+		t.Errorf("TOTP: got %q, want %q", decoded.TOTP, payload.TOTP)
+	}
+}
+
 // TestDecodePayload_AllFlagCombinations tests all 8 flag combinations.
 func TestDecodePayload_AllFlagCombinations(t *testing.T) {
 	nonce := make([]byte, NonceBytes)
@@ -339,48 +411,8 @@ func TestDecodePayload_AllFlagCombinations(t *testing.T) {
 
 	for flags := byte(0); flags < 8; flags++ {
 		t.Run(fmt.Sprintf("flags=0x%02x", flags), func(t *testing.T) {
-			ipStr := "10.0.0.1"
-			if flags&flagIPv6 != 0 {
-				ipStr = "2001:db8::1"
-			}
-
-			payload := &KnockPayload{
-				Version:      ProtocolVersion,
-				Timestamp:    time.Now().Unix(),
-				Nonce:        hex.EncodeToString(nonce),
-				ClientIP:     ipStr,
-				Command:      "open-t22",
-				OpenDuration: 3600,
-			}
-
-			if flags&flagTOTP != 0 {
-				payload.TOTP = "123456"
-			}
-
-			if flags&flagPadding != 0 {
-				padBytes := make([]byte, 64)
-				if _, err := io.ReadFull(rand.Reader, padBytes); err != nil {
-					t.Fatal(err)
-				}
-				payload.Padding = hex.EncodeToString(padBytes)
-			}
-
-			encoded, err := encodePayload(payload)
-			if err != nil {
-				t.Fatalf("encode: %v", err)
-			}
-
-			decoded, err := decodePayload(encoded)
-			if err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-
-			if decoded.Command != payload.Command {
-				t.Errorf("command: got %q, want %q", decoded.Command, payload.Command)
-			}
-			if decoded.TOTP != payload.TOTP {
-				t.Errorf("TOTP: got %q, want %q", decoded.TOTP, payload.TOTP)
-			}
+			payload := buildPayloadFromFlags(t, flags, nonce)
+			checkFlagsRoundtrip(t, payload)
 		})
 	}
 }

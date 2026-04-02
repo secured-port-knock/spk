@@ -98,6 +98,7 @@ func TestSnifferCreationAtMultipleDynamicPorts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSniffer(udp, port=%d): %v", port, err)
 		}
+		t.Cleanup(func() { s.Stop() })
 		// Verify it was created at the right port
 		if udp, ok := s.(*UDPSniffer); ok {
 			expectedAddr := "127.0.0.1:" + itoa(port)

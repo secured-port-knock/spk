@@ -14,8 +14,10 @@
 #   .\build.ps1 -windows -arm64   # Build windows/arm64 only
 #   .\build.ps1 -all              # Build all platform/arch combinations
 #   .\build.ps1 -nopcap           # Disable pcap for Linux/Darwin builds
-#   .\build.ps1 -test             # Run tests (excluding sniffer hardware tests)
+#   .\build.ps1 -test             # Run unit tests + fuzz seed corpus (excluding sniffer hardware tests)
+#   .\build.ps1 -testall          # Run all tests: smoke, unit+integration, fuzz, sniffer
 #   .\build.ps1 -testSniffer      # Run sniffer hardware tests (requires Npcap on Windows)
+#   .\build.ps1 -testsmoke        # Run end-to-end smoke tests (builds binary, requires no special privileges for UDP mode)
 #   .\build.ps1 -coverage         # Run tests with coverage
 #   .\build.ps1 -clean            # Clean build artifacts
 #   .\build.ps1 -linux -deb       # Build linux + create .deb packages
@@ -45,7 +47,9 @@ param(
     [switch]$all,
     [switch]$nopcap,
     [switch]$test,
+    [switch]$testall,
     [switch]$testSniffer,
+    [switch]$testsmoke,
     [switch]$coverage,
     [switch]$clean,
     [switch]$deb,
@@ -157,15 +161,118 @@ $gccNative = Get-Command gcc -ErrorAction SilentlyContinue
 
 Write-Host ""
 
-# Handle test/coverage/clean first
-if ($test) {
-    Write-Host "Running tests (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
-    $packages = & go list ./... | Where-Object { $_ -notlike '*/sniffer' }
-    go test $packages -count=1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Tests failed!" -ForegroundColor Red
-        exit 1
+# Handle test/coverage/clean/testsmoke first
+# Helper: set up $TMP/spk test temp dir, returns original TEMP and the spk path.
+function Enter-TestTmp {
+    $origTemp = $env:TEMP
+    $origTmp  = $env:TMP
+    $spkTmp   = Join-Path $origTemp "spk"
+    New-Item -ItemType Directory -Path $spkTmp -Force | Out-Null
+    $env:TEMP = $spkTmp
+    $env:TMP  = $spkTmp
+    return @{ OrigTemp = $origTemp; OrigTmp = $origTmp; SpkTmp = $spkTmp }
+}
+
+# Helper: restore TEMP/TMP and clean up $TMP/spk.
+function Exit-TestTmp($saved) {
+    $env:TEMP = $saved.OrigTemp
+    $env:TMP  = $saved.OrigTmp
+    Remove-Item $saved.SpkTmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+if ($testsmoke) {
+    Write-Host "Running end-to-end smoke tests (tag: testsmoke)..." -ForegroundColor Green
+    $saved = Enter-TestTmp
+    try {
+        go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Smoke tests failed!" -ForegroundColor Red
+            exit 1
+        }
+    } finally {
+        Exit-TestTmp $saved
     }
+    exit 0
+}
+
+if ($test) {
+    Write-Host "Running unit tests + fuzz seed corpus (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
+    $packages = & go list -buildvcs=false ./... | Where-Object { $_ -notlike '*/sniffer' }
+    $saved = Enter-TestTmp
+    try {
+        go test -buildvcs=false -count=1 $packages
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Tests failed!" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host ""
+        Write-Host "Running fuzz seed corpus..." -ForegroundColor Cyan
+        go test -buildvcs=false -count=1 -run "^Fuzz" $packages
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Fuzz seed corpus tests failed!" -ForegroundColor Red
+            exit 1
+        }
+    } finally {
+        Exit-TestTmp $saved
+    }
+    exit 0
+}
+
+if ($testall) {
+    Write-Host "Running all tests (smoke, unit+integration, fuzz, sniffer)..." -ForegroundColor Green
+    Write-Host ""
+    $saved = Enter-TestTmp
+    $failed = $false
+    try {
+        # Phase 1: smoke tests (requires SPK binary subprocess)
+        Write-Host "[1/4] Smoke tests..." -ForegroundColor Cyan
+        go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+        if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Smoke tests failed" }
+
+        # Phase 2: unit + integration tests (pure Go, no binary or hardware needed)
+        Write-Host ""
+        Write-Host "[2/4] Unit + integration tests..." -ForegroundColor Cyan
+        $unitPkgs = & go list -buildvcs=false ./... | Where-Object { $_ -notlike '*/sniffer' }
+        go test -buildvcs=false -count=1 $unitPkgs
+        if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Unit + integration tests failed" }
+
+        # Phase 3: fuzz seed corpus
+        Write-Host ""
+        Write-Host "[3/4] Fuzz seed corpus..." -ForegroundColor Cyan
+        go test -buildvcs=false -count=1 -run "^Fuzz" $unitPkgs
+        if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Fuzz seed corpus tests failed" }
+
+        # Phase 4: sniffer hardware tests (Npcap or WinDivert or both)
+        Write-Host ""
+        Write-Host "[4/4] Sniffer hardware tests..." -ForegroundColor Cyan
+        $sys32 = "$env:SystemRoot\System32"
+        $npcapInstalled = (Test-Path "$sys32\Npcap\wpcap.dll") -or (Test-Path "$sys32\wpcap.dll")
+        $windivertInstalled = (Test-Path "$sys32\WinDivert.dll") -or (Test-Path "$sys32\WinDivert64.sys")
+        if (-not $npcapInstalled -and -not $windivertInstalled) {
+            Write-Host "  INFO: Neither Npcap nor WinDivert found -- skipping sniffer hardware tests." -ForegroundColor Yellow
+            Write-Host "  Install Npcap:     winget install Npcap.Npcap" -ForegroundColor Yellow
+            Write-Host "  Install WinDivert: https://reqrypt.org/windivert.html" -ForegroundColor Yellow
+        } else {
+            if ($npcapInstalled)     { Write-Host "  Npcap found."     -ForegroundColor Green }
+            if ($windivertInstalled) { Write-Host "  WinDivert found." -ForegroundColor Green }
+            $runFilter = "TestSniffer"
+            if ($npcapInstalled)     { $runFilter += "|TestPcap" }
+            if ($windivertInstalled) { $runFilter += "|TestWinDivert" }
+            $snifferBin = Join-Path $saved.SpkTmp "spk_sniffer_test.exe"
+            go test -buildvcs=false -c -o $snifferBin ./internal/sniffer/
+            if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Sniffer test binary failed to compile" }
+            go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
+            if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Sniffer tests failed" }
+        }
+    } catch {
+        Write-Host ""
+        Write-Host "ERROR: $_" -ForegroundColor Red
+    } finally {
+        Exit-TestTmp $saved
+    }
+    if ($failed) { exit 1 }
+    Write-Host ""
+    Write-Host "All tests passed." -ForegroundColor Green
     exit 0
 }
 
@@ -173,38 +280,70 @@ if ($testSniffer) {
     Write-Host "Running sniffer hardware tests on Windows..." -ForegroundColor Green
     Write-Host ""
 
-    # Check for Npcap
-    $npcapPath = "$env:SystemRoot\System32\Npcap\wpcap.dll"
-    if (-not (Test-Path $npcapPath)) {
-        Write-Host "WARNING: Npcap not found at $npcapPath" -ForegroundColor Red
-        Write-Host "  Download and install from: https://npcap.com" -ForegroundColor Yellow
-        Write-Host "  Sniffer tests require Npcap to capture packets." -ForegroundColor Yellow
+    $sys32 = "$env:SystemRoot\System32"
+    $npcapInstalled = (Test-Path "$sys32\Npcap\wpcap.dll") -or (Test-Path "$sys32\wpcap.dll")
+    $windivertInstalled = (Test-Path "$sys32\WinDivert.dll") -or (Test-Path "$sys32\WinDivert64.sys")
+
+    if (-not $npcapInstalled -and -not $windivertInstalled) {
+        Write-Host "ERROR: Neither Npcap nor WinDivert found." -ForegroundColor Red
+        Write-Host "  Install Npcap:     winget install Npcap.Npcap" -ForegroundColor Yellow
+        Write-Host "  Install WinDivert: https://reqrypt.org/windivert.html" -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "Npcap found: $npcapPath" -ForegroundColor Green
+    if ($npcapInstalled)     { Write-Host "Npcap found."     -ForegroundColor Green }
+    if ($windivertInstalled) { Write-Host "WinDivert found." -ForegroundColor Green }
     Write-Host ""
 
-    # Build the sniffer test binary first (verifies it compiles)
-    Write-Host "Building sniffer test binary..." -ForegroundColor Cyan
-    go test -c -o "$env:TEMP\spk_sniffer_test.exe" ./internal/sniffer/
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "ERROR: sniffer test binary failed to compile." -ForegroundColor Red
-        exit 1
+    $runFilter = "TestSniffer"
+    if ($npcapInstalled)     { $runFilter += "|TestPcap" }
+    if ($windivertInstalled) { $runFilter += "|TestWinDivert" }
+
+    $saved = Enter-TestTmp
+    $snifferFailed = $false
+    try {
+        # Build the sniffer test binary first (verifies it compiles)
+        Write-Host "Building sniffer test binary..." -ForegroundColor Cyan
+        $snifferBin = Join-Path $saved.SpkTmp "spk_sniffer_test.exe"
+        go test -buildvcs=false -c -o $snifferBin ./internal/sniffer/
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: sniffer test binary failed to compile." -ForegroundColor Red
+            $snifferFailed = $true
+        } else {
+            Write-Host "Sniffer test binary compiled successfully." -ForegroundColor Green
+            Write-Host ""
+
+            # Run the Windows-specific sniffer tests
+            go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ERROR: Sniffer tests failed." -ForegroundColor Red
+                $snifferFailed = $true
+            }
+        }
+    } finally {
+        Exit-TestTmp $saved
     }
-    Write-Host "Sniffer test binary compiled successfully." -ForegroundColor Green
-    Write-Host ""
-
-    # Run the Windows-specific sniffer tests (pcap + WinDivert)
-    go test -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestWinDivert|TestSniffer"
+    if ($snifferFailed) { exit 1 }
     exit 0
 }
 
 if ($coverage) {
     Write-Host "Running tests with coverage (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
-    $packages = & go list ./... | Where-Object { $_ -notlike '*/sniffer' }
-    go test $packages -coverprofile=coverage.out
-    go tool cover -html=coverage.out -o coverage.html
-    Write-Host "Coverage report: coverage.html" -ForegroundColor Green
+    $packages = & go list -buildvcs=false ./... | Where-Object { $_ -notlike '*/sniffer' }
+    $saved = Enter-TestTmp
+    $coverFailed = $false
+    try {
+        go test -buildvcs=false $packages -coverprofile=coverage.out
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Tests failed!" -ForegroundColor Red
+            $coverFailed = $true
+        } else {
+            go tool cover -html=coverage.out -o coverage.html
+            Write-Host "Coverage report: coverage.html" -ForegroundColor Green
+        }
+    } finally {
+        Exit-TestTmp $saved
+    }
+    if ($coverFailed) { exit 1 }
     exit 0
 }
 

@@ -63,6 +63,31 @@ func FuzzRawBytesIntoPipeline(f *testing.F) {
 
 // --- Property: crypto pipeline preserves all payload fields ---
 
+// checkPayloadCycle builds a knock packet, parses it, and asserts all fields survive.
+func checkPayloadCycle(t *testing.T, dk crypto.DecapsulationKey, ek crypto.EncapsulationKey, kemSize crypto.KEMSize, cmd, ip string, dur int) {
+	t.Helper()
+	packet, err := protocol.BuildKnockPacket(ek, ip, cmd, dur)
+	if err != nil {
+		t.Fatalf("Build(%s, %s, %d, KEM%d): %v", cmd, ip, dur, kemSize, err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, packet, ip, 30)
+	if err != nil {
+		t.Fatalf("Parse(%s, %s, %d, KEM%d): %v", cmd, ip, dur, kemSize, err)
+	}
+	if payload.Command != cmd {
+		t.Errorf("command: got %q, want %q", payload.Command, cmd)
+	}
+	if payload.ClientIP != ip {
+		t.Errorf("IP: got %q, want %q", payload.ClientIP, ip)
+	}
+	if payload.OpenDuration != dur {
+		t.Errorf("duration: got %d, want %d", payload.OpenDuration, dur)
+	}
+	if payload.Version != protocol.ProtocolVersion {
+		t.Errorf("version: got %d, want %d", payload.Version, protocol.ProtocolVersion)
+	}
+}
+
 // TestCryptoPayloadFieldPreservation verifies every field survives
 // the full encrypt->decrypt->parse cycle with various combinations.
 func TestCryptoPayloadFieldPreservation(t *testing.T) {
@@ -93,32 +118,10 @@ func TestCryptoPayloadFieldPreservation(t *testing.T) {
 			t.Fatalf("GenerateKeyPair(%d): %v", kemSize, err)
 		}
 		ek := dk.EncapsulationKey()
-
 		for _, cmd := range commands {
 			for _, ip := range ips {
 				for _, dur := range durations {
-					packet, err := protocol.BuildKnockPacket(ek, ip, cmd, dur)
-					if err != nil {
-						t.Fatalf("Build(%s, %s, %d, KEM%d): %v", cmd, ip, dur, kemSize, err)
-					}
-
-					payload, err := protocol.ParseKnockPacket(dk, packet, ip, 30)
-					if err != nil {
-						t.Fatalf("Parse(%s, %s, %d, KEM%d): %v", cmd, ip, dur, kemSize, err)
-					}
-
-					if payload.Command != cmd {
-						t.Errorf("command: got %q, want %q", payload.Command, cmd)
-					}
-					if payload.ClientIP != ip {
-						t.Errorf("IP: got %q, want %q", payload.ClientIP, ip)
-					}
-					if payload.OpenDuration != dur {
-						t.Errorf("duration: got %d, want %d", payload.OpenDuration, dur)
-					}
-					if payload.Version != protocol.ProtocolVersion {
-						t.Errorf("version: got %d, want %d", payload.Version, protocol.ProtocolVersion)
-					}
+					checkPayloadCycle(t, dk, ek, kemSize, cmd, ip, dur)
 				}
 			}
 		}
@@ -449,6 +452,62 @@ func TestDynPortFullPipeline(t *testing.T) {
 
 // --- Mutation anchor: export bundle -> key -> knock lifecycle ---
 
+// checkUnencryptedBundle verifies the lifecycle for a plain export bundle.
+func checkUnencryptedBundle(t *testing.T, dk crypto.DecapsulationKey, ek crypto.EncapsulationKey, kemSize crypto.KEMSize) {
+	t.Helper()
+	b64, err := crypto.CreateExportBundle(ek, 12345, true, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := crypto.ParseExportBundle(b64, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientEK, err := crypto.GetEncapsulationKeyFromBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt, err := protocol.BuildKnockPacket(clientEK, "10.0.0.1", "open-t22", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
+	if err != nil {
+		t.Fatalf("KEM%d unencrypted bundle lifecycle failed: %v", kemSize, err)
+	}
+	if payload.Command != "open-t22" {
+		t.Errorf("KEM%d: command = %q", kemSize, payload.Command)
+	}
+}
+
+// checkEncryptedBundle verifies the lifecycle for a password-encrypted export bundle.
+func checkEncryptedBundle(t *testing.T, dk crypto.DecapsulationKey, ek crypto.EncapsulationKey, kemSize crypto.KEMSize) {
+	t.Helper()
+	b64enc, err := crypto.CreateEncryptedExportBundle(ek, 54321, false, true, true, "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleEnc, err := crypto.ParseExportBundle(b64enc, "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientEKEnc, err := crypto.GetEncapsulationKeyFromBundle(bundleEnc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pktEnc, err := protocol.BuildKnockPacket(clientEKEnc, "1.2.3.4", "close-all", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadEnc, err := protocol.ParseKnockPacket(dk, pktEnc, "1.2.3.4", 30)
+	if err != nil {
+		t.Fatalf("KEM%d encrypted bundle lifecycle failed: %v", kemSize, err)
+	}
+	if payloadEnc.Command != "close-all" {
+		t.Errorf("KEM%d encrypted: command = %q", kemSize, payloadEnc.Command)
+	}
+}
+
 // TestExportBundleFullLifecycle exhaustively tests the chain:
 // generate key -> export bundle -> import -> build knock -> parse knock
 // for both KEM sizes, with and without password encryption.
@@ -459,66 +518,8 @@ func TestExportBundleFullLifecycle(t *testing.T) {
 			t.Fatalf("GenerateKeyPair: %v", err)
 		}
 		ek := dk.EncapsulationKey()
-
-		// Unencrypted bundle
-		b64, err := crypto.CreateExportBundle(ek, 12345, true, false, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		bundle, err := crypto.ParseExportBundle(b64, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		clientEK, err := crypto.GetEncapsulationKeyFromBundle(bundle)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		pkt, err := protocol.BuildKnockPacket(clientEK, "10.0.0.1", "open-t22", 3600)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		payload, err := protocol.ParseKnockPacket(dk, pkt, "10.0.0.1", 30)
-		if err != nil {
-			t.Fatalf("KEM%d unencrypted bundle lifecycle failed: %v", kemSize, err)
-		}
-
-		if payload.Command != "open-t22" {
-			t.Errorf("KEM%d: command = %q", kemSize, payload.Command)
-		}
-
-		// Password-encrypted bundle
-		b64enc, err := crypto.CreateEncryptedExportBundle(ek, 54321, false, true, true, "test-password")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		bundleEnc, err := crypto.ParseExportBundle(b64enc, "test-password")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		clientEKEnc, err := crypto.GetEncapsulationKeyFromBundle(bundleEnc)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		pktEnc, err := protocol.BuildKnockPacket(clientEKEnc, "1.2.3.4", "close-all", 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		payloadEnc, err := protocol.ParseKnockPacket(dk, pktEnc, "1.2.3.4", 30)
-		if err != nil {
-			t.Fatalf("KEM%d encrypted bundle lifecycle failed: %v", kemSize, err)
-		}
-
-		if payloadEnc.Command != "close-all" {
-			t.Errorf("KEM%d encrypted: command = %q", kemSize, payloadEnc.Command)
-		}
+		checkUnencryptedBundle(t, dk, ek, kemSize)
+		checkEncryptedBundle(t, dk, ek, kemSize)
 	}
 }
 
@@ -858,6 +859,9 @@ func FuzzExportBundlePortFuzz(f *testing.F) {
 	f.Add(443)
 
 	f.Fuzz(func(t *testing.T, port int) {
+		if port < 0 || port > 65535 {
+			return
+		}
 		b64, err := crypto.CreateExportBundle(ek, port, true, false, false)
 		if err != nil {
 			return

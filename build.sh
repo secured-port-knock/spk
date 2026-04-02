@@ -15,7 +15,10 @@
 #   ./build.sh -windows -arm64    # Build windows/arm64 only
 #   ./build.sh -all               # Build all platform/arch combinations
 #   ./build.sh -nopcap            # Disable pcap for Linux/Darwin builds
-#   ./build.sh -test              # Run tests
+#   ./build.sh -test              # Run unit tests + fuzz seed corpus
+#   ./build.sh -testall           # Run all tests: smoke, unit+integration, fuzz, sniffer
+#   ./build.sh -testSniffer       # Run sniffer hardware tests (requires pcap library)
+#   ./build.sh -testsmoke         # Run end-to-end smoke tests (builds binary; sudo used when not root)
 #   ./build.sh -coverage          # Run tests with coverage
 #   ./build.sh -clean             # Clean build artifacts
 #   ./build.sh -linux -deb        # Build linux + create .deb packages
@@ -94,7 +97,9 @@ BUILD_DARWIN=false
 INCLUDE_AMD64=false
 INCLUDE_ARM64=false
 RUN_TEST=false
+RUN_TESTALL=false
 RUN_SNIFFER_TEST=false
+RUN_TESTSMOKE=false
 RUN_COVERAGE=false
 RUN_CLEAN=false
 DISABLE_PCAP=false
@@ -113,20 +118,165 @@ for arg in "$@"; do
     -arm64)        INCLUDE_ARM64=true; HAS_ARCH=true ;;
     -all)          BUILD_WINDOWS=true; BUILD_LINUX=true; BUILD_DARWIN=true; INCLUDE_AMD64=true; INCLUDE_ARM64=true; HAS_PLATFORM=true; HAS_ARCH=true ;;
     -test)         RUN_TEST=true ;;
-    -testSniffer) RUN_SNIFFER_TEST=true ;;
+    -testall)      RUN_TESTALL=true ;;
+    -testSniffer)  RUN_SNIFFER_TEST=true ;;
+    -testsmoke)    RUN_TESTSMOKE=true ;;
     -coverage)     RUN_COVERAGE=true ;;
     -clean)        RUN_CLEAN=true ;;
     -nopcap)       DISABLE_PCAP=true ;;
     -deb)          BUILD_DEB=true ;;
     -rpm)          BUILD_RPM=true ;;
     -upx)          USE_UPX_FLAG=true ;;
-    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testSniffer] [-coverage] [-clean] [-deb] [-rpm] [-upx]"; exit 1 ;;
+    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testall] [-testSniffer] [-testsmoke] [-coverage] [-clean] [-deb] [-rpm] [-upx]"; exit 1 ;;
   esac
 done
 
+# Helper: create $TMPDIR/spk and override TMPDIR in the current shell.
+# The original TMPDIR is saved in _SPK_SAVED_TMPDIR so that spk_test_tmp_exit
+# can restore it.  Call directly -- NOT with $(...) -- to avoid a subshell
+# that would prevent the export from reaching the parent shell.
+# Usage: spk_test_tmp_enter
+_SPK_SAVED_TMPDIR=""
+spk_test_tmp_enter() {
+  _SPK_SAVED_TMPDIR="${TMPDIR:-/tmp}"
+  # Strip trailing slash: on macOS TMPDIR is typically set to a path ending
+  # with '/' (e.g. /var/folders/.../T/).  Appending /spk without stripping it
+  # produces a double-slash path that os.TempDir() returns verbatim (Go does
+  # not clean it), causing string-equality comparisons in tests to fail because
+  # the production code passes paths through filepath.Clean internally.
+  _SPK_SAVED_TMPDIR="${_SPK_SAVED_TMPDIR%/}"
+  local spk_tmp="${_SPK_SAVED_TMPDIR}/spk"
+  mkdir -p "${spk_tmp}"
+  export TMPDIR="${spk_tmp}"
+}
+
+# Helper: restore TMPDIR and remove $TMPDIR/spk.
+# Usage: spk_test_tmp_exit
+spk_test_tmp_exit() {
+  local spk_tmp="${_SPK_SAVED_TMPDIR}/spk"
+  export TMPDIR="${_SPK_SAVED_TMPDIR}"
+  rm -rf "${spk_tmp}" 2>/dev/null || true
+}
+
+if $RUN_TESTSMOKE; then
+  echo "Running end-to-end smoke tests (tag: testsmoke)..."
+  # Use sudo -E when not already root so pcap/afpacket smoke tests run.
+  # -E preserves GOPATH, TMPDIR, and the module cache for the internal
+  # go build call inside TestMain. Tests skip gracefully without root.
+  SMOKE_RUNNER=""
+  if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+    SMOKE_RUNNER="sudo -E"
+  fi
+  spk_test_tmp_enter
+  if ! ${SMOKE_RUNNER} go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/; then
+    spk_test_tmp_exit
+    exit 1
+  fi
+  spk_test_tmp_exit
+  exit 0
+fi
+
 if $RUN_TEST; then
-  echo "Running tests (excluding sniffer -- use -testSniffer for those)..."
-  go test $(go list ./... | grep -v '/sniffer$') -count=1
+  echo "Running unit tests + fuzz seed corpus (excluding sniffer -- use -testSniffer for those)..."
+  PACKAGES=$(go list -buildvcs=false ./... | grep -v '/sniffer$')
+  spk_test_tmp_enter
+  if ! go test -buildvcs=false -count=1 ${PACKAGES}; then
+    spk_test_tmp_exit
+    echo "Tests failed!"
+    exit 1
+  fi
+  echo ""
+  echo "Running fuzz seed corpus..."
+  if ! go test -buildvcs=false -count=1 -run "^Fuzz" ${PACKAGES}; then
+    spk_test_tmp_exit
+    echo "Fuzz seed corpus tests failed!"
+    exit 1
+  fi
+  spk_test_tmp_exit
+  exit 0
+fi
+
+if $RUN_TESTALL; then
+  echo "Running all tests (smoke, unit+integration, fuzz, sniffer)..."
+  echo ""
+  spk_test_tmp_enter
+  FAILED=false
+
+  # Phase 1: smoke tests (requires SPK binary subprocess)
+  echo "[1/4] Smoke tests..."
+  SMOKE_RUNNER=""
+  if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+    SMOKE_RUNNER="sudo -E"
+  fi
+  if ! ${SMOKE_RUNNER} go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/; then
+    FAILED=true; echo "ERROR: Smoke tests failed."
+  fi
+
+  if ! $FAILED; then
+    # Phase 2: unit + integration tests (pure Go, no binary or hardware needed)
+    echo ""
+    echo "[2/4] Unit + integration tests..."
+    UNIT_PKGS=$(go list -buildvcs=false ./... | grep -v '/sniffer$')
+    if ! go test -buildvcs=false -count=1 ${UNIT_PKGS}; then
+      FAILED=true; echo "ERROR: Unit + integration tests failed."
+    fi
+  fi
+
+  if ! $FAILED; then
+    # Phase 3: fuzz seed corpus
+    echo ""
+    echo "[3/4] Fuzz seed corpus..."
+    if ! go test -buildvcs=false -count=1 -run "^Fuzz" ${UNIT_PKGS}; then
+      FAILED=true; echo "ERROR: Fuzz seed corpus tests failed."
+    fi
+  fi
+
+  if ! $FAILED; then
+    # Phase 4: sniffer hardware tests (requires pcap library / Npcap)
+    echo ""
+    echo "[4/4] Sniffer hardware tests..."
+    OS="$(uname -s 2>/dev/null || echo Unknown)"
+    SNIFFER_OK=true
+    if [ "${OS}" = "Linux" ]; then
+      if ! ldconfig -p 2>/dev/null | grep -q 'libpcap\.so' && \
+         ! ls /usr/lib*/libpcap.so* /usr/lib*/*/libpcap.so* 2>/dev/null | head -1 | grep -q libpcap; then
+        echo "  WARNING: libpcap not found -- skipping sniffer tests."
+        echo "  Install with: sudo apt-get install libpcap-dev"
+        SNIFFER_OK=false
+      fi
+    fi
+    if $SNIFFER_OK; then
+      # Use ${TMPDIR:-/tmp} as a fallback in case TMPDIR is unexpectedly unset
+      # (e.g. environment reset between phases on some CI runners).
+      SNIFFER_BIN="${TMPDIR:-/tmp}/spk_sniffer_test"
+      if ! go test -buildvcs=false -c -o "${SNIFFER_BIN}" ./internal/sniffer/ 2>&1; then
+        FAILED=true; echo "ERROR: sniffer test binary failed to compile."
+      else
+        if [ "${OS}" = "Linux" ]; then
+          if ! sudo -E go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestSniffer"; then
+            FAILED=true; echo "ERROR: Sniffer tests failed."
+          fi
+        elif [ "${OS}" = "Darwin" ]; then
+          if ! sudo -E go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestSniffer"; then
+            FAILED=true; echo "ERROR: Sniffer tests failed."
+          fi
+        else
+          if ! go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestWinDivert|TestSniffer"; then
+            FAILED=true; echo "ERROR: Sniffer tests failed."
+          fi
+        fi
+      fi
+    fi
+  fi
+
+  spk_test_tmp_exit
+  if $FAILED; then
+    echo ""
+    echo "One or more test phases failed."
+    exit 1
+  fi
+  echo ""
+  echo "All tests passed."
   exit 0
 fi
 
@@ -155,9 +305,14 @@ if $RUN_SNIFFER_TEST; then
     exit 1
   fi
 
-  # Build the sniffer test binary first (verifies it compiles on this platform)
+  spk_test_tmp_enter
+
+  # Build the sniffer test binary first (verifies it compiles on this platform).
+  # Use ${TMPDIR:-/tmp} as a fallback in case TMPDIR is unexpectedly unset.
   echo "Building sniffer test binary..."
-  if ! go test -c -o /tmp/spk_sniffer_test ./internal/sniffer/ 2>&1; then
+  SNIFFER_BIN="${TMPDIR:-/tmp}/spk_sniffer_test"
+  if ! go test -buildvcs=false -c -o "${SNIFFER_BIN}" ./internal/sniffer/ 2>&1; then
+    spk_test_tmp_exit
     echo "ERROR: sniffer test binary failed to compile."
     exit 1
   fi
@@ -167,20 +322,39 @@ if $RUN_SNIFFER_TEST; then
   # Run the platform-specific sniffer tests
   if [ "${OS}" = "Linux" ]; then
     echo "Running Linux sniffer tests (pcap + AF_PACKET)..."
-    sudo go test -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestSniffer"
+    if ! sudo -E go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestSniffer"; then
+      spk_test_tmp_exit
+      echo "ERROR: Sniffer tests failed."
+      exit 1
+    fi
   elif [ "${OS}" = "Darwin" ]; then
     echo "Running macOS sniffer tests (pcap)..."
-    sudo go test -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestSniffer"
+    if ! sudo -E go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestSniffer"; then
+      spk_test_tmp_exit
+      echo "ERROR: Sniffer tests failed."
+      exit 1
+    fi
   else
     echo "Running sniffer tests (all backends)..."
-    go test -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestWinDivert|TestSniffer"
+    if ! go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run "TestPcap|TestAFPacket|TestWinDivert|TestSniffer"; then
+      spk_test_tmp_exit
+      echo "ERROR: Sniffer tests failed."
+      exit 1
+    fi
   fi
+  spk_test_tmp_exit
   exit 0
 fi
 
 if $RUN_COVERAGE; then
   echo "Running tests with coverage (excluding sniffer -- use -testSniffer for those)..."
-  go test $(go list ./... | grep -v '/sniffer$') -coverprofile=coverage.out
+  PACKAGES=$(go list -buildvcs=false ./... | grep -v '/sniffer$')
+  spk_test_tmp_enter
+  if ! go test -buildvcs=false ${PACKAGES} -coverprofile=coverage.out; then
+    spk_test_tmp_exit
+    exit 1
+  fi
+  spk_test_tmp_exit
   go tool cover -html=coverage.out -o coverage.html
   echo "Coverage report: coverage.html"
   exit 0

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,7 @@ func TestNewSnifferUDP(t *testing.T) {
 	if s == nil {
 		t.Fatal("NewSniffer(udp) returned nil")
 	}
+	t.Cleanup(func() { s.Stop() })
 	udp, ok := s.(*UDPSniffer)
 	if !ok {
 		t.Fatalf("expected *UDPSniffer, got %T", s)
@@ -206,6 +208,20 @@ func TestTestSnifferAFPacketNonLinux(t *testing.T) {
 	err := TestSniffer("afpacket")
 	if err == nil {
 		t.Error("TestSniffer(afpacket) should fail on non-Linux")
+	}
+}
+
+func TestTestSnifferPcapNotImplemented(t *testing.T) {
+	if pcapImplemented() {
+		t.Skip("pcap is implemented in this build; no stub-path assertion needed")
+	}
+
+	err := TestSniffer("pcap")
+	if err == nil {
+		t.Fatal("TestSniffer(pcap) should fail when pcap backend is not implemented")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "pcap") {
+		t.Fatalf("expected pcap-related error, got: %v", err)
 	}
 }
 
