@@ -17,6 +17,29 @@ import (
 	"github.com/secured-port-knock/spk/internal/crypto"
 )
 
+// RunDeleteKey removes the server public key from the platform's secure
+// storage.  The credential label is read from the client config file
+// (key_storage_label).  If the label is absent, the user is advised to
+// re-run setup.
+func RunDeleteKey() {
+	cfg, err := config.Load(config.ClientConfigPath())
+	if err != nil {
+		fmt.Printf("Error loading client config: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.KeyStorageLabel == "" {
+		fmt.Println("No storage label found in config.")
+		fmt.Println("If this config was created before labels were introduced,")
+		fmt.Println("run 'spk --client --setup' to reconfigure.")
+		return
+	}
+	if err := DeleteKeySecure(cfg.KeyStorageLabel); err != nil {
+		fmt.Printf("Error deleting key from secure storage: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Server public key removed from secure storage.")
+}
+
 // RunSetup runs the interactive client setup wizard.
 func RunSetup() {
 	fmt.Println("========================================")
@@ -157,6 +180,13 @@ func applyCredentialManagerStorage(reader *bufio.Reader, cfg *config.Config) {
 				cfg.KeyStorageMode = "file"
 			} else {
 				fmt.Println("OK")
+				label, err := newStorageLabel()
+				if err != nil {
+					fmt.Printf("Error generating storage label: %v\n", err)
+					cfg.KeyStorageMode = "file"
+					return
+				}
+				cfg.KeyStorageLabel = label
 				cfg.KeyStorageMode = "credential_manager"
 				fmt.Println("  -> Key storage: system credential manager")
 			}
@@ -166,6 +196,13 @@ func applyCredentialManagerStorage(reader *bufio.Reader, cfg *config.Config) {
 		}
 	} else {
 		fmt.Println("OK")
+		label, err := newStorageLabel()
+		if err != nil {
+			fmt.Printf("Error generating storage label: %v\n", err)
+			cfg.KeyStorageMode = "file"
+			return
+		}
+		cfg.KeyStorageLabel = label
 		cfg.KeyStorageMode = "credential_manager"
 		fmt.Println("  -> Key storage: system credential manager")
 	}
@@ -253,10 +290,11 @@ func wizardSavePublicKey(cfg *config.Config, bundle *crypto.ExportBundle) {
 			fmt.Printf("  Error saving key: %v\n", err)
 			os.Exit(1)
 		}
-		if err := SaveKeySecure(certPath); err != nil {
+		if err := SaveKeySecure(certPath, cfg.KeyStorageLabel); err != nil {
 			fmt.Printf("  -> Warning: secure storage save failed: %v\n", err)
 			fmt.Println("  -> Key is still stored as server.crt (plaintext file)")
 			cfg.KeyStorageMode = "file"
+			cfg.KeyStorageLabel = ""
 		} else {
 			os.Remove(certPath)
 			fmt.Println("  -> Server public key stored in system credential manager")

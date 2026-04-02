@@ -44,6 +44,29 @@ func FuzzParseSTUNResponse(f *testing.F) {
 	})
 }
 
+// FuzzEscapePSQuote verifies that every possible string input produces output
+// where every single-quote is doubled. It should never produce an unescaped
+// single-quote that could allow PowerShell injection.
+func FuzzEscapePSQuote(f *testing.F) {
+	f.Add("")
+	f.Add("hello")
+	f.Add("it's a test")
+	f.Add("a'b'c")
+	f.Add("'''")
+	f.Add("no quotes at all")
+	f.Fuzz(func(t *testing.T, s string) {
+		result := escapePSQuote(s)
+		for i := 0; i < len(result); i++ {
+			if result[i] == '\'' {
+				if i+1 >= len(result) || result[i+1] != '\'' {
+					t.Errorf("unescaped single-quote at position %d in %q (input=%q)", i, result, s)
+				}
+				i++ // skip the paired quote
+			}
+		}
+	})
+}
+
 // --- Property tests ---
 
 // TestParseSTUNResponse_XORMappedRoundtrip verifies XOR-MAPPED-ADDRESS

@@ -164,7 +164,7 @@ func loadClientState(hostOverride string) (*config.Config, crypto.EncapsulationK
 	// If using credential manager and file doesn't exist, restore from secure storage
 	if cfg.KeyStorageMode == "credential_manager" {
 		if _, statErr := os.Stat(certPath); os.IsNotExist(statErr) {
-			if restoreErr := LoadKeySecure(certPath); restoreErr != nil {
+			if restoreErr := LoadKeySecure(certPath, cfg.KeyStorageLabel); restoreErr != nil {
 				return nil, nil, fmt.Errorf("restore key from credential manager: %w", restoreErr)
 			}
 		}

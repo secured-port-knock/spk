@@ -14,7 +14,7 @@
 | `state.json` | Server state for crash recovery |
 | `spk_server.log` | Server log (rotated, max 10 MB x 5 backups) |
 | `spk_client.log` | Client log (only written when --logdir is specified) |
-| `SPK_ServerKey.dpapi` | DPAPI-encrypted server key (Windows only, stored in client config directory) |
+| `<key_storage_label>.dpapi` | DPAPI-encrypted server key (Windows only, stored in client config directory). The filename is the randomly-generated `key_storage_label` value from `spk_client.toml`. |
 
 ## Default Paths
 

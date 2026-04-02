@@ -254,11 +254,13 @@ func warnIfUnprivileged() {
 	fmt.Fprintln(os.Stderr, "")
 }
 
-// runClientMode dispatches the client sub-command (setup or send command).
-func runClientMode(setup *bool, cmd, host, clientIP, totpCode *string, duration *int) {
+// runClientMode dispatches the client sub-command (setup, delete-key, or send command).
+func runClientMode(setup, deleteKey *bool, cmd, host, clientIP, totpCode *string, duration *int) {
 	switch {
 	case *setup:
 		client.RunSetup()
+	case *deleteKey:
+		client.RunDeleteKey()
 	case *cmd != "":
 		client.RunCommand(*host, *cmd, *duration, *clientIP, *totpCode)
 	default:
@@ -279,6 +281,7 @@ func Run() {
 	serverMode := flag.Bool("server", false, "Run in server mode")
 	clientMode := flag.Bool("client", false, "Run in client mode")
 	setup := flag.Bool("setup", false, "Run interactive first-time setup")
+	deleteKey := flag.Bool("delete-key", false, "Delete server public key from secure storage (client only)")
 	export := flag.Bool("export", false, "Export activation bundle (server only)")
 	cmd := flag.String("cmd", "", "Command to send (see command formats below)")
 	duration := flag.Int("duration", 0, "Custom open duration in seconds (client only, if allowed)")
@@ -304,9 +307,11 @@ func Run() {
 		fmt.Fprintf(os.Stderr, "    spk --server --cfgdir /etc/test --logdir /var/log/test\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "  Client:\n")
-		fmt.Fprintf(os.Stderr, "    spk --client --setup     First-time setup (import server key)\n")
-		fmt.Fprintf(os.Stderr, "    spk --client --cmd CMD   Send command (see formats below)\n")
-		fmt.Fprintf(os.Stderr, "    spk --client --cmd CMD --totp 123456   Send with TOTP\n")
+		fmt.Fprintf(os.Stderr, "    spk --client --setup         First-time setup (import server key)\n")
+		fmt.Fprintf(os.Stderr, "    spk --client --cmd CMD       Send command (see formats below)\n")
+		fmt.Fprintf(os.Stderr, "    spk --client --cmd CMD --totp 123456  Send with TOTP\n")
+		fmt.Fprintf(os.Stderr, "    spk --client --delete-key    Delete stored server public key\n")
+		fmt.Fprintf(os.Stderr, "    spk --cfgdir DIR --client --delete-key  Delete key for specific config\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "  Shorthand (auto-detects client mode from config):\n")
 		fmt.Fprintf(os.Stderr, "    spk open-t22             Open TCP 22 (auto-detect client)\n")
@@ -335,6 +340,7 @@ func Run() {
 		fmt.Fprintf(os.Stderr, "    --host ADDR     Server host override (client only)\n")
 		fmt.Fprintf(os.Stderr, "    --ip ADDR       Client IP override, IPv4 or IPv6 (auto-detected if empty)\n")
 		fmt.Fprintf(os.Stderr, "    --totp CODE     6-digit TOTP code for two-factor auth (client only)\n")
+		fmt.Fprintf(os.Stderr, "    --delete-key    Delete server public key from secure storage (client only)\n")
 		fmt.Fprintf(os.Stderr, "    --install       Install as system service (server only)\n")
 		fmt.Fprintf(os.Stderr, "    --uninstall     Uninstall system service (server only)\n")
 		fmt.Fprintf(os.Stderr, "    --cfgdir DIR    Custom config directory (overrides default)\n")
@@ -406,6 +412,6 @@ func Run() {
 	}
 
 	if *clientMode {
-		runClientMode(setup, cmd, host, clientIP, totpCode, duration)
+		runClientMode(setup, deleteKey, cmd, host, clientIP, totpCode, duration)
 	}
 }

@@ -75,10 +75,11 @@ type Config struct {
 	MaxNonceCache   int  `toml:"max_nonce_cache,omitempty" json:"max_nonce_cache,omitempty"`     // Max nonces to cache (default: 10000)
 
 	// Client-specific
-	ServerHost     string   `toml:"server_host,omitempty" json:"server_host,omitempty"`
-	ServerPort     int      `toml:"server_port,omitempty" json:"server_port,omitempty"`
-	KeyStorageMode string   `toml:"key_storage_mode,omitempty" json:"key_storage_mode,omitempty"` // "file","keychain","credential_manager"
-	StunServers    []string `toml:"stun_servers,omitempty" json:"stun_servers,omitempty"`         // STUN servers for WAN IP detection. Empty or omitted disables STUN (uses local interface IP instead).
+	ServerHost      string   `toml:"server_host,omitempty" json:"server_host,omitempty"`
+	ServerPort      int      `toml:"server_port,omitempty" json:"server_port,omitempty"`
+	KeyStorageMode  string   `toml:"key_storage_mode,omitempty" json:"key_storage_mode,omitempty"`   // "file","keychain","credential_manager"
+	KeyStorageLabel string   `toml:"key_storage_label,omitempty" json:"key_storage_label,omitempty"` // random credential slot identifier for secure storage
+	StunServers     []string `toml:"stun_servers,omitempty" json:"stun_servers,omitempty"`           // STUN servers for WAN IP detection. Empty or omitted disables STUN (uses local interface IP instead).
 
 	// ML-KEM key size (768 or 1024). Default: 768 (fits within 1500 MTU).
 	// 1024 provides higher security margin but packets exceed MTU and require IP fragmentation.
@@ -851,6 +852,9 @@ func WriteClientConfigWithComments(path string, cfg *Config) error {
 	content.WriteString("#   \"file\"               - plaintext file (server.crt)\n")
 	content.WriteString("#   \"credential_manager\"  - OS secure storage (Windows/macOS/Linux)\n")
 	content.WriteString(fmt.Sprintf("key_storage_mode = \"%s\"\n", cfg.KeyStorageMode))
+	if cfg.KeyStorageLabel != "" {
+		content.WriteString(fmt.Sprintf("key_storage_label = \"%s\"\n", cfg.KeyStorageLabel))
+	}
 
 	content.WriteString("\n# ========== PADDING ==========\n")
 	content.WriteString("# Add random padding to knock packets to vary packet sizes.\n")

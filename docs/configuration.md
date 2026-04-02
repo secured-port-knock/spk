@@ -129,6 +129,7 @@ dynamic_port_window = 600        # Must match server's window
 dynamic_port_min = 10000         # Must match server's dynamic_port_min
 dynamic_port_max = 65000         # Must match server's dynamic_port_max
 key_storage_mode = "file"        # "file" or "credential_manager"
+# key_storage_label = "SPK_ServerKey_a3f7c91b5d8e0c12"  # auto-generated at setup; do not edit
 
 # -- STUN servers for WAN IP detection (client-only) --
 # Servers are tried in order; the first successful response is used.

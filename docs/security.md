@@ -74,13 +74,15 @@ The server's ML-KEM public key (encapsulation key) and the activation bundle are
 
 | Platform | Storage Backend | Method |
 |---|---|---|
-| Windows | Credential Manager + DPAPI | `cmdkey` + `ProtectedData.Protect()` |
-| macOS | Keychain | `security add-generic-password` |
+| Windows | DPAPI (Data Protection API) | PowerShell `ProtectedData.Protect()` via stdin |
+| macOS | Keychain | `security add-generic-password` (base64-encoded) |
 | Linux | Secret Service | `secret-tool store` |
 
 The setup wizard tests the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you are prompted to choose file-based storage instead.
 
-Keys stored in credential managers are encrypted with your OS user credentials -- they can only be accessed by the same user account on the same machine. This prevents accidental leakage through backups, screenshots, or other programs reading config directories.
+On Windows, the key is encrypted with DPAPI and stored as a `.dpapi` file inside the client config directory. `cmdkey` is not used because it cannot reliably store multi-line PEM data. On macOS, the PEM key is base64-encoded before being passed to the Keychain so that embedded newlines in PEM blocks are not misinterpreted by the `security` command.
+
+Each client instance is assigned a randomly-generated storage label (e.g. `SPK_ServerKey_a3f7c91b5d8e0c12`) at setup time. The label is written to `spk_client.toml` as `key_storage_label` and is used as the unique credential slot name in the OS keystore. Because the label is stored in the config file rather than derived from the directory path, the config directory can be moved or renamed without breaking key lookup -- the same label is found regardless of where the TOML file lives. Multiple client instances that each have their own `--cfgdir` will each have a different randomly-generated label, so they use completely separate credential slots and do not interfere with each other. To remove an obsolete key, run `spk --client --delete-key` (or `spk --cfgdir <dir> --client --delete-key` to target a specific config directory).
 
 ### Anti-Replay Mechanism
 
