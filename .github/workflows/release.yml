@@ -99,6 +99,9 @@ jobs:
   resolve-version:
     needs: ci-tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       build_number: ${{ steps.resolve.outputs.build_number }}
@@ -106,7 +109,7 @@ jobs:
       tag_name: ${{ steps.resolve.outputs.tag_name }}
       is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
       version_changed: ${{ steps.resolve.outputs.version_changed }}
-      original_build_number: ${{ steps.resolve.outputs.original_build_number }}
+      next_build_number: ${{ steps.resolve.outputs.next_build_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +128,6 @@ jobs:
             FILE_BUILD=$(head -1 version/build_number.txt | tr -cd '0-9')
           fi
           [ -z "$FILE_BUILD" ] && FILE_BUILD=0
-          ORIGINAL_BUILD=$FILE_BUILD
 
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
@@ -138,8 +140,9 @@ jobs:
           if [ -n "${{ inputs.build_number }}" ]; then
             BUILD_NUMBER="${{ inputs.build_number }}"
           else
-            BUILD_NUMBER=$((FILE_BUILD + 1))
+            BUILD_NUMBER=$FILE_BUILD
           fi
+          NEXT_BUILD_NUMBER=$((BUILD_NUMBER + 1))
 
           FULL_VERSION="${VERSION}.${BUILD_NUMBER}"
 
@@ -163,7 +166,7 @@ jobs:
           echo "tag_name=$TAG_NAME"           >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "version_changed=$VERSION_CHANGED" >> "$GITHUB_OUTPUT"
-          echo "original_build_number=$ORIGINAL_BUILD" >> "$GITHUB_OUTPUT"
+          echo "next_build_number=$NEXT_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
           echo "Resolved: $FULL_VERSION (tag: $TAG_NAME, prerelease: $IS_PRERELEASE)"
           # Set the workflow run name so the run shows the resolved version
@@ -526,16 +529,16 @@ jobs:
         run: |
           VERSION="${{ needs.resolve-version.outputs.version }}"
           BUILD_NUMBER="${{ needs.resolve-version.outputs.build_number }}"
+          NEXT_BUILD_NUMBER="${{ needs.resolve-version.outputs.next_build_number }}"
           VERSION_CHANGED="${{ needs.resolve-version.outputs.version_changed }}"
-          ORIGINAL_BUILD="${{ needs.resolve-version.outputs.original_build_number }}"
 
           if [ "$VERSION_CHANGED" = "true" ]; then
             printf '%s\n' "$VERSION" > version/version_base.txt
             echo "Updated version_base.txt to $VERSION"
           fi
 
-          printf '%s\n' "$BUILD_NUMBER" > version/build_number.txt
-          echo "Updated build_number.txt: $ORIGINAL_BUILD -> $BUILD_NUMBER"
+          printf '%s\n' "$NEXT_BUILD_NUMBER" > version/build_number.txt
+          echo "Updated build_number.txt: $BUILD_NUMBER -> $NEXT_BUILD_NUMBER"
 
       - name: Commit and push version files
         run: |
