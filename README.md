@@ -12,7 +12,7 @@
 >
 > SPK is still under active development. Not all features have been fully tested and edge cases may exist. This project was built for personal use -- use it at your own discretion.
 >
-> If you encounter any issues, please open a report in the [Issues](../../issues) section. Include a screenshot and steps to reproduce when possible -- it helps a lot. I may or may not have time to address every report, but all feedback is appreciated.
+> If you encounter any issues, please open a report in the [Issues](../../issues) section. Include full app version and commit sha, steps to reproduce and a screenshot when possible -- it helps a lot. I may or may not have time to address every report, but all feedback is appreciated.
 >
 > It is highly recommended that you have a backup method to access your server.
 
@@ -43,6 +43,10 @@ The core issue: **services must be reachable to be usable, but reachable means a
 - Secure legacy services that cannot be patched or updated (industrial control, embedded systems)
 - Add a pre-authentication layer in front of any TCP/UDP service
 - Zero-response architecture: server never replies, eliminating reflection/amplification attacks entirely
+
+## AI Assisted
+
+This project is AI assisted. The core idea and original code started back in 2024 as a personal project, written in a messy "it works on my machine" style. AI helped finish planned features, clean up and restructure the code, make it more efficient, and catch bugs that weren't even on the radar.
 
 ## Security and Features
 
