@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -47,7 +48,7 @@ func Stop() {
 
 // checkServerFileSecurity validates ownership and permissions for all files the
 // server loads on startup. On a permission violation it logs each offending file
-// and exits. Unix-only; the underlying check is a no-op on Windows.
+// and exits.
 func checkServerFileSecurity(configPath string, logLine func(string, string)) {
 	keyPath := filepath.Join(config.ConfigDir(), "server.key")
 	paths := []string{configPath, keyPath}
@@ -59,7 +60,13 @@ func checkServerFileSecurity(configPath string, logLine func(string, string)) {
 		logLine("FATAL", fmt.Sprintf("File security check failed: %s", e))
 	}
 	if len(permErrs) > 0 {
-		logLine("FATAL", "Files must be owned by the process user/group with permissions max 0600.")
+		if runtime.GOOS == "windows" {
+			logLine("FATAL", "Server config and key files must be restricted to the file owner, SYSTEM, and Administrators only.")
+			logLine("FATAL", "Remove read and write access for BUILTIN\\Users, Everyone, and Authenticated Users.")
+			logLine("FATAL", "Example fix: icacls \"<file>\" /inheritance:r /grant:r \"%USERNAME%:(F)\"")
+		} else {
+			logLine("FATAL", "Files must be owned by the process user/group with permissions max 0600.")
+		}
 		os.Exit(1)
 	}
 }
@@ -321,6 +328,13 @@ func Run() {
 	srvLogger, logf := initFileLogger(cfg, logger, logLine)
 	if srvLogger != nil {
 		defer srvLogger.Close()
+		// Redirect logLine through srvLogger so every message from this point
+		// on -- including FATAL messages from checkServerFileSecurity -- is
+		// written to both the log file and stdout.  srvLogger uses
+		// io.MultiWriter(file, stdout) internally.
+		logLine = func(level, msg string) {
+			srvLogger.LogLine(level, msg)
+		}
 		logLine("INFO", fmt.Sprintf("Logging to: %s", srvLogger.FilePath()))
 	}
 

@@ -25,8 +25,6 @@ func (e *FilePermError) Error() string {
 
 // anyWriteMask is the set of Windows Access Mask bits that confer the ability
 // to modify or delete a file's contents, attributes, or security descriptor.
-// An Allow ACE for a low-privilege account that includes any of these bits is
-// treated as a security violation.
 const anyWriteMask = windows.ACCESS_MASK(
 	windows.FILE_WRITE_DATA |
 		windows.FILE_APPEND_DATA |
@@ -38,6 +36,35 @@ const anyWriteMask = windows.ACCESS_MASK(
 		windows.GENERIC_WRITE |
 		windows.GENERIC_ALL,
 )
+
+// anyReadMask is the set of Windows Access Mask bits that allow reading file
+// contents or extended attributes.  On Linux the equivalent is the group-read
+// and other-read bits that are absent in a 0600 permission mode.  Granting
+// these bits to a low-privilege account (Everyone, Authenticated Users, or
+// BUILTIN\Users) on a private key or server config file is a security
+// violation: an attacker who compromises any local account can exfiltrate
+// the key material.
+//
+// Industry reference:
+//   - Win32-OpenSSH refuses to load a private key if any SID outside the
+//     owner, SYSTEM, and Administrators has read access.
+//   - Cygwin maps Unix 0600 to a Windows DACL containing only the owner
+//     and SYSTEM; the BUILTIN\Users group receives no ACE at all.
+//
+// Note: FILE_READ_ATTRIBUTES (metadata: size, timestamps) is intentionally
+// excluded because it does not expose file contents and is used by many
+// system-level tools for directory enumeration.  The goal here is to prevent
+// private key material from being read, not to hide file existence.
+const anyReadMask = windows.ACCESS_MASK(
+	windows.FILE_READ_DATA | // read file bytes
+		windows.FILE_READ_EA | // read extended attributes
+		windows.GENERIC_READ, // generic read (includes FILE_READ_DATA + FILE_READ_EA)
+)
+
+// dangerousAccessMask is the union of anyReadMask and anyWriteMask.  An Allow
+// ACE for a low-privilege account that includes any of these bits is treated
+// as a security violation.
+const dangerousAccessMask = anyReadMask | anyWriteMask
 
 // checkWindowsOwnerSIDs is the testable core of the owner check.
 // It returns a non-nil error when the file owner is untrusted.
@@ -105,16 +132,20 @@ func checkWindowsOwner(path string, ownerSID *windows.SID) *FilePermError {
 	return checkWindowsOwnerSIDs(path, ownerSID, tu.User.Sid)
 }
 
-// checkWindowsDACL scans dacl for Allow ACEs that grant write or modification
-// access to low-privilege well-known accounts.  The accounts checked are:
+// checkWindowsDACL scans dacl for Allow ACEs that grant read or write access
+// to low-privilege well-known accounts.  The accounts checked are:
 //
 //   - Everyone (S-1-1-0)
 //   - Authenticated Users (S-1-5-11)
 //   - BUILTIN\Users (S-1-5-32-545)
 //
-// Read-only access for those accounts (e.g. BUILTIN\Users with an inherited
-// Read ACE from a parent directory) does not trigger an error.  Only Allow
-// ACEs that include write, delete, or security-modification bits are rejected.
+// Both read access (FILE_READ_DATA, FILE_READ_EA, GENERIC_READ) and write/
+// modification access are rejected.  A read-only ACE from a parent directory
+// (e.g. an inherited BUILTIN\Users Read ACE from D:\) is still rejected
+// because a local attacker who is a member of that group can read private
+// key material directly.  This policy mirrors Win32-OpenSSH and Cygwin, which
+// require that private key files are accessible only by the owner, SYSTEM,
+// and Administrators.
 //
 // A nil DACL (NULL DACL) is always rejected because it grants unrestricted
 // access to every user on the system.
@@ -140,10 +171,10 @@ func checkWindowsDACL(path string, dacl *windows.ACL) *FilePermError {
 			aceSID.IsWellKnown(windows.WinAuthenticatedUserSid) ||
 			aceSID.IsWellKnown(windows.WinBuiltinUsersSid)
 
-		if isDangerous && ace.Mask&anyWriteMask != 0 {
+		if isDangerous && ace.Mask&dangerousAccessMask != 0 {
 			return &FilePermError{
 				Path:   path,
-				Reason: fmt.Sprintf("DACL grants write access to low-privilege SID %s", aceSID.String()),
+				Reason: fmt.Sprintf("DACL grants read or write access to low-privilege SID %s", aceSID.String()),
 			}
 		}
 	}
@@ -161,10 +192,14 @@ func checkWindowsDACL(path string, dacl *windows.ACL) *FilePermError {
 // those files are owned by the admin's individual SID.
 //
 // DACL check: no Allow ACE for Everyone, Authenticated Users, or
-// BUILTIN\Users may include write, delete, or security-modification access.
-// Read-only access for those identities (e.g. an inherited Read ACE from a
-// parent directory such as D:\bob\) is permitted.  A NULL DACL is always
-// rejected.
+// BUILTIN\Users may include read access (FILE_READ_DATA, FILE_READ_EA,
+// GENERIC_READ) or write/modification access.  Inherited read ACEs from a
+// parent directory (e.g. D:\bob\ where BUILTIN\Users has Read) are rejected
+// because any local account in that group can exfiltrate private key material.
+// A NULL DACL is always rejected.
+//
+// This policy matches Win32-OpenSSH and Cygwin: private keys must be
+// accessible only by the file owner, SYSTEM, and Administrators.
 //
 // Returns nil when the file does not exist; non-existence is not an error
 // because optional files (state.json) may be absent.

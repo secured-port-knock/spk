@@ -19,7 +19,7 @@ This document covers SPK's security architecture, threat model, and defense mech
 | **Port Scanning** | Dynamic port rotation changes the listen port every N seconds |
 | **Brute Force** | ML-KEM-768 = 192-bit security level; ML-KEM-1024 = 256-bit; AES-256-GCM |
 | **Quantum Attacks** | ML-KEM is NIST-approved post-quantum (FIPS 203) |
-| **Key Extraction** | Private key file has 0600 permissions; optional DPAPI/Keychain storage |
+| **Key Extraction** | Private key file restricted to owner only: mode 0600 on Unix; owner/SYSTEM/Administrators-only DACL on Windows; optional DPAPI/Keychain storage |
 | **Nonce Exhaustion** | Configurable max cache with automatic LRU eviction |
 | **State File Injection** | Recovered commands validated against firewall-binary allowlist + injection blocklist |
 | **Command Injection** | All firewall command parameters sanitized; strict input validation |
@@ -83,6 +83,56 @@ The setup wizard tests the secure storage before committing: writes a test crede
 On Windows, the key is encrypted with DPAPI and stored as a `.dpapi` file inside the client config directory. `cmdkey` is not used because it cannot reliably store multi-line PEM data. On macOS, the PEM key is base64-encoded before being passed to the Keychain so that embedded newlines in PEM blocks are not misinterpreted by the `security` command.
 
 Each client instance is assigned a randomly-generated storage label (e.g. `SPK_ServerKey_a3f7c91b5d8e0c12`) at setup time. The label is written to `spk_client.toml` as `key_storage_label` and is used as the unique credential slot name in the OS keystore. Because the label is stored in the config file rather than derived from the directory path, the config directory can be moved or renamed without breaking key lookup -- the same label is found regardless of where the TOML file lives. Multiple client instances that each have their own `--cfgdir` will each have a different randomly-generated label, so they use completely separate credential slots and do not interfere with each other. To remove an obsolete key, run `spk --client --delete-key` (or `spk --cfgdir <dir> --client --delete-key` to target a specific config directory).
+
+#### File Permissions and Access Control
+
+SPK enforces strict file-permission checks on startup for the server config file, the server private key (`server.key`), and the state file. The checks differ by platform.
+
+**Unix (Linux / macOS)**
+
+Files must be owned by the effective UID and GID of the running process, and the permission bits must be no more than `0600`. Group-readable or world-readable files are rejected. To set the correct permissions:
+
+```
+chmod 600 /etc/spk/spk_server.toml
+chmod 600 /etc/spk/server.key
+```
+
+**Windows**
+
+On Windows there are no POSIX permission bits. SPK reads the file's DACL (Discretionary Access Control List) and rejects the file if any Allow ACE grants read or write access to a low-privilege account. The accounts checked are:
+
+- `Everyone` (S-1-1-0)
+- `Authenticated Users` (S-1-5-11)
+- `BUILTIN\Users` (S-1-5-32-545)
+
+Both read access (`FILE_READ_DATA`, `GENERIC_READ`) and write access are rejected. An inherited read ACE from a parent directory (for example, `D:\` granting `BUILTIN\Users` read by default) is treated the same as an explicit ACE: any member of that group could read the private key.
+
+**Trusted identities that may hold any access:**
+
+| Identity | Notes |
+|---|---|
+| File owner (current process user) | Always trusted |
+| `NT AUTHORITY\SYSTEM` | Trusted service identity |
+| `NT AUTHORITY\LocalService` | Trusted service identity |
+| `NT AUTHORITY\NetworkService` | Trusted service identity |
+| `BUILTIN\Administrators` | Trusted admin group |
+
+A `NULL DACL` (unrestricted access for everyone) is always rejected.
+
+**How to fix Windows permission errors**
+
+If SPK exits with a file security error on Windows, restrict the DACL using `icacls`. The example below removes all inherited ACEs and grants only the current user full control:
+
+```
+icacls "C:\ProgramData\SPK\spk_server.toml" /inheritance:r /grant:r "%USERNAME%:(F)"
+icacls "C:\ProgramData\SPK\server.key" /inheritance:r /grant:r "%USERNAME%:(F)"
+```
+
+If the server runs as a Windows service under `LocalSystem`, replace `%USERNAME%` with the service account name, or grant `SYSTEM:(F)` instead:
+
+```
+icacls "C:\ProgramData\SPK\server.key" /inheritance:r /grant:r "NT AUTHORITY\SYSTEM:(F)"
+```
 
 ### Anti-Replay Mechanism
 
@@ -213,69 +263,6 @@ Every received packet requires ML-KEM decapsulation + AES-256-GCM decryption bef
 
 For deployments facing sustained high-volume attacks, combine dynamic port rotation with upstream network-level filtering (cloud firewall rules, ISP null-routing, or kernel-level rate limiting via `iptables -m hashlimit`).
 
-## File System Security
-
-SPK enforces strict file ownership and permission checks at startup on all platforms.
-This defends against privilege escalation through config/key file substitution and
-malicious `state.json` pre-creation.
-
-### Unix (Linux / macOS)
-
-Config and key directories are created with mode `0700` (owner-only).  Sensitive files
-are created with mode `0600`.  At startup, SPK verifies that each checked file:
-
-- Is owned by the same UID as the running process.
-- Is owned by the same GID as the running process.
-- Has no group, other, or execute permission bits set (maximum allowed: `0600`).
-
-Any violation causes an immediate exit before the port listener starts.
-
-**Why `0700` for directories:** With `0750`, group members can list and traverse the
-directory (but cannot write to it).  With `0700`, even group members have no access to
-the directory at all, preventing enumeration of its contents.  On Linux, a typical root
-install sets `/etc/spk/` to `0700 root:root`; no non-root user can see inside it.
-
-### Windows
-
-SPK validates each sensitive file's Windows ACL at startup.  The check has two parts.
-
-**Owner check:** the file owner must be one of:
-
-- the current process user (always trusted),
-- `NT AUTHORITY\SYSTEM` (S-1-5-18),
-- `NT AUTHORITY\LocalService` (S-1-5-19),
-- `NT AUTHORITY\NetworkService` (S-1-5-20),
-- `BUILTIN\Administrators` (S-1-5-32-544).
-
-When the process itself is a service account (SYSTEM, LocalService, NetworkService),
-the owner check is relaxed.  Service processes use config files created by an
-administrator during setup, and those files are owned by the admin's personal SID.
-DACL write-protection (below) is the primary security control in that case.
-
-**DACL write check:** no `Allow` ACE for `Everyone` (S-1-1-0), `Authenticated Users`
-(S-1-5-11), or `BUILTIN\Users` (S-1-5-32-545) may grant write, delete, or
-security-modification access.  Read-only access for those identities is permitted.
-This means a non-admin user running SPK from a personal folder (e.g. `D:\Bob\`)
-passes the check even if `BUILTIN\Users` has an inherited Read ACE from `D:\`, as
-long as the Users group does not have Write or higher.  A NULL DACL (unrestricted
-access to all users) is always rejected.
-
-**Default behavior:** when SPK generates a file as an Administrator or standard user,
-the file is owned by that user and the inherited DACL typically grants Full Control to
-Administrators and SYSTEM, with Read (not Write) for the Users group.  This satisfies
-both checks without any manual configuration.
-
-**Fixing permissions if the check fails:**
-```
-icacls "C:\path\to\spk_server.toml" /inheritance:r /grant:r "SYSTEM:(F)" /grant:r "Administrators:(F)"
-```
-
-### Unix Remediation
-
-```
-chmod 0700 /etc/spk
-chmod 0600 /etc/spk/spk_server.toml /etc/spk/server.key /etc/spk/server.crt
-```
 
 ## Fail-Safe Mechanisms
 

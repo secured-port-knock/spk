@@ -360,6 +360,18 @@ func (l *Logger) Fatalf(format string, v ...interface{}) {
 	os.Exit(1)
 }
 
+// LogLine writes a single message at the given level directly to the
+// underlying writer (file + stdout on a normal Logger; stdout-only on a
+// NewStdoutOnly Logger).  Unlike Infof/Warnf/Errorf it bypasses flood
+// protection so that critical startup and FATAL messages are never
+// suppressed.  Intended for use by server.Run to redirect its logLine
+// function through the file logger once the file is open.
+func (l *Logger) LogLine(level, msg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.logMsg(level, msg)
+}
+
 // StdLogger returns the underlying *log.Logger for compatibility.
 func (l *Logger) StdLogger() *log.Logger {
 	l.mu.Lock()

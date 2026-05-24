@@ -27,20 +27,28 @@ func TestCheckSensitiveFile_Windows_NotExist(t *testing.T) {
 	}
 }
 
-// TestCheckSensitiveFile_Windows_CurrentUser verifies that a file created by
-// the current user passes under default DACL inheritance.
-// If the parent directory already has a dangerous write ACE, the test is
-// skipped to avoid false failures on misconfigured environments.
+// TestCheckSensitiveFile_Windows_CurrentUser verifies that a file with
+// owner-only permissions (no ACE for Anyone, Authenticated Users, or
+// BUILTIN\Users) passes the check.  Inherited ACEs are stripped and the DACL
+// is rebuilt with only the current user holding full control.
 func TestCheckSensitiveFile_Windows_CurrentUser(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.toml")
 	if err := os.WriteFile(path, []byte("key = \"val\""), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	err := CheckSensitiveFile(path)
-	if err != nil {
-		t.Logf("NOTE: default DACL has a dangerous write ACE on this host: %v", err)
-		t.Skip("skipping: environment DACL already contains a write ACE for a low-privilege group")
+	// Strip all inherited ACEs and grant only the current user full control.
+	// This mirrors the permission model that CheckSensitiveFile enforces and
+	// avoids test flakiness on systems where temp directories have inherited
+	// BUILTIN\Users read ACEs.
+	username := currentWindowsUsername(t)
+	if err := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", username+":(F)").Run(); err != nil {
+		t.Skipf("icacls failed to set owner-only permissions: %v", err)
+	}
+	if err := CheckSensitiveFile(path); err != nil {
+		t.Errorf("expected nil for owner-only permissions, got: %v", err)
 	}
 }
 
@@ -60,29 +68,98 @@ func TestCheckSensitiveFile_Windows_EveryoneWrite(t *testing.T) {
 	}
 }
 
-// TestCheckSensitiveFile_Windows_EveryoneReadOnly verifies that a read-only
-// ACE for Everyone does NOT cause a failure.  This is a common configuration
-// when a file is located in a directory that grants Everyone or Users read
-// access by inheritance (e.g. a user's own folder on D:\).
+// TestCheckSensitiveFile_Windows_EveryoneReadOnly verifies that granting
+// Everyone read-only access DOES cause a failure.  A read ACE for Everyone on
+// a private key file is equivalent to a world-readable file on Linux (mode
+// 0644), which fails the 0600 check.  Any local account could read the key.
 func TestCheckSensitiveFile_Windows_EveryoneReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.toml")
 	if err := os.WriteFile(path, []byte("key = \"val\""), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// Remove inheritance and start fresh so we control the DACL precisely.
-	if err := exec.Command("icacls", path, "/inheritance:r").Run(); err != nil {
-		t.Skipf("icacls inheritance removal failed: %v", err)
-	}
-	// Grant current user full control and Everyone read-only.
 	username := currentWindowsUsername(t)
+	// Strip inherited ACEs, grant owner full control, and grant Everyone
+	// read-only -- all in one icacls call so the file never enters a state
+	// where the owner has no access (which would block temp-dir cleanup).
 	if err := exec.Command("icacls", path,
+		"/inheritance:r",
 		"/grant:r", username+":(F)",
 		"/grant:r", "Everyone:(R)").Run(); err != nil {
 		t.Skipf("icacls read grant failed: %v", err)
 	}
+	// Safety net: restore inheritable permissions so temp-dir cleanup succeeds.
+	t.Cleanup(func() { exec.Command("icacls", path, "/reset").Run() })
+	if err := CheckSensitiveFile(path); err == nil {
+		t.Error("expected error for Everyone Read-Only ACE, got nil")
+	}
+}
+
+// TestCheckSensitiveFile_Windows_UsersReadOnly verifies that granting
+// BUILTIN\Users read-only access DOES cause a failure.  This is the common
+// inherited-read scenario when config files are stored on a drive whose root
+// folder grants BUILTIN\Users Read by default (e.g. D:\).
+func TestCheckSensitiveFile_Windows_UsersReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.toml")
+	if err := os.WriteFile(path, []byte("key = \"val\""), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	username := currentWindowsUsername(t)
+	if err := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", username+":(F)",
+		"/grant:r", "BUILTIN\\Users:(R)").Run(); err != nil {
+		t.Skipf("icacls read grant failed: %v", err)
+	}
+	t.Cleanup(func() { exec.Command("icacls", path, "/reset").Run() })
+	if err := CheckSensitiveFile(path); err == nil {
+		t.Error("expected error for BUILTIN\\Users Read-Only ACE, got nil")
+	}
+}
+
+// TestCheckSensitiveFile_Windows_AuthenticatedUsersReadOnly verifies that
+// granting Authenticated Users read-only access DOES cause a failure.
+// Uses the well-known SID *S-1-5-11 to avoid localized account-name issues
+// (error 1332) on non-English Windows installations.
+func TestCheckSensitiveFile_Windows_AuthenticatedUsersReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.toml")
+	if err := os.WriteFile(path, []byte("key = \"val\""), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	username := currentWindowsUsername(t)
+	// *S-1-5-11 is the well-known SID for Authenticated Users; using the SID
+	// directly avoids locale-specific name resolution failures (icacls 1332).
+	if err := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", username+":(F)",
+		"/grant:r", "*S-1-5-11:(R)").Run(); err != nil {
+		t.Skipf("icacls read grant failed: %v", err)
+	}
+	t.Cleanup(func() { exec.Command("icacls", path, "/reset").Run() })
+	if err := CheckSensitiveFile(path); err == nil {
+		t.Error("expected error for Authenticated Users Read-Only ACE, got nil")
+	}
+}
+
+// TestCheckSensitiveFile_Windows_OwnerOnly verifies that a file restricted
+// strictly to the current user (no other ACEs) passes the check.
+func TestCheckSensitiveFile_Windows_OwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.toml")
+	if err := os.WriteFile(path, []byte("key = \"val\""), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	username := currentWindowsUsername(t)
+	if err := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", username+":(F)").Run(); err != nil {
+		t.Skipf("icacls owner-only grant failed: %v", err)
+	}
+	t.Cleanup(func() { exec.Command("icacls", path, "/reset").Run() })
 	if err := CheckSensitiveFile(path); err != nil {
-		t.Errorf("expected nil for Everyone Read-Only ACE, got: %v", err)
+		t.Errorf("expected nil for owner-only DACL, got: %v", err)
 	}
 }
 
@@ -271,13 +348,21 @@ func TestCheckWindowsDACL_EveryoneFullControl(t *testing.T) {
 }
 
 // TestCheckWindowsDACL_EveryoneReadOnly verifies that a read-only Allow ACE
-// for Everyone does NOT trigger an error.  This scenario occurs when SPK
-// config files inherit a Read ACE from their parent directory (e.g. D:\bob\
-// where the Users group has Read inherited from D:\).
+// for Everyone DOES trigger an error.  A world-readable private key file is
+// the Windows equivalent of Linux mode 0644, violating the 0600 requirement.
 func TestCheckWindowsDACL_EveryoneReadOnly(t *testing.T) {
 	dacl := buildSingleAllowDACL(t, windows.WinWorldSid, windows.GENERIC_READ)
-	if e := checkWindowsDACL("fake", dacl); e != nil {
-		t.Errorf("expected nil for Everyone GENERIC_READ ACE (read-only), got: %v", e)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for Everyone GENERIC_READ ACE, got nil")
+	}
+}
+
+// TestCheckWindowsDACL_EveryoneFileReadData verifies that a FILE_READ_DATA
+// Allow ACE for Everyone is rejected (explicit read of file contents).
+func TestCheckWindowsDACL_EveryoneFileReadData(t *testing.T) {
+	dacl := buildSingleAllowDACL(t, windows.WinWorldSid, windows.FILE_READ_DATA)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for Everyone FILE_READ_DATA ACE, got nil")
 	}
 }
 
@@ -291,11 +376,20 @@ func TestCheckWindowsDACL_AuthenticatedUsersWrite(t *testing.T) {
 }
 
 // TestCheckWindowsDACL_AuthenticatedUsersReadOnly verifies that a read-only
-// Allow ACE for Authenticated Users does NOT trigger an error.
+// Allow ACE for Authenticated Users DOES trigger an error.
 func TestCheckWindowsDACL_AuthenticatedUsersReadOnly(t *testing.T) {
 	dacl := buildSingleAllowDACL(t, windows.WinAuthenticatedUserSid, windows.GENERIC_READ)
-	if e := checkWindowsDACL("fake", dacl); e != nil {
-		t.Errorf("expected nil for Authenticated Users GENERIC_READ ACE, got: %v", e)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for Authenticated Users GENERIC_READ ACE, got nil")
+	}
+}
+
+// TestCheckWindowsDACL_AuthenticatedUsersFileReadData verifies that a
+// FILE_READ_DATA Allow ACE for Authenticated Users is rejected.
+func TestCheckWindowsDACL_AuthenticatedUsersFileReadData(t *testing.T) {
+	dacl := buildSingleAllowDACL(t, windows.WinAuthenticatedUserSid, windows.FILE_READ_DATA)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for Authenticated Users FILE_READ_DATA ACE, got nil")
 	}
 }
 
@@ -309,12 +403,39 @@ func TestCheckWindowsDACL_UsersWrite(t *testing.T) {
 }
 
 // TestCheckWindowsDACL_UsersReadOnly verifies that a read-only Allow ACE for
-// BUILTIN\Users does NOT trigger an error.  This is the common case on
-// systems where D:\ grants BUILTIN\Users inherited Read access.
+// BUILTIN\Users DOES trigger an error.  D:\ commonly grants BUILTIN\Users
+// inherited Read, which would expose private key material to all local users.
 func TestCheckWindowsDACL_UsersReadOnly(t *testing.T) {
 	dacl := buildSingleAllowDACL(t, windows.WinBuiltinUsersSid, windows.GENERIC_READ)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for BUILTIN\\Users GENERIC_READ ACE, got nil")
+	}
+}
+
+// TestCheckWindowsDACL_UsersFileReadData verifies that a FILE_READ_DATA Allow
+// ACE for BUILTIN\Users is rejected.
+func TestCheckWindowsDACL_UsersFileReadData(t *testing.T) {
+	dacl := buildSingleAllowDACL(t, windows.WinBuiltinUsersSid, windows.FILE_READ_DATA)
+	if e := checkWindowsDACL("fake", dacl); e == nil {
+		t.Error("expected error for BUILTIN\\Users FILE_READ_DATA ACE, got nil")
+	}
+}
+
+// TestCheckWindowsDACL_SystemReadOnly verifies that SYSTEM retains read access
+// (SYSTEM is a trusted identity, not a low-privilege account).
+func TestCheckWindowsDACL_SystemReadOnly(t *testing.T) {
+	dacl := buildSingleAllowDACL(t, windows.WinLocalSystemSid, windows.GENERIC_READ)
 	if e := checkWindowsDACL("fake", dacl); e != nil {
-		t.Errorf("expected nil for BUILTIN\\Users GENERIC_READ ACE (read-only), got: %v", e)
+		t.Errorf("expected nil for SYSTEM GENERIC_READ ACE, got: %v", e)
+	}
+}
+
+// TestCheckWindowsDACL_AdminsReadOnly verifies that BUILTIN\Administrators
+// retains read access (Administrators are trusted).
+func TestCheckWindowsDACL_AdminsReadOnly(t *testing.T) {
+	dacl := buildSingleAllowDACL(t, windows.WinBuiltinAdministratorsSid, windows.GENERIC_READ)
+	if e := checkWindowsDACL("fake", dacl); e != nil {
+		t.Errorf("expected nil for Administrators GENERIC_READ ACE, got: %v", e)
 	}
 }
 

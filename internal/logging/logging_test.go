@@ -793,3 +793,79 @@ func TestNewServerLoggerWithRoot(t *testing.T) {
 		t.Errorf("log file not created: %v", err)
 	}
 }
+
+// TestLoggerLogLine verifies that LogLine writes to the log file with the
+// correct level prefix and bypasses flood protection.  This is the method
+// used by server.Run to redirect its logLine closure through the file logger
+// so that startup and FATAL messages are persisted.
+func TestLoggerLogLine(t *testing.T) {
+	dir := t.TempDir()
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+
+	l, err := New("logline_test.log", DefaultConfig(), "server")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer l.Close()
+
+	l.LogLine("INFO", "Logging to: /some/path.log")
+	l.LogLine("FATAL", "File security check failed: /etc/spk/server.key: bad owner")
+	l.LogLine("WARN", "some warning message")
+	l.Close()
+
+	data, err := os.ReadFile(filepath.Join(dir, "logline_test.log"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	content := string(data)
+
+	for _, want := range []string{
+		"INFO  |", "Logging to: /some/path.log",
+		"FATAL |", "File security check failed:",
+		"WARN  |", "some warning message",
+		"[server]",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("log file does not contain %q; got:\n%s", want, content)
+		}
+	}
+}
+
+// TestLoggerLogLine_FloodBypass verifies that LogLine is not suppressed even
+// when the flood limiter would block normal Infof calls.
+func TestLoggerLogLine_FloodBypass(t *testing.T) {
+	dir := t.TempDir()
+	origDir := customLogDir
+	defer func() { customLogDir = origDir }()
+	if err := SetLogDir(dir); err != nil {
+		t.Fatalf("SetLogDir: %v", err)
+	}
+
+	// Set a very tight flood limit of 1 message/second.
+	cfg := Config{MaxSizeMB: 1, MaxBackups: 1, MaxAgeDays: 1, FloodLimitPS: 1}
+	l, err := New("logline_flood_test.log", cfg, "server")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer l.Close()
+
+	// Exhaust the flood budget via Infof.
+	l.Infof("budget message 1")
+	l.Infof("budget message 2") // should be suppressed
+
+	// LogLine must still get through regardless.
+	l.LogLine("FATAL", "critical startup error")
+	l.Close()
+
+	data, err := os.ReadFile(filepath.Join(dir, "logline_flood_test.log"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "critical startup error") {
+		t.Errorf("LogLine was suppressed by flood limiter; log:\n%s", string(data))
+	}
+}
