@@ -16,6 +16,35 @@
 | `spk_client.log` | Client log (only written when --logdir is specified) |
 | `<key_storage_label>.dpapi` | DPAPI-encrypted server key (Windows only, stored in client config directory). The filename is the randomly-generated `key_storage_label` value from `spk_client.toml`. |
 
+## File Permission Requirements (Linux / macOS)
+
+SPK enforces strict file security on Unix at startup to prevent privilege escalation
+through config/key file substitution.
+
+**All sensitive files must:**
+- Be owned by the same user (UID) that is running the SPK process
+- Be owned by the same group (GID) that is running the SPK process
+- Have permissions no more permissive than `0600` (owner read/write only)
+
+Any violation causes SPK to print the offending file and reason, then exit immediately
+without starting the port listener.
+
+Permission enforcement is not applied on Windows (to be added in a later release).
+
+**Why ownership must match:** SPK executes firewall commands read from the server config
+and loads a private key read from `server.key`. If another user or group owns these
+files they could modify them to inject commands or substitute a rogue key, and SPK
+would execute those commands or use the rogue key with the privileges of the SPK
+process (typically root). Matching UID and GID eliminates that attack vector.
+
+**Fixing permissions:**
+```
+chmod 0600 /etc/spk/spk_server.toml /etc/spk/server.key /etc/spk/server.crt
+# verify ownership
+ls -la /etc/spk/
+```
+
+
 ## Default Paths
 
 ### Server (requires root / Administrator)

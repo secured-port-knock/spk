@@ -179,7 +179,7 @@ func SavePublicKey(path string, dk DecapsulationKey) error {
 		Bytes: ek.Bytes(),
 	}
 	data := pem.EncodeToMemory(block)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("save public key: %w", err)
 	}
 	return nil

@@ -310,6 +310,25 @@ func Run() {
 		srvLog = srvLogger
 	}
 
+	// Validate file ownership and permissions before starting the listener.
+	// Prevents a malicious user from substituting config/key files owned by
+	// a different account to inject firewall commands or a rogue private key.
+	// (Unix only; no-op on Windows.)
+	{
+		keyPath := filepath.Join(config.ConfigDir(), "server.key")
+		serverPaths := []string{configPath, keyPath}
+		if _, serr := os.Stat(config.StatePath()); serr == nil {
+			serverPaths = append(serverPaths, config.StatePath())
+		}
+		if permErrs := config.CheckSensitiveFiles(serverPaths...); len(permErrs) > 0 {
+			for _, e := range permErrs {
+				logLine("FATAL", fmt.Sprintf("File security check failed: %s", e))
+			}
+			logLine("FATAL", "Files must be owned by the process user/group with permissions max 0600.")
+			os.Exit(1)
+		}
+	}
+
 	// Load private key
 	keyPath := filepath.Join(config.ConfigDir(), "server.key")
 	dk, err := crypto.LoadPrivateKey(keyPath)

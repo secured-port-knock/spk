@@ -147,6 +147,23 @@ func loadClientState(hostOverride string) (*config.Config, crypto.EncapsulationK
 		return nil, nil, fmt.Errorf("config validation failed: %s", strings.Join(errs, "; "))
 	}
 
+	// Validate file ownership and permissions before using any credentials.
+	// Prevents a different user from owning spk_client.toml or server.crt and
+	// substituting a rogue server key or altering client config.
+	// (Unix only; no-op on Windows.)
+	{
+		clientPaths := []string{config.ClientConfigPath()}
+		certPath := filepath.Join(config.ClientConfigDir(), "server.crt")
+		clientPaths = append(clientPaths, certPath) // skipped if file does not exist
+		if permErrs := config.CheckSensitiveFiles(clientPaths...); len(permErrs) > 0 {
+			msgs := make([]string, len(permErrs))
+			for i, e := range permErrs {
+				msgs[i] = e.Error()
+			}
+			return nil, nil, fmt.Errorf("file security check failed: %s", strings.Join(msgs, "; "))
+		}
+	}
+
 	if hostOverride != "" {
 		cfg.ServerHost = hostOverride
 	}
