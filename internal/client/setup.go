@@ -280,7 +280,7 @@ func wizardSavePublicKey(cfg *config.Config, bundle *crypto.ExportBundle) {
 	certPath := filepath.Join(config.ClientConfigDir(), "server.crt")
 	pemData := pem.EncodeToMemory(pemBlock)
 
-	if err := os.MkdirAll(filepath.Dir(certPath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(certPath), 0700); err != nil {
 		fmt.Printf("  Error creating config directory: %v\n", err)
 		os.Exit(1)
 	}

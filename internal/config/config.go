@@ -169,7 +169,7 @@ var configDirInitError error
 // SetConfigDir overrides the default config directory.
 // Creates the directory if it does not exist.
 func SetConfigDir(dir string) {
-	os.MkdirAll(dir, 0750)
+	os.MkdirAll(dir, 0700)
 	customConfigDir = dir
 	configDirInitError = nil // clear any prior init error when an explicit dir is set
 }
@@ -197,7 +197,7 @@ func ConfigDir() string {
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		// Server config lives in /etc/spk only. Root or CAP_DAC_OVERRIDE is
 		// required. There is no unprivileged fallback; use --cfgdir instead.
-		if err := os.MkdirAll("/etc/spk", 0750); err == nil {
+		if err := os.MkdirAll("/etc/spk", 0700); err == nil {
 			configDirInitError = nil
 			return "/etc/spk"
 		}
@@ -211,7 +211,7 @@ func ConfigDir() string {
 		return "."
 	}
 	dir := filepath.Join(filepath.Dir(exe), "config")
-	os.MkdirAll(dir, 0750) //nolint:errcheck
+	os.MkdirAll(dir, 0700) //nolint:errcheck
 	return dir
 }
 
@@ -234,7 +234,7 @@ func ClientConfigDir() string {
 		}
 		if base != "" {
 			dir := filepath.Join(base, "spk")
-			if err := os.MkdirAll(dir, 0750); err == nil {
+			if err := os.MkdirAll(dir, 0700); err == nil {
 				return dir
 			}
 		}
@@ -246,7 +246,7 @@ func ClientConfigDir() string {
 		return "."
 	}
 	dir := filepath.Join(filepath.Dir(exe), "config")
-	os.MkdirAll(dir, 0750) //nolint:errcheck
+	os.MkdirAll(dir, 0700) //nolint:errcheck
 	return dir
 }
 
@@ -535,7 +535,7 @@ func migrateLegacyConfigKeys(raw map[string]interface{}) {
 
 // Save writes the config as TOML.
 func (c *Config) Save(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 	var buf bytes.Buffer
@@ -785,7 +785,7 @@ func WriteServerConfigWithComments(path string, cfg *Config) error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 	return os.WriteFile(path, []byte(content.String()), 0600)
@@ -906,7 +906,7 @@ func WriteClientConfigWithComments(path string, cfg *Config) error {
 		content.WriteString(fmt.Sprintf("default_open_duration = %d\n", cfg.DefaultOpenDuration))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 	return os.WriteFile(path, []byte(content.String()), 0600)

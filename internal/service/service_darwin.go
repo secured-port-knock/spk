@@ -67,7 +67,7 @@ func installDarwin(cfg ServiceConfig) error {
 `, label, cfg.ExePath, argElements, logDir, name, logDir, name)
 
 	// Create log directory
-	os.MkdirAll(logDir, 0750)
+	os.MkdirAll(logDir, 0700)
 
 	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {
 		return fmt.Errorf("write plist: %w", err)

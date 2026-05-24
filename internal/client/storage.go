@@ -112,7 +112,7 @@ func LoadKeySecure(keyPath, label string) error {
 	if err != nil {
 		return fmt.Errorf("load from secure storage: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
 		return fmt.Errorf("create key directory: %w", err)
 	}
 	return os.WriteFile(keyPath, []byte(data), 0600)
@@ -168,7 +168,7 @@ func testWindowsDPAPI() error {
 
 func saveWindowsDPAPI(name, value string) error {
 	dpapiPath := filepath.Join(config.ClientConfigDir(), name+".dpapi")
-	if err := os.MkdirAll(filepath.Dir(dpapiPath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dpapiPath), 0700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	psCmd := fmt.Sprintf(

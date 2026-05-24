@@ -71,7 +71,7 @@ func SetLogDir(dir string) error {
 		customLogDir = ""
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create log directory %s: %w", dir, err)
 	}
 	customLogDir = dir
@@ -115,7 +115,7 @@ func LogDir() string {
 	}
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		dir := "/var/log/spk"
-		if err := os.MkdirAll(dir, 0750); err == nil && isWritableDir(dir) {
+		if err := os.MkdirAll(dir, 0700); err == nil && isWritableDir(dir) {
 			logDirInitError = nil
 			return dir
 		}
@@ -131,7 +131,7 @@ func LogDir() string {
 		return "."
 	}
 	dir := filepath.Join(filepath.Dir(exe), "log")
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR | [logging] failed to create log directory %s: %v\n", dir, err)
 		return "."
 	}
@@ -156,7 +156,7 @@ func ClientLogDir() string {
 		}
 		if base != "" {
 			dir := filepath.Join(base, "spk", "logs")
-			if err := os.MkdirAll(dir, 0750); err == nil {
+			if err := os.MkdirAll(dir, 0700); err == nil {
 				return dir
 			}
 		}
@@ -168,7 +168,7 @@ func ClientLogDir() string {
 		return "."
 	}
 	dir := filepath.Join(filepath.Dir(exe), "log")
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR | [logging] failed to create log directory %s: %v\n", dir, err)
 		return "."
 	}
@@ -228,7 +228,7 @@ func New(filename string, cfg Config, module ...string) (*Logger, error) {
 		// and no --logdir was specified. File logging is disabled.
 		return nil, fmt.Errorf("log directory not available (specify --logdir to enable file logging)")
 	}
-	if err := os.MkdirAll(logDir, 0750); err != nil {
+	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", logDir, err)
 	}
 

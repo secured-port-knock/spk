@@ -318,7 +318,7 @@ func TestWindowsDPAPIPathWithSpaces(t *testing.T) {
 	skipUnlessWindows(t)
 	base := t.TempDir()
 	cfgDir := filepath.Join(base, "my config dir")
-	if err := os.MkdirAll(cfgDir, 0750); err != nil {
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	withConfigDir(t, cfgDir)

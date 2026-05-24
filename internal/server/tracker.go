@@ -232,7 +232,7 @@ func (t *Tracker) saveState() {
 		t.logger.Printf("[ERROR] Failed to marshal state: %v", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(t.statePath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(t.statePath), 0700); err != nil {
 		t.logger.Printf("[ERROR] Failed to create state directory: %v", err)
 		return
 	}
