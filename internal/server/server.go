@@ -45,6 +45,25 @@ func Stop() {
 	shutdownOnce.Do(func() { close(shutdownCh) })
 }
 
+// checkServerFileSecurity validates ownership and permissions for all files the
+// server loads on startup. On a permission violation it logs each offending file
+// and exits. Unix-only; the underlying check is a no-op on Windows.
+func checkServerFileSecurity(configPath string, logLine func(string, string)) {
+	keyPath := filepath.Join(config.ConfigDir(), "server.key")
+	paths := []string{configPath, keyPath}
+	if _, err := os.Stat(config.StatePath()); err == nil {
+		paths = append(paths, config.StatePath())
+	}
+	permErrs := config.CheckSensitiveFiles(paths...)
+	for _, e := range permErrs {
+		logLine("FATAL", fmt.Sprintf("File security check failed: %s", e))
+	}
+	if len(permErrs) > 0 {
+		logLine("FATAL", "Files must be owned by the process user/group with permissions max 0600.")
+		os.Exit(1)
+	}
+}
+
 // Run starts the server in listening mode.
 // initFileLogger sets up the rotating file logger for the server.
 // Returns the structured logger (or nil when file logging is unavailable) and the
@@ -314,20 +333,7 @@ func Run() {
 	// Prevents a malicious user from substituting config/key files owned by
 	// a different account to inject firewall commands or a rogue private key.
 	// (Unix only; no-op on Windows.)
-	{
-		keyPath := filepath.Join(config.ConfigDir(), "server.key")
-		serverPaths := []string{configPath, keyPath}
-		if _, serr := os.Stat(config.StatePath()); serr == nil {
-			serverPaths = append(serverPaths, config.StatePath())
-		}
-		if permErrs := config.CheckSensitiveFiles(serverPaths...); len(permErrs) > 0 {
-			for _, e := range permErrs {
-				logLine("FATAL", fmt.Sprintf("File security check failed: %s", e))
-			}
-			logLine("FATAL", "Files must be owned by the process user/group with permissions max 0600.")
-			os.Exit(1)
-		}
-	}
+	checkServerFileSecurity(configPath, logLine)
 
 	// Load private key
 	keyPath := filepath.Join(config.ConfigDir(), "server.key")

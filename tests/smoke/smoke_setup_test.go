@@ -73,9 +73,11 @@ func setupTestServer(t *testing.T, setup serverSetup) *testServer {
 	if errs := cfg.Validate(); len(errs) > 0 {
 		t.Fatalf("config validation: %v", strings.Join(errs, "; "))
 	}
-	if err := cfg.Save(filepath.Join(cfgDir, "spk_server.toml")); err != nil {
+	cfgPath := filepath.Join(cfgDir, "spk_server.toml")
+	if err := cfg.Save(cfgPath); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
+	chownToCurrentProcess(t, cfgPath)
 
 	stopFn := startServerProcess(t, cfgDir)
 	t.Cleanup(stopFn)
@@ -96,9 +98,15 @@ func generateServerKeys(t *testing.T, cfgDir string) (crypto.DecapsulationKey, c
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	if err := crypto.SavePrivateKey(filepath.Join(cfgDir, "server.key"), dk); err != nil {
+	keyPath := filepath.Join(cfgDir, "server.key")
+	if err := crypto.SavePrivateKey(keyPath, dk); err != nil {
 		t.Fatalf("SavePrivateKey: %v", err)
 	}
+	// On macOS, /var/folders temp dirs have a setgid bit that forces new files
+	// to inherit gid from the parent directory even when running as root via
+	// sudo. Explicitly chown to the current process uid/gid so the security
+	// check in the server binary accepts the file.
+	chownToCurrentProcess(t, keyPath)
 	return dk, dk.EncapsulationKey()
 }
 

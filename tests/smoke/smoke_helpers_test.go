@@ -152,3 +152,20 @@ func isRoot() bool {
 	}
 	return os.Getuid() == 0
 }
+
+// chownToCurrentProcess sets the owner of path to the current process's
+// effective uid and gid. This is needed on macOS when the tests run via
+// "sudo -E go test": /var/folders temp directories have a setgid bit that
+// forces new files to inherit the parent directory group (gid 20 = staff)
+// even when the creating process is root. The SPK file-security check
+// requires the file's gid to match the server process's effective gid (0
+// when running as root), so we normalise ownership here.
+// On platforms where Chown is not supported the call is silently ignored.
+func chownToCurrentProcess(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Chown(path, os.Geteuid(), os.Getegid()); err != nil {
+		// Non-fatal: if we cannot chown (e.g. non-root non-owner), the
+		// subsequent security check in the server will report the actual error.
+		t.Logf("chownToCurrentProcess(%s): %v (ignored)", filepath.Base(path), err)
+	}
+}
