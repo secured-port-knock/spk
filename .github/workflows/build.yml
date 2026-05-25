@@ -13,7 +13,9 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Set to "false" to skip uploading build artifacts after each run (default).
+  # Set to "true" to keep artifacts.
+  KEEP_ARTIFACTS: "false"
 
 jobs:
   # ---------------------------------------------------------------
@@ -56,6 +58,7 @@ jobs:
         run: ./build.sh -test
 
       - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: build-linux
@@ -98,6 +101,13 @@ jobs:
       - name: Run tests via build script (-test flag)
         run: ./build.sh -test
 
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos
+          path: build/
+
   # ---------------------------------------------------------------
   # Build script verification -- Windows (windows-latest)
   # Tests: all-platforms amd64+arm64, windows pcap (pure Go),
@@ -134,6 +144,13 @@ jobs:
 
       - name: Run tests via build script (-test flag)
         run: .\build.ps1 -test
+
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: build/
 
   # ---------------------------------------------------------------
   # Build script verification -- no zig, Linux (ubuntu-latest)
@@ -172,6 +189,13 @@ jobs:
           expect_nopcap darwin  arm64
           exit $fail
 
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux-nozig
+          path: build/
+
   # ---------------------------------------------------------------
   # Build script verification -- no zig, macOS (macos-latest, arm64)
   # Verifies behavior when zig is absent:
@@ -205,6 +229,13 @@ jobs:
           expect_nopcap darwin  amd64
           expect_pcap   darwin  arm64
           exit $fail
+
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-nozig
+          path: build/
 
   # ---------------------------------------------------------------
   # Build script verification -- no zig, Windows (windows-latest)
@@ -245,6 +276,13 @@ jobs:
           Expect-NoPcap darwin  arm64
           if ($fail) { exit 1 }
 
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows-nozig
+          path: build/
+
   # ---------------------------------------------------------------
   # Build script verification -- macOS Intel (macos-##-intel, amd64)
   # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
@@ -282,6 +320,13 @@ jobs:
       - name: Run tests via build script (-test flag)
         run: ./build.sh -test
 
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-intel
+          path: build/
+
   # ---------------------------------------------------------------
   # Build script verification -- no zig, macOS Intel (macos-##-intel, amd64)
   # Verifies behavior when zig is absent:
@@ -315,3 +360,10 @@ jobs:
           expect_pcap   darwin  amd64
           expect_nopcap darwin  arm64
           exit $fail
+
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-intel-nozig
+          path: build/

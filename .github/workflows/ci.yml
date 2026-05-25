@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Set to "false" to skip uploading test artifacts after each run (default).
+  # Set to "true" to keep artifacts.
+  KEEP_ARTIFACTS: "false"
+
 jobs:
   # ---------------------------------------------------------------
   # Smoke tests -- Linux
@@ -197,6 +202,7 @@ jobs:
         run: go test -buildvcs=false ./... -coverprofile=coverage.out -count=1 -timeout 120s
 
       - name: Upload coverage artifact
+        if: env.KEEP_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
