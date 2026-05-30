@@ -660,6 +660,19 @@ jobs:
     steps:
       - name: Delete intermediate build artifacts
         if: env.KEEP_ARTIFACTS == 'false'
-        uses: actions/delete-artifact@v4
-        with:
-          pattern: build-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          artifact_ids=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --paginate \
+            --jq '.artifacts[] | select(.name | startswith("build-")) | .id')
+          if [ -z "$artifact_ids" ]; then
+            echo "No matching artifacts to delete."
+            exit 0
+          fi
+          for id in $artifact_ids; do
+            echo "Deleting artifact id=$id"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+          done
+          echo "Done."
