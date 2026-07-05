@@ -366,7 +366,6 @@ func Run() {
 	if maxNonceCache == 0 {
 		maxNonceCache = 10000
 	}
-	nonceTracker := protocol.NewNonceTrackerWithLimit(nonceExpiry, maxNonceCache)
 
 	dynPortWindow := cfg.DynPortWindow
 	if dynPortWindow == 0 {
@@ -388,12 +387,14 @@ func Run() {
 	}
 
 	// Warn and auto-correct when nonce_expiry < timestamp_tolerance (replay gap).
+	// The tracker is created only after the effective expiry is known so that
+	// no orphaned tracker (and its cleanup goroutine) is left behind.
 	if timestampTolerance > 0 && int64(nonceExpiry.Seconds()) < timestampTolerance {
 		logf("[WARN] nonce_expiry (%ds) < timestamp_tolerance (%ds) - replay window exists! Increasing nonce_expiry to match.",
 			int(nonceExpiry.Seconds()), timestampTolerance)
 		nonceExpiry = time.Duration(timestampTolerance+30) * time.Second
-		nonceTracker = protocol.NewNonceTrackerWithLimit(nonceExpiry, maxNonceCache)
 	}
+	nonceTracker := protocol.NewNonceTrackerWithLimit(nonceExpiry, maxNonceCache)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

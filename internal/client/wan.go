@@ -49,7 +49,9 @@ func stunBindingRequest(server string) (string, error) {
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		return "", fmt.Errorf("set deadline for %s: %w", server, err)
+	}
 
 	// Build STUN Binding Request (RFC 5389 Sec.6)
 	// Header: type(2) + length(2) + magic_cookie(4) + transaction_id(12) = 20 bytes
@@ -131,6 +133,11 @@ func parseSTUNResponse(data []byte, txID [12]byte) (string, error) {
 		padded := attrLen
 		if padded%4 != 0 {
 			padded += 4 - padded%4
+		}
+		// The padded length may run past the end of the buffer on a
+		// malformed/malicious response; stop parsing instead of panicking.
+		if 4+padded > len(attrs) {
+			break
 		}
 		attrs = attrs[4+padded:]
 	}

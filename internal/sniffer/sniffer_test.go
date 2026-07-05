@@ -1066,10 +1066,22 @@ func TestListLocalAddressesDiagnostic(t *testing.T) {
 // findNonLoopbackLocalIP returns the first non-loopback, non-link-local IPv4
 // address found on the machine.  Used by tests that need a real local IP.
 func findNonLoopbackLocalIP() (net.IP, error) {
+	ips, err := findNonLoopbackLocalIPs()
+	if err != nil {
+		return nil, err
+	}
+	return ips[0], nil
+}
+
+// findNonLoopbackLocalIPs returns every non-loopback, non-link-local IPv4
+// address on the machine.  Used by tests that must tolerate adapters without
+// a backing capture device (VPN/virtual NICs).
+func findNonLoopbackLocalIPs() ([]net.IP, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
+	var ips []net.IP
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
 			continue
@@ -1090,9 +1102,12 @@ func findNonLoopbackLocalIP() (net.IP, error) {
 				continue
 			}
 			if ip4 := ip.To4(); ip4 != nil {
-				return ip4, nil
+				ips = append(ips, ip4)
 			}
 		}
 	}
-	return nil, fmt.Errorf("no non-loopback IPv4 interface found")
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no non-loopback IPv4 interface found")
+	}
+	return ips, nil
 }

@@ -246,6 +246,29 @@ func TestParseSTUNResponseNoMappedAddress(t *testing.T) {
 	}
 }
 
+func TestParseSTUNResponsePaddedAttrOverrun(t *testing.T) {
+	// Regression: an attribute whose 4-byte-padded length runs past the end
+	// of the message must not panic (previously caused a slice bounds panic).
+	// attrLen=5 with exactly 9 attribute bytes passes the raw-length check
+	// (4+5 == 9) but the padded advance (4+8 = 12) exceeds the buffer.
+	txID := [12]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}
+
+	resp := make([]byte, 29) // 20 header + 9 attribute bytes
+	resp[0], resp[1] = 0x01, 0x01
+	resp[2], resp[3] = 0x00, 0x09 // message length: 9
+	copy(resp[4:8], stunMagicCookie)
+	copy(resp[8:20], txID[:])
+
+	resp[20], resp[21] = 0x80, 0x22 // SOFTWARE attribute
+	resp[22], resp[23] = 0x00, 0x05 // Length: 5 (pads to 8)
+	// 5 bytes of attribute data follow (zeroes), no padding bytes present.
+
+	_, err := parseSTUNResponse(resp, txID)
+	if err == nil {
+		t.Error("expected error for truncated padded attribute")
+	}
+}
+
 func TestParseSTUNResponseIPv6(t *testing.T) {
 	txID := [12]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}
 

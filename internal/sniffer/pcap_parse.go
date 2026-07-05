@@ -142,7 +142,9 @@ func parseIPv6UDP(ipData []byte) (string, []byte) {
 				return "", nil
 			}
 			nextHeader = ipData[offset]
-			extLen := int(ipData[offset+1]+1) * 8
+			// Widen to int BEFORE adding 1: a length byte of 255 would
+			// otherwise wrap to 0 in 8-bit arithmetic and stall the parser.
+			extLen := (int(ipData[offset+1]) + 1) * 8
 			offset += extLen
 		case 44: // Fragment header (fixed 8 bytes)
 			if len(ipData) < offset+8 {
