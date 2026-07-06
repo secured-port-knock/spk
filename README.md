@@ -6,7 +6,6 @@
 [![Build](https://github.com/secured-port-knock/spk/actions/workflows/build.yml/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/build.yml)
 [![CodeQL](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql)
 [![Dependency Graph](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph)
-[![Go Report Card](https://goreportcard.com/badge/github.com/secured-port-knock/spk)](https://goreportcard.com/report/github.com/secured-port-knock/spk)
 
 > **Development Status**
 >
