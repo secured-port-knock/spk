@@ -1,6 +1,7 @@
 # Security
 
-> **Security Policy:** We take security seriously. If you discover a security vulnerability or flaw in SPK, please report it immediately by opening an issue in the [Security](../../security) section. Include as much detail as possible to help us reproduce and fix the problem.
+> [!IMPORTANT]
+> Found a vulnerability? Report it in the [Security](../../security) section with enough detail to reproduce.
 
 This document covers SPK's security architecture, threat model, and defense mechanisms.
 
@@ -49,10 +50,9 @@ The server's ML-KEM public key is **never transmitted over the network** during 
 
 **The only way to compromise key distribution** is to intercept the activation bundle during the out-of-band transfer. Mitigations:
 
-- **Use encrypted bundles:** `spk --server --export` prompts for an optional password. A password-protected bundle is AES-256-GCM encrypted and safe to send over email, messaging apps, or shared storage. Only the recipient who knows the password can import it.
-- **Password is not recoverable:** If the password is forgotten before the client imports the bundle, generate a new export with `spk --server --export`. The server keypair is unchanged. SPK never stores the bundle password.
-- **Delete after import:** Once `spk --client --setup` has imported the bundle, delete the bundle file from any intermediate storage (email sent folder, USB drives, clipboard history).
-- **Use secure transfer channels:** SCP or encrypted email for unencrypted bundles. QR code scanning reduces clipboard/file exposure.
+- **Use encrypted bundles:** `spk --server --export` prompts for an optional password; a password-protected bundle is AES-256-GCM encrypted and safe to send over untrusted channels. A forgotten password is not recoverable -- re-export from the server (the keypair is unchanged).
+- **Delete after import:** once `spk --client --setup` has imported the bundle, delete it from any intermediate storage (email sent folder, USB drives, clipboard history).
+- **Use secure transfer channels** (SCP, encrypted email) for unencrypted bundles; QR scanning reduces clipboard/file exposure.
 - **Verify the bundle fingerprint** if your transfer channel does not guarantee integrity.
 
 ### What's NOT Protected
@@ -64,13 +64,10 @@ The server's ML-KEM public key is **never transmitted over the network** during 
 
 ### Secure Key Storage
 
-The server's ML-KEM public key (encapsulation key) and the activation bundle are the most sensitive client-side assets. Anyone who possesses the server public key can construct valid knock packets (unless TOTP is also enabled). **Treat the activation bundle and the server public key exactly like a private key** -- if either is leaked, an attacker can open your firewall ports.
+> [!CAUTION]
+> Anyone who possesses the server public key can construct valid knock packets (unless TOTP is also enabled). **Treat the activation bundle and the server public key exactly like a private key.** Encrypt the bundle for transport (set a password during `--export`) and delete it after import.
 
-**Recommended practices:**
-
-1. **Encrypt the bundle for transport.** When exporting (`spk --server --export`), set a password. The bundle is then AES-256-GCM encrypted and safe to transfer over untrusted channels. Remember the password: if it is forgotten before the client imports the bundle, you must re-export.
-2. **Delete after import.** Once `spk --client --setup` has imported the bundle, delete the file and any copies from email, USB drives, and clipboard history.
-3. **Store the imported key in the OS credential manager.** SPK supports the following backends -- chosen during client setup:
+SPK can store the imported key in the OS credential manager, chosen during client setup:
 
 | Platform | Storage Backend | Method |
 |---|---|---|
@@ -78,11 +75,11 @@ The server's ML-KEM public key (encapsulation key) and the activation bundle are
 | macOS | Keychain | `security add-generic-password` (base64-encoded) |
 | Linux | Secret Service | `secret-tool store` |
 
-The setup wizard tests the secure storage before committing: writes a test credential, reads it back, verifies, and cleans up. If the test fails, you are prompted to choose file-based storage instead.
+The setup wizard tests the secure storage before committing (write, read back, verify, clean up); if the test fails, you are prompted to choose file-based storage instead.
 
-On Windows, the key is encrypted with DPAPI and stored as a `.dpapi` file inside the client config directory. `cmdkey` is not used because it cannot reliably store multi-line PEM data. On macOS, the PEM key is base64-encoded before being passed to the Keychain so that embedded newlines in PEM blocks are not misinterpreted by the `security` command.
+On Windows, the key is encrypted with DPAPI and stored as a `.dpapi` file inside the client config directory. On macOS, the PEM key is base64-encoded before being passed to the Keychain.
 
-Each client instance is assigned a randomly-generated storage label (e.g. `SPK_ServerKey_a3f7c91b5d8e0c12`) at setup time. The label is written to `spk_client.toml` as `key_storage_label` and is used as the unique credential slot name in the OS keystore. Because the label is stored in the config file rather than derived from the directory path, the config directory can be moved or renamed without breaking key lookup -- the same label is found regardless of where the TOML file lives. Multiple client instances that each have their own `--cfgdir` will each have a different randomly-generated label, so they use completely separate credential slots and do not interfere with each other. To remove an obsolete key, run `spk --client --delete-key` (or `spk --cfgdir <dir> --client --delete-key` to target a specific config directory).
+Each client instance gets a randomly-generated storage label (e.g. `SPK_ServerKey_a3f7c91b5d8e0c12`) at setup time, written to `spk_client.toml` as `key_storage_label` and used as the credential slot name in the OS keystore. Because the label lives in the config file rather than being derived from the directory path, the config directory can be moved or renamed without breaking key lookup, and instances with separate `--cfgdir`s use separate credential slots. To remove an obsolete key, run `spk --client --delete-key` (add `--cfgdir <dir>` to target a specific config directory).
 
 #### File Permissions and Access Control
 
@@ -168,16 +165,9 @@ The system enforces `nonce_expiry >= timestamp_tolerance` on startup (auto-corre
 | 30s-2min (past tolerance) | **REJECT** (too old) | Would also reject | Double-blocked |
 | 2min+ (nonce expired) | **REJECT** (too old) | Would also reject | Still blocked |
 
-**Bottom line**: An attacker with a captured packet can never replay it. The authenticated encryption prevents modification, nonce tracking prevents exact replay, and the timestamp window eventually makes the packet unusable.
-
 ### Key Freshness
 
-Each knock derives a completely independent symmetric key: the client calls ML-KEM `Encapsulate` with a fresh random seed every time, producing a new ciphertext and a new 32-byte shared key that is fed into AES-256-GCM. No two knocks ever share key material.
-
-**What this provides:**
-- Compromising the AES-256-GCM key for one knock reveals nothing about the keys used in any other knock.
-- An attacker who somehow learns the plaintext of one packet gains zero advantage against any other packet.
-- Every knock is cryptographically isolated from every other knock.
+Each knock derives a completely independent symmetric key: the client calls ML-KEM `Encapsulate` with a fresh random seed every time, producing a new ciphertext and a new 32-byte shared key for AES-256-GCM. No two knocks ever share key material, so compromising one knock's key reveals nothing about any other.
 
 ### Client IP Detection
 
@@ -202,13 +192,7 @@ STUN servers are configured in the client config via `stun_servers`:
 stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.google.com:19302"]
 ```
 
-**Disabling STUN:** Set `stun_servers` to an empty array or comment it out entirely to disable STUN:
-```toml
-# stun_servers = [...]   # commented out -- STUN disabled
-# or:
-stun_servers = []
-```
-When STUN is disabled, the client uses the local network interface IP selected by the OS routing table and prints a warning at connect time. This is the correct behaviour for LAN or VPN setups where the server can already see your local IP. It will likely cause IP mismatch failures if you are behind internet NAT -- use `--ip` or re-enable `stun_servers` in those cases.
+**Disabling STUN:** Set `stun_servers = []` (or comment it out) to disable STUN. The client then uses the local interface IP selected by the OS routing table and prints a warning -- correct for LAN/VPN setups, but likely to cause IP mismatch failures behind internet NAT (use `--ip` or re-enable STUN there).
 
 #### CGNAT Detection
 
@@ -236,16 +220,17 @@ SPK can rotate its listen port automatically using a shared seed, making port sc
 During server setup, a random 8-byte seed is generated. Both server and client derive the current port from:
 
 ```
-port = HMAC-SHA256(seed, floor(unix_time / window)) mod 55000 + 10000
+port = HMAC-SHA256(seed, floor(unix_time / window)) mod (max - min + 1) + min
 ```
 
-- The rotation period is **configurable** (default 600 seconds / 10 minutes, range 60-86400)
+- The rotation period is configurable via `dynamic_port_window` (default 600 seconds, range 60-86400) and must match on both sides
 - Both sides compute the same port independently - no communication needed
-- Port range: 10000-64999
-- The seed and window are included in the exported bundle so clients learn them automatically
-- Server wakes up precisely at each window boundary (within 1s), so client and server switch ports in sync
+- Port range is configurable via `dynamic_port_min` / `dynamic_port_max` (default 10000-65000, both bounds inclusive); the setup wizard also prompts for it
+- The seed, window, and port range are included in the exported bundle so clients learn them automatically
+- The server switches ports precisely at each window boundary (within 1s), in sync with clients
 
-The rotation period can be changed in config (`dynamic_port_window`) and is embedded in the client bundle. Both sides must use the same window or the ports won't match.
+> [!IMPORTANT]
+> Changing `dynamic_port_min`/`dynamic_port_max` after setup requires re-exporting the activation bundle (`spk --server --export`) and re-importing it on every client, or client and server will compute different ports.
 
 Disable dynamic port by answering "no" during setup; the server will listen on a fixed port instead.
 

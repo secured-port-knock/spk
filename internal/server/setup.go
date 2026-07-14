@@ -85,9 +85,31 @@ func wizardListenPort(reader *bufio.Reader, cfg *config.Config) {
 	} else {
 		cfg.DynPortWindow = 600
 	}
+	cfg.DynPortMin, cfg.DynPortMax = promptPortRange(reader)
 	fmt.Printf("  -> Dynamic port: ENABLED (seed: %s, interval: %ds)\n", cfg.PortSeed, cfg.DynPortWindow)
-	fmt.Printf("  -> Port range: %d-%d\n", cfg.DynPortMin, cfg.DynPortMax)
+	fmt.Printf("  -> Port range: %d-%d (inclusive)\n", cfg.DynPortMin, cfg.DynPortMax)
 	fmt.Println()
+}
+
+// promptPortRange asks for the inclusive dynamic port rotation range.
+// Accepts "min-max"; Enter keeps the default.
+func promptPortRange(reader *bufio.Reader) (int, int) {
+	fmt.Printf("  Port range min-max [%d-%d]: ", crypto.DefaultDynPortMin, crypto.DefaultDynPortMax)
+	rStr := strings.TrimSpace(readLine(reader))
+	if rStr == "" {
+		return crypto.DefaultDynPortMin, crypto.DefaultDynPortMax
+	}
+	parts := strings.SplitN(rStr, "-", 2)
+	if len(parts) == 2 {
+		minP, errMin := strconv.Atoi(strings.TrimSpace(parts[0]))
+		maxP, errMax := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if errMin == nil && errMax == nil && minP >= 1 && minP < maxP && maxP <= 65535 {
+			return minP, maxP
+		}
+	}
+	fmt.Printf("  Invalid range (need min-max with 1 <= min < max <= 65535), using default %d-%d\n",
+		crypto.DefaultDynPortMin, crypto.DefaultDynPortMax)
+	return crypto.DefaultDynPortMin, crypto.DefaultDynPortMax
 }
 
 // wizardExportEncryption prompts for export encryption password (step 3/8).
@@ -450,13 +472,15 @@ func exportBundle(cfg *config.Config, dk crypto.DecapsulationKey) {
 	var b64Data string
 	var err error
 	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
-		b64Data, err = crypto.CreateEncryptedExportBundleWithWindow(ek, cfg.ListenPort,
+		b64Data, err = crypto.CreateEncryptedExportBundleWithRange(ek, cfg.ListenPort,
 			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow,
+			cfg.DynPortMin, cfg.DynPortMax)
 	} else {
-		b64Data, err = crypto.CreateExportBundleWithWindow(ek, cfg.ListenPort,
+		b64Data, err = crypto.CreateExportBundleWithRange(ek, cfg.ListenPort,
 			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow,
+			cfg.DynPortMin, cfg.DynPortMax)
 	}
 	if err != nil {
 		fmt.Printf("Error creating export bundle: %v\n", err)
@@ -475,13 +499,15 @@ func exportBundle(cfg *config.Config, dk crypto.DecapsulationKey) {
 	var rawData []byte
 	var rawErr error
 	if cfg.ExportEncrypted && cfg.ExportPassword != "" {
-		rawData, rawErr = crypto.CreateEncryptedExportBundleRawWithWindow(ek, cfg.ListenPort,
+		rawData, rawErr = crypto.CreateEncryptedExportBundleRawWithRange(ek, cfg.ListenPort,
 			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+			cfg.ExportPassword, portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow,
+			cfg.DynPortMin, cfg.DynPortMax)
 	} else {
-		rawData, rawErr = crypto.CreateExportBundleRawWithWindow(ek, cfg.ListenPort,
+		rawData, rawErr = crypto.CreateExportBundleRawWithRange(ek, cfg.ListenPort,
 			cfg.AllowCustomOpenDuration, cfg.AllowCustomPort, cfg.AllowOpenAll,
-			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow)
+			portSeed, cfg.DynamicPort, cfg.DefaultOpenDuration, cfg.DynPortWindow,
+			cfg.DynPortMin, cfg.DynPortMax)
 	}
 	if rawErr == nil {
 		qrPath := filepath.Join(cfgDir, "activation_qr.png")

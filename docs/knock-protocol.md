@@ -110,7 +110,7 @@ Each knock packet size depends on the ML-KEM key size selected during server set
 | **Total (no padding)** | **~1170-1190 bytes** |
 | **Total (with safe padding, <=96 bytes)** | **~1270-1290 bytes** |
 
-> **Fits in standard 1500-byte MTU** - no IP fragmentation needed.
+Fits in standard 1500-byte MTU - no IP fragmentation needed.
 
 **ML-KEM-1024 (higher security margin):**
 
@@ -124,31 +124,18 @@ Each knock packet size depends on the ML-KEM key size selected during server set
 | **Total (no padding)** | **~1650-1670 bytes** |
 | **Total (with default padding)** | **~1800-2100 bytes** |
 
-> **Always exceeds 1500-byte MTU** -- requires IP fragmentation.
+Always exceeds 1500-byte MTU -- requires IP fragmentation.
 
 The server accepts packets up to **8192 bytes** maximum.
 
 ### IP Fragmentation
 
-Standard Ethernet MTU is 1500 bytes. After IP (20B) and UDP (8B) headers, the max single-frame payload is **1472 bytes**.
+Standard Ethernet MTU is 1500 bytes. After IP (20B) and UDP (8B) headers, the max single-frame payload is **1472 bytes**. ML-KEM-768 packets fit within this limit even with conservative padding (<=96 bytes); ML-KEM-1024 packets always exceed it and are fragmented.
 
-**ML-KEM-768 (default):** Knock packets are ~1170-1190 bytes without padding, comfortably within the 1472-byte limit. With conservative padding (<=96 bytes), packets reach ~1270-1290 bytes and still fit within MTU. **No IP fragmentation occurs.**
+> [!WARNING]
+> Many firewalls, NAT devices (especially CGNAT), cloud providers, and ISPs silently drop fragmented UDP -- **ML-KEM-1024 knocks may fail over WAN**. Use ML-KEM-768 (the default) for WAN/internet deployments; reserve ML-KEM-1024 for networks where fragmentation is known to work.
 
-**ML-KEM-1024:** Knock packets are ~1650+ bytes, **always exceeding MTU**. IP fragmentation will occur on standard Ethernet networks.
-
-**WAN/Internet:**
-
-- Many firewalls, NAT devices, and ISP equipment **silently drop fragmented UDP packets**
-- Cloud providers (AWS, GCP, Azure) may have policies against or limitations on IP fragments
-- Carrier-Grade NAT (CGNAT) environments are particularly problematic for fragmented UDP
-- **Selecting ML-KEM-1024 may cause knocks to fail over WAN connections**
-
-**Recommendation:** Use **ML-KEM-768** (the default) for all WAN/internet deployments. ML-KEM-1024 is suitable for LAN environments or networks you control where IP fragmentation is known to work correctly.
-
-**Impact when fragmentation works:**
-
-- The OS transparently reassembles IP fragments before delivering to the UDP socket - the server receives the complete packet. No application-level changes needed.
-- The server's read buffer (8192 bytes) comfortably handles reassembled packets.
+Where fragmentation does work, the OS reassembles fragments transparently before delivery to the UDP socket, and the server's 8192-byte read buffer handles the reassembled packet.
 
 ## Encryption
 

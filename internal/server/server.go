@@ -118,8 +118,9 @@ func resolveListenPort(cfg *config.Config, dynPortWindow int, logf func(string, 
 		logf("  Warning: invalid port_seed, using static port %d", cfg.ListenPort)
 		return listenPort, nil
 	}
-	listenPort = crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
-	logf("  Dynamic port enabled (seed: %s...)", cfg.PortSeed[:8])
+	listenPort = crypto.ComputeDynamicPortInRange(portSeed, dynPortWindow, cfg.DynPortMin, cfg.DynPortMax)
+	pMin, pMax := crypto.NormalizeDynPortRange(cfg.DynPortMin, cfg.DynPortMax)
+	logf("  Dynamic port enabled (seed: %s..., range: %d-%d)", cfg.PortSeed[:8], pMin, pMax)
 	logf("  Current dynamic port: %d (changes every %ds)", listenPort, dynPortWindow)
 	return listenPort, portSeed
 }
@@ -204,7 +205,7 @@ func retryBindLoop(
 			return nil, newPort, false
 		case <-time.After(60 * time.Second):
 		}
-		retryPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+		retryPort := crypto.ComputeDynamicPortInRange(portSeed, dynPortWindow, cfg.DynPortMin, cfg.DynPortMax)
 		if retryPort != newPort {
 			logf("[INFO] Dynamic port changed during retry: %d -> %d, attempting new port", newPort, retryPort)
 			newPort = retryPort
@@ -250,7 +251,7 @@ func runDynamicPortMode(
 		case <-time.After(time.Duration(secsUntil+1) * time.Second):
 		}
 
-		newPort := crypto.ComputeDynamicPortWithWindow(portSeed, dynPortWindow)
+		newPort := crypto.ComputeDynamicPortInRange(portSeed, dynPortWindow, cfg.DynPortMin, cfg.DynPortMax)
 		if newPort == currentPort {
 			continue
 		}

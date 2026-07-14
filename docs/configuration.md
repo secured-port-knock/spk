@@ -21,8 +21,10 @@ kem_size = 768
 # -- Dynamic port rotation --
 port_seed = "a1b2c3d4..."       # 16-hex-char shared seed (generated during setup)
 dynamic_port_window = 600       # Rotation period in seconds (60-86400, default 600)
-dynamic_port_min = 10000        # Minimum port in rotation range (default: 10000)
-dynamic_port_max = 65000        # Maximum port in rotation range (default: 65000)
+dynamic_port_min = 10000        # Rotation range lower bound, inclusive (default: 10000)
+dynamic_port_max = 65000        # Rotation range upper bound, inclusive (default: 65000)
+# Changing min/max requires re-exporting the activation bundle and re-importing
+# it on every client -- the range is embedded in the bundle.
 
 # -- Security policies --
 allow_custom_port = false            # Can clients request arbitrary ports?
@@ -126,8 +128,8 @@ server_port = "dynamic"          # "dynamic" or a port number (e.g. 45678)
                                  # Using a fixed port disables dynamic rotation
 port_seed = "a1b2c3d4..."
 dynamic_port_window = 600        # Must match server's window
-dynamic_port_min = 10000         # Must match server's dynamic_port_min
-dynamic_port_max = 65000         # Must match server's dynamic_port_max
+# dynamic_port_min = 10000       # Set automatically from the bundle when the
+# dynamic_port_max = 65000       # server uses a custom rotation range
 key_storage_mode = "file"        # "file" or "credential_manager"
 # key_storage_label = "SPK_ServerKey_a3f7c91b5d8e0c12"  # auto-generated at setup; do not edit
 
@@ -144,7 +146,8 @@ stun_servers = ["stun.cloudflare.com:3478", "stun.l.google.com:19302", "stun1.l.
 # padding_max_bytes = 96        # Use <=96 with KEM-768 to stay within MTU (default: 512, max: 2048)
 ```
 
-> **Note:** Client IP is set per-command via `--ip` flag, not in the config file.
+> [!NOTE]
+> Client IP is set per-command via the `--ip` flag, not in the config file.
 
 ## Firewall Command Examples
 

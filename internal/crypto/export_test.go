@@ -30,8 +30,8 @@ func TestCreateParseExportBundle(t *testing.T) {
 		t.Fatalf("ParseExportBundle: %v", err)
 	}
 
-	if bundle.Version != 1 {
-		t.Errorf("version = %d, want 1", bundle.Version)
+	if bundle.Version != 2 {
+		t.Errorf("version = %d, want 2", bundle.Version)
 	}
 	if bundle.KEMSize != 768 {
 		t.Errorf("KEMSize = %d, want 768", bundle.KEMSize)
@@ -145,17 +145,17 @@ func TestExportBundleFileRoundTrip(t *testing.T) {
 // These tests assert the exact byte-level prefix of every bundle variant to
 // prevent the "double-SPK" bug from ever recurring. The rule is simple:
 //
-//   - Unencrypted base64 bundle: decoded bytes start with "SPK" + version(0x01)
-//   - Unencrypted raw bundle (QR code): bytes start with "SPK" + version(0x01)
+//   - Unencrypted base64 bundle: decoded bytes start with "SPK" + version(0x02)
+//   - Unencrypted raw bundle (QR code): bytes start with "SPK" + version(0x02)
 //   - Encrypted base64 bundle: decoded bytes start with "SPKE"
 //
-// If encodeV1Binary or the callers ever double-write "SPK" again, these tests
+// If encodeBinary or the callers ever double-write "SPK" again, these tests
 // will catch it immediately because byte [3] would be 'S' (0x53) instead of
-// the version byte 0x01.
+// the version byte 0x02.
 // =============================================================================
 
 // TestBase64BundleMagicNotDoubled verifies that the base64-decoded wire format
-// starts with exactly "SPK" + version(1), not "SPKSPK" + version(1).
+// starts with exactly "SPK" + version(2), not "SPKSPK" + version(2).
 func TestBase64BundleMagicNotDoubled(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
@@ -177,17 +177,17 @@ func TestBase64BundleMagicNotDoubled(t *testing.T) {
 		t.Fatalf("decoded too short: %d bytes", len(decoded))
 	}
 
-	// Bytes 0-2 must be "SPK", byte 3 must be version 0x01.
+	// Bytes 0-2 must be "SPK", byte 3 must be version 0x02.
 	if string(decoded[:3]) != "SPK" {
 		t.Errorf("magic = %q, want \"SPK\"", string(decoded[:3]))
 	}
-	if decoded[3] != 0x01 {
-		t.Errorf("byte[3] = 0x%02X, want 0x01 (version); double-magic bug if 0x53 ('S')", decoded[3])
+	if decoded[3] != 0x02 {
+		t.Errorf("byte[3] = 0x%02X, want 0x02 (version); double-magic bug if 0x53 ('S')", decoded[3])
 	}
 
 	// Explicit check: the decoded data must NOT start with "SPKSPK".
 	if len(decoded) >= 6 && string(decoded[:6]) == "SPKSPK" {
-		t.Fatal("REGRESSION: bundle starts with \"SPKSPK\" -- encodeV1Binary output was double-prefixed")
+		t.Fatal("REGRESSION: bundle starts with \"SPKSPK\" -- encodeBinary output was double-prefixed")
 	}
 
 	// Verify round-trip still works.
@@ -195,13 +195,13 @@ func TestBase64BundleMagicNotDoubled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseExportBundle: %v", err)
 	}
-	if bundle.Port != 12345 || bundle.Version != 1 {
+	if bundle.Port != 12345 || bundle.Version != 2 {
 		t.Errorf("unexpected bundle values: port=%d version=%d", bundle.Port, bundle.Version)
 	}
 }
 
 // TestRawBundleMagicNotDoubled verifies that the raw binary bundle (used for
-// QR codes) starts with exactly "SPK" + version(1), not "SPKSPK" + version(1).
+// QR codes) starts with exactly "SPK" + version(2), not "SPKSPK" + version(2).
 func TestRawBundleMagicNotDoubled(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
@@ -221,8 +221,8 @@ func TestRawBundleMagicNotDoubled(t *testing.T) {
 	if string(raw[:3]) != "SPK" {
 		t.Errorf("magic = %q, want \"SPK\"", string(raw[:3]))
 	}
-	if raw[3] != 0x01 {
-		t.Errorf("byte[3] = 0x%02X, want 0x01 (version); double-magic bug if 0x53 ('S')", raw[3])
+	if raw[3] != 0x02 {
+		t.Errorf("byte[3] = 0x%02X, want 0x02 (version); double-magic bug if 0x53 ('S')", raw[3])
 	}
 	if len(raw) >= 6 && string(raw[:6]) == "SPKSPK" {
 		t.Fatal("REGRESSION: raw bundle starts with \"SPKSPK\" -- double-prefixed")
@@ -302,28 +302,28 @@ func TestBase64AndRawBundlesProduceSamePayload(t *testing.T) {
 	}
 }
 
-// TestEncodeV1BinaryOutputStartsWithMagic verifies that encodeV1Binary itself
+// TestEncodeBinaryOutputStartsWithMagic verifies that encodeBinary itself
 // includes the "SPK" magic prefix in its output.
-func TestEncodeV1BinaryOutputStartsWithMagic(t *testing.T) {
+func TestEncodeBinaryOutputStartsWithMagic(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
+	raw, err := encodeBinary(ek, 22222, false, false, false, nil, false, 1800, 300, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	if len(raw) < 4 {
 		t.Fatalf("raw too short: %d bytes", len(raw))
 	}
 	if string(raw[:3]) != "SPK" {
-		t.Errorf("encodeV1Binary output should start with \"SPK\", got %q", string(raw[:3]))
+		t.Errorf("encodeBinary output should start with \"SPK\", got %q", string(raw[:3]))
 	}
-	if raw[3] != 0x01 {
-		t.Errorf("version byte = 0x%02X, want 0x01", raw[3])
+	if raw[3] != 0x02 {
+		t.Errorf("version byte = 0x%02X, want 0x02", raw[3])
 	}
 }
 
@@ -345,8 +345,8 @@ func TestBundleKEM1024MagicNotDoubled(t *testing.T) {
 		t.Fatalf("base64 decode: %v", err)
 	}
 
-	if string(decoded[:3]) != "SPK" || decoded[3] != 0x01 {
-		t.Errorf("KEM-1024 bundle header = [0x%02X 0x%02X 0x%02X 0x%02X], want [0x53 0x50 0x4B 0x01]",
+	if string(decoded[:3]) != "SPK" || decoded[3] != 0x02 {
+		t.Errorf("KEM-1024 bundle header = [0x%02X 0x%02X 0x%02X 0x%02X], want [0x53 0x50 0x4B 0x02]",
 			decoded[0], decoded[1], decoded[2], decoded[3])
 	}
 	if len(decoded) >= 6 && string(decoded[:6]) == "SPKSPK" {
@@ -384,8 +384,8 @@ func TestEncryptedRawBundleRoundTrip(t *testing.T) {
 	}
 
 	// Must NOT start with plain "SPK" followed by version byte
-	if len(raw) >= 4 && raw[3] == 0x01 {
-		t.Fatal("encrypted raw bundle byte[3] is version 0x01 -- data is NOT encrypted")
+	if len(raw) >= 4 && raw[3] == 0x02 {
+		t.Fatal("encrypted raw bundle byte[3] is a plausible version byte -- data is NOT encrypted")
 	}
 
 	// Should fail without password

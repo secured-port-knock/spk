@@ -1,38 +1,9 @@
 #!/usr/bin/env bash
 # Copyright (c) 2024-2026 Jack L. (Cpt-JackL) (https://jack-l.com)
 # SPDX-License-Identifier: MIT
-# SPK build script for Linux/macOS
-# Usage:
-#   ./build.sh                    # Build linux/amd64 + windows/amd64
-#   ./build.sh -windows           # Build windows/amd64 + windows/arm64
-#   ./build.sh -linux             # Build linux/amd64 + linux/arm64
-#   ./build.sh -darwin            # Build darwin/amd64 + darwin/arm64
-#   ./build.sh -amd64             # Build all platforms for amd64 only
-#   ./build.sh -arm64             # Build all platforms for arm64 only
-#   ./build.sh -linux -amd64      # Build linux/amd64 only
-#   ./build.sh -linux -arm64      # Build linux/arm64 only
-#   ./build.sh -windows -amd64    # Build windows/amd64 only
-#   ./build.sh -windows -arm64    # Build windows/arm64 only
-#   ./build.sh -all               # Build all platform/arch combinations
-#   ./build.sh -nopcap            # Disable pcap for Linux/Darwin builds
-#   ./build.sh -test              # Run unit tests + fuzz seed corpus
-#   ./build.sh -testall           # Run all tests: smoke, unit+integration, fuzz, sniffer
-#   ./build.sh -testSniffer       # Run sniffer hardware tests (requires pcap library)
-#   ./build.sh -testsmoke         # Run end-to-end smoke tests (builds binary; sudo used when not root)
-#   ./build.sh -coverage          # Run tests with coverage
-#   ./build.sh -clean             # Clean build artifacts
-#   ./build.sh -linux -deb        # Build linux + create .deb packages
-#   ./build.sh -linux -rpm        # Build linux + create .rpm packages
-#   ./build.sh -linux -deb -rpm   # Build linux + both .deb and .rpm
-#   ./build.sh -upx               # Enable UPX binary compression (requires upx in PATH)
-#
-# pcap (dynamic loading -- no SDK or headers needed at compile time):
-#   Windows    -- always built with pcap (pure Go, CGO_ENABLED=0).
-#                 Loads wpcap.dll (Npcap) at runtime.
-#   Linux/macOS -- built with pcap when a C compiler is available
-#                 (zig for cross-builds, gcc for native). Uses CGO only
-#                 for dlfcn.h (dlopen/dlsym). Loads libpcap.so/.dylib
-#                 at runtime. Use -nopcap to force CGO_ENABLED=0.
+# SPK build script for Linux/macOS.
+# See "Build Scripts" in docs/compilation.md for usage, flags, and pcap
+# toolchain priority.
 #
 # Filename convention:
 #   spk_<VERSION>p-<OS>-<ARCH>[.exe]   (pcap-capable build)

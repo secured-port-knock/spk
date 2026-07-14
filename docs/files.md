@@ -19,9 +19,8 @@
 ## File Permissions
 
 SPK enforces file ownership and permission checks at startup on all platforms.
-See [File System Security](security.md#file-system-security) in the security
-documentation for the full description of what is checked on Linux, macOS, and
-Windows, and for the `chmod` / `icacls` remediation commands.
+See [File Permissions and Access Control](security.md#file-permissions-and-access-control)
+for what is checked on each platform and the `chmod` / `icacls` remediation commands.
 
 ## Default Paths
 
@@ -44,7 +43,8 @@ If `/var/log/spk` cannot be created or written, a warning is printed and logging
 
 Use `--cfgdir` and `--logdir` to override these defaults on any platform.
 
-> **Re-export**: Run `spk --server --export` to regenerate `activation.b64` and `activation_qr.png` after config changes.
+> [!TIP]
+> Run `spk --server --export` to regenerate `activation.b64` and `activation_qr.png` after config changes.
 
 ## Project Source Structure
 

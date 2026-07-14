@@ -159,7 +159,7 @@ func FuzzDecodeBinary(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	validWithCRC, err := encodeV1Binary(dk768.EncapsulationKey(), 22, false, false, false, nil, false, 0, 0)
+	validWithCRC, err := encodeBinary(dk768.EncapsulationKey(), 22, false, false, false, nil, false, 0, 0, 0, 0)
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func FuzzDecodeBinary(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	valid1024, err := encodeV1Binary(dk1024.EncapsulationKey(), 443, true, false, false, nil, false, 3600, 600)
+	valid1024, err := encodeBinary(dk1024.EncapsulationKey(), 443, true, false, false, nil, false, 3600, 600, 0, 0)
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -178,11 +178,18 @@ func FuzzDecodeBinary(f *testing.F) {
 
 	// Valid dynamic-port bundle seed.
 	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	validDyn, err := encodeV1Binary(dk768.EncapsulationKey(), 0, false, false, false, seed, true, 300, 120)
+	validDyn, err := encodeBinary(dk768.EncapsulationKey(), 0, false, false, false, seed, true, 300, 120, 0, 0)
 	if err != nil {
 		f.Fatal(err)
 	}
 	f.Add(validDyn)
+
+	// Valid dynamic-port bundle with a custom port range (flags bit 4).
+	validRange, err := encodeBinary(dk768.EncapsulationKey(), 0, false, false, false, seed, true, 300, 120, 30010, 30020)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(validRange)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic

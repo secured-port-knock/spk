@@ -163,6 +163,51 @@ func TestSmokeUDPDynamicPort(t *testing.T) {
 	}
 }
 
+// TestSmokeUDPDynamicPortCustomRange verifies the full knock flow when the
+// server config restricts the dynamic port rotation to a narrow custom range:
+// server and client must agree on a port inside [dynPortMin, dynPortMax), and
+// the knock must be processed. Guards against the range config being accepted
+// but ignored by the port computation.
+func TestSmokeUDPDynamicPortCustomRange(t *testing.T) {
+	seed := randomPortSeed(t)
+	window := 60 // minimum allowed window (60 s)
+
+	setup := serverSetup{
+		snifferMode:         "udp",
+		allowedPorts:        []string{"t22"},
+		defaultOpenDuration: 60,
+		matchIncomingIP:     true,
+		dynamicPort:         true,
+		portSeed:            seed,
+		dynPortWindow:       window,
+		dynPortMin:          30010,
+		dynPortMax:          30020,
+	}
+
+	srv := setupTestServer(t, setup)
+
+	if srv.port < 30010 || srv.port > 30020 {
+		t.Fatalf("server port %d outside configured range 30010-30020", srv.port)
+	}
+
+	// Verify client port computation agrees with the server.
+	seedBytes, err := hex.DecodeString(seed)
+	if err != nil {
+		t.Fatalf("decode seed: %v", err)
+	}
+	clientPort := crypto.ComputeDynamicPortInRange(seedBytes, window, 30010, 30020)
+	if clientPort != srv.port {
+		t.Fatalf("custom-range port mismatch: client computed %d, server using %d", clientPort, srv.port)
+	}
+
+	sendKnock(t, "127.0.0.1", srv.port, srv.ek, "127.0.0.1", "open-t22", 0)
+
+	openMarker := markerPath(srv.markerDir, "open_tcp", "127.0.0.1", "22")
+	if !waitForFile(openMarker, 15*time.Second) {
+		t.Errorf("custom-range knock: open command marker missing: %s", openMarker)
+	}
+}
+
 // TestSmokeUDPAllowedPorts verifies that the server denies requests for ports
 // not in the allowed_ports list when allow_custom_port is false.
 func TestSmokeUDPAllowedPorts(t *testing.T) {

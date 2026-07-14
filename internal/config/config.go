@@ -718,8 +718,10 @@ func WriteServerConfigWithComments(path string, cfg *Config) error {
 	if dpMax == 0 {
 		dpMax = 65000
 	}
-	content.WriteString(fmt.Sprintf("dynamic_port_min = %d         # Minimum port for rotation range\n", dpMin))
-	content.WriteString(fmt.Sprintf("dynamic_port_max = %d         # Maximum port for rotation range\n", dpMax))
+	content.WriteString(fmt.Sprintf("dynamic_port_min = %d         # Rotation range lower bound, inclusive\n", dpMin))
+	content.WriteString(fmt.Sprintf("dynamic_port_max = %d         # Rotation range upper bound, inclusive\n", dpMax))
+	content.WriteString("# NOTE: changing the range requires re-exporting the activation bundle\n")
+	content.WriteString("# (spk --server --export) and re-importing it on every client.\n")
 
 	content.WriteString("\n# ========== SECURITY ==========\n")
 	content.WriteString("# match_incoming_ip: if true (default), UDP source IP must match the IP in the knock payload.\n")

@@ -73,9 +73,9 @@ func TestBundleDefaultWindowCompatibility(t *testing.T) {
 	rand.Read(seed)
 
 	// Create with window=0 (default marker)
-	raw, err := encodeV1Binary(ek, 0, false, false, false, seed, true, 3600, 0)
+	raw, err := encodeBinary(ek, 0, false, false, false, seed, true, 3600, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	bundle, err := decodeBinary(raw)
@@ -99,9 +99,9 @@ func TestBundleWindowVariousValues(t *testing.T) {
 	rand.Read(seed)
 
 	for _, window := range []int{60, 120, 300, 600, 900, 3600, 86400} {
-		raw, err := encodeV1Binary(ek, 0, true, false, true, seed, true, 3600, window)
+		raw, err := encodeBinary(ek, 0, true, false, true, seed, true, 3600, window, 0, 0)
 		if err != nil {
-			t.Fatalf("encodeV1Binary(window=%d): %v", window, err)
+			t.Fatalf("encodeBinary(window=%d, 0, 0): %v", window, err)
 		}
 
 		bundle, err := decodeBinary(raw)
@@ -123,9 +123,9 @@ func TestBundleStaticPortWithWindow(t *testing.T) {
 	ek := dk.EncapsulationKey()
 
 	// Static port bundle with window field - window is meaningless but should survive
-	raw, err := encodeV1Binary(ek, 12345, true, true, false, nil, false, 3600, 300)
+	raw, err := encodeBinary(ek, 12345, true, true, false, nil, false, 3600, 300, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	bundle, err := decodeBinary(raw)
@@ -217,9 +217,9 @@ func TestBundleSeedPreserved(t *testing.T) {
 
 	seed := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
 
-	raw, err := encodeV1Binary(ek, 0, false, false, false, seed, true, 3600, 600)
+	raw, err := encodeBinary(ek, 0, false, false, false, seed, true, 3600, 600, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 	bundle, err := decodeBinary(raw)
 	if err != nil {

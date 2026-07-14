@@ -23,7 +23,7 @@ import (
 //     static port, dynamic port, encrypted inner payload).
 // =============================================================================
 
-// TestBundleCRC32TrailerPresent verifies that encodeV1Binary appends a 4-byte
+// TestBundleCRC32TrailerPresent verifies that encodeBinary appends a 4-byte
 // CRC32 trailer at the end of every produced binary bundle.
 func TestBundleCRC32TrailerPresent(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
@@ -32,9 +32,9 @@ func TestBundleCRC32TrailerPresent(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
+	raw, err := encodeBinary(ek, 22222, false, false, false, nil, false, 1800, 300, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	// Expected layout: 3(magic) + 1(ver) + 1(flags) + 2(port) + 4(dur) + 4(win) + 2(kem) + ekSize + 4(crc32)
@@ -54,9 +54,9 @@ func TestBundleCRC32Value(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 12345, true, false, true, nil, false, 3600, 0)
+	raw, err := encodeBinary(ek, 12345, true, false, true, nil, false, 3600, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	if len(raw) < crc32Size {
@@ -97,8 +97,8 @@ func TestBundleCRC32RoundTripKEM768(t *testing.T) {
 	if bundle.KEMSize != 768 {
 		t.Errorf("KEMSize = %d, want 768", bundle.KEMSize)
 	}
-	if bundle.Version != 1 {
-		t.Errorf("Version = %d, want 1", bundle.Version)
+	if bundle.Version != 2 {
+		t.Errorf("Version = %d, want 2", bundle.Version)
 	}
 }
 
@@ -138,9 +138,9 @@ func TestBundleCRC32RoundTripDynamicPort(t *testing.T) {
 	ek := dk.EncapsulationKey()
 	seed := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x00, 0x01}
 
-	raw, err := encodeV1Binary(ek, 0, true, false, false, seed, true, 7200, 600)
+	raw, err := encodeBinary(ek, 0, true, false, false, seed, true, 7200, 600, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	bundle, err := decodeBinary(raw)
@@ -168,9 +168,9 @@ func TestBundleCRC32Mismatch(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 8080, false, false, false, nil, false, 3600, 0)
+	raw, err := encodeBinary(ek, 8080, false, false, false, nil, false, 3600, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	// Flip bytes at various positions in the payload (everything except the
@@ -209,9 +209,9 @@ func TestBundleCRC32WrongChecksum(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 9999, false, false, false, nil, false, 0, 0)
+	raw, err := encodeBinary(ek, 9999, false, false, false, nil, false, 0, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	// Corrupt only the stored CRC32 (last 4 bytes).
@@ -274,9 +274,9 @@ func TestBundleCRC32TrailingBytesRejected(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 8888, false, false, false, nil, false, 0, 0)
+	raw, err := encodeBinary(ek, 8888, false, false, false, nil, false, 0, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	// Bundle without CRC32: strip the last 4 bytes.
@@ -421,10 +421,10 @@ func TestBundleCRC32AllFieldsRoundTrip(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := encodeV1Binary(ek, tc.port, tc.customDur, tc.customPort, tc.openAll,
-				tc.seed, tc.dynamic, tc.openDuration, tc.window)
+			raw, err := encodeBinary(ek, tc.port, tc.customDur, tc.customPort, tc.openAll,
+				tc.seed, tc.dynamic, tc.openDuration, tc.window, 0, 0)
 			if err != nil {
-				t.Fatalf("encodeV1Binary: %v", err)
+				t.Fatalf("encodeBinary: %v", err)
 			}
 			bundle, err := decodeBinary(raw)
 			if err != nil {
@@ -444,9 +444,9 @@ func TestBundleCRC32KEM1024TrailerSize(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 443, false, false, false, nil, false, 0, 0)
+	raw, err := encodeBinary(ek, 443, false, false, false, nil, false, 0, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary (1024): %v", err)
+		t.Fatalf("encodeBinary (1024): %v", err)
 	}
 
 	// magic(3) + ver(1) + flags(1) + port(2) + dur(4) + win(4) + kem(2) + EK1024 + CRC32(4)
@@ -483,9 +483,9 @@ func TestBundleCRC32MagicByteCorruption(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 22, false, false, false, nil, false, 0, 0)
+	raw, err := encodeBinary(ek, 22, false, false, false, nil, false, 0, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {
@@ -512,9 +512,9 @@ func TestBundleCRC32EKKeyUsableAfterVerification(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 8080, true, false, false, nil, false, 3600, 0)
+	raw, err := encodeBinary(ek, 8080, true, false, false, nil, false, 3600, 0, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	bundle, err := decodeBinary(raw)

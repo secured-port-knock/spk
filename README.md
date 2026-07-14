@@ -7,45 +7,27 @@
 [![CodeQL](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/github-code-scanning/codeql)
 [![Dependency Graph](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/secured-port-knock/spk/actions/workflows/dependabot/update-graph)
 
-> **Development Status**
+> [!WARNING]
+> SPK is under active development and was built for personal use -- use at your own discretion, and keep a backup method to access your server.
 >
-> SPK is still under active development. Not all features have been fully tested and edge cases may exist. This project was built for personal use -- use it at your own discretion.
->
-> If you encounter any issues, please open a report in the [Issues](../../issues) section. Include full app version and commit sha, steps to reproduce and a screenshot when possible -- it helps a lot. I may or may not have time to address every report, but all feedback is appreciated.
->
-> It is highly recommended that you have a backup method to access your server.
+> Found a bug? Open a report in [Issues](../../issues) with the app version, commit sha, and steps to reproduce.
 
 **What is SPK (Secured Port Knock)**
 
-SPK is a single-packet authorization (SPA) port knocking tool that uses ML-KEM (FIPS 203) for post-quantum key encapsulation and AES-256-GCM for authenticated encryption. Its primary purpose is to protect servers by acting as a cryptographic whitelist layer: firewall ports stay closed to everyone on the internet until a valid, authenticated knock arrives -- only then does the server open access for that specific IP. This approach is particularly effective against mass internet scanners and opportunistic exploits (such as the XZ backdoor, CVE-2024-3094) by eliminating any
-visible attack surface.
+SPK is a single-packet authorization (SPA) port knocking tool that uses ML-KEM (FIPS 203) for post-quantum key encapsulation and AES-256-GCM for authenticated encryption. Firewall ports stay closed to everyone until a valid, authenticated knock arrives -- a single encrypted UDP packet, no handshake, no response. Only then does the server open access for that specific IP. This eliminates the visible attack surface exploited by mass scanners and opportunistic exploits (e.g. the XZ backdoor, CVE-2024-3094), and unlike traditional knockd-style port knocking, there is no plaintext sequence to capture and replay. See [docs/security.md](docs/security.md) for the full security analysis.
 
-A single encrypted UDP packet is all that is needed to open firewall ports -- no handshake, no response, no attack surface.
-
-**Multi-user note:** SPK does not implement user-level authentication. Access control beyond "valid knock received" is intentionally left to the service behind the firewall. The reason is twofold: (1) enforcing user identity is the responsibility of the actual service (SSH keys, certificates, passwords, MFA), and (2) in shared IP environments such as LAN or NAT/CGNAT, all clients share the same public IP address -- there is no reliable way to distinguish individual users at the network layer, making per-user identity a best-effort concern at best. If separate per-user access policies are needed, the recommended approach is to run multiple SPK instances, each with its own key pair, allowed ports, TOTP secret, and custom firewall commands. See the FAQ below for details.
-
-SPK is significantly more secure than traditional port knocking (knockd-style TCP sequence knocking), which relies on plaintext sequences trivially captured and replayed by any passive observer. See [docs/security.md](docs/security.md) for the full security analysis.
-
-## The Problem
-
-Every internet-facing service is a target. Attackers scan entire IPv4 ranges in minutes, exploiting any reachable port -- from SSH brute-force to zero-day exploits like the XZ backdoor (CVE-2024-3094). Traditional defenses have significant gaps:
-
-- **VPNs** add complexity, require always-on connections, and become their own attack surface (Ivanti, Fortinet CVEs)
-- **IP whitelisting** breaks for mobile/dynamic IPs, remote teams, and CGNAT environments
-- **Fail2ban / rate limiting** only reacts *after* failed attempts -- attackers have already touched your service
-- **Legacy port knocking** (knockd) uses plaintext TCP sequences that are trivially sniffed and replayed
-
-The core issue: **services must be reachable to be usable, but reachable means attackable.** SPK solves this by making services invisible until authenticated with post-quantum cryptography. No port is open, no service responds, no scanner finds anything -- until a valid knock arrives.
+> [!NOTE]
+> SPK authenticates knocks, not users. User identity (SSH keys, MFA, etc.) is the job of the service behind the firewall. For per-user access policies, run multiple SPK instances -- see the [FAQ](#faq).
 
 **Use cases:**
 - Protect SSH, RDP, admin panels, databases, and IoT devices without VPN overhead
-- Secure legacy services that cannot be patched or updated (industrial control, embedded systems)
+- Secure legacy services that cannot be patched (industrial control, embedded systems)
 - Add a pre-authentication layer in front of any TCP/UDP service
-- Zero-response architecture: server never replies, eliminating reflection/amplification attacks entirely
+- Zero-response architecture: the server never replies, so there is no reflection/amplification vector
 
 ## AI Assisted
 
-This project is AI assisted. The core idea and original code started back in 2024 as a personal project, written in a messy "it works on my machine" style. AI helped finish planned features, clean up and restructure the code, make it more efficient, and catch bugs that weren't even on the radar.
+This project is AI assisted. The core idea and original code started back in 2024 as a personal project; AI helped finish planned features, restructure the code, and catch bugs.
 
 ## Security and Features
 
@@ -73,7 +55,8 @@ This project is AI assisted. The core idea and original code started back in 202
 | ML-KEM-768 (default) | 1088 bytes | ~1170-1190 bytes | **Yes** |
 | ML-KEM-1024 | 1568 bytes | ~1650-1670 bytes | No (requires IP fragmentation) |
 
-> **WARNING: MTU** -- ML-KEM-1024 packets always exceed the standard 1500-byte Ethernet MTU. On WAN/internet connections, fragmented UDP packets may be silently dropped by firewalls, NAT devices, or ISP equipment. **Use ML-KEM-768 (default) for reliable WAN connectivity.** ML-KEM-1024 is suitable for LAN environments or networks known to handle IP fragmentation correctly.
+> [!WARNING]
+> ML-KEM-1024 packets always exceed the standard 1500-byte Ethernet MTU, and fragmented UDP is often silently dropped on WAN paths. **Use ML-KEM-768 (default) for WAN**; reserve ML-KEM-1024 for LANs known to handle IP fragmentation.
 
 See [docs/knock-protocol.md](docs/knock-protocol.md) for the complete wire format, binary payload layout, and encryption details.
 
@@ -151,10 +134,11 @@ To build from source, see [docs/compilation.md](docs/compilation.md).
 ./spk open-t22 --totp 482901
 ```
 
-> **Protect your activation bundle and server public key.** The activation bundle (`activation.b64` / QR code) contains the server's ML-KEM public key. Anyone who has this key can send valid knock packets to open your firewall. Treat the activation bundle like a private key:
-> - **Encrypt it for transport:** `spk --server --export` prompts for a password; use one when sending over email or messaging apps. If the password is forgotten before client import, re-export from the server (no keypair change needed).
-> - **Delete after import:** Once `spk --client --setup` has imported it, delete the file from all intermediate storage.
-> - **Use the OS credential manager:** SPK can store the imported key in Windows Credential Manager / DPAPI, macOS Keychain, or Linux Secret Service. See [docs/security.md - Secure Key Storage](docs/security.md#secure-key-storage).
+> [!CAUTION]
+> The activation bundle (`activation.b64` / QR code) contains the server's ML-KEM public key -- anyone who has it can open your firewall. Treat it like a private key:
+> - **Encrypt it for transport:** `spk --server --export` prompts for a password; use one when sending over email or messaging apps.
+> - **Delete after import:** once `spk --client --setup` has imported it, delete the file from all intermediate storage.
+> - **Use the OS credential manager** for the imported key -- see [docs/security.md - Secure Key Storage](docs/security.md#secure-key-storage).
 
 ### Re-export Activation Bundle
 
@@ -179,17 +163,9 @@ sudo ./spk --install --cfgdir /etc/myspk --logdir /var/log/myspk
 sudo ./spk --uninstall
 ```
 
-During `--install`, SPK validates that `spk_server.toml`, `server.key`, and `server.crt` exist in the config directory. You are then prompted for an optional **display label** (e.g., `production`).
+During `--install`, SPK validates that `spk_server.toml`, `server.key`, and `server.crt` exist in the config directory, then prompts for an optional **display label** (e.g., `production`). The label changes the service name to `spk_<label>` so multiple instances can coexist; without a label the service is named `spk`. If a service with the same name already exists, `--install` refuses -- uninstall it first or pick a different label.
 
-The label serves two purposes:
-- It changes the **service name** to `spk_<label>` (e.g., `spk_production`) so multiple instances can coexist on the same machine without conflicting.
-- It sets the display name to `Secured Port Knock (production)` for easy identification.
-
-If no label is provided, the service name is simply `spk`.
-
-If a service with the same name already exists, `--install` will refuse with a conflict error -- either uninstall the existing service first or choose a different label.
-
-During `--uninstall`, SPK discovers all installed SPK-related services, lists their names and startup commands, and prompts you to choose which one to remove. Press Enter without selecting to cancel.
+During `--uninstall`, SPK lists all installed SPK services and prompts which to remove (press Enter to cancel).
 
 **Platform behavior:**
 
@@ -200,7 +176,8 @@ During `--uninstall`, SPK discovers all installed SPK-related services, lists th
 | Windows | SCM (sc.exe) | service `spk` | service `spk_prod` |
 | macOS | launchd plist | `com.spk.spk` | `com.spk.spk_prod` |
 
-**Linux security hardening (systemd):** The generated unit uses `ProtectHome=read-only` (not `=true`) so binaries located under `/root` or `/home` can still be executed. `ProtectSystem=strict` makes the OS filesystem read-only, while `ReadWritePaths` grants write access to the config and log directories.
+> [!NOTE]
+> On systemd, the generated unit is sandboxed: `ProtectSystem=strict` makes the OS filesystem read-only, `ReadWritePaths` allows only the config and log directories, and `ProtectHome=read-only` keeps binaries under `/root` or `/home` executable.
 
 ## Command Reference
 
@@ -227,6 +204,7 @@ During `--uninstall`, SPK discovers all installed SPK-related services, lists th
 | `--host ADDR` | Override server address |
 | `--ip ADDR` | Client IP override (IPv4 or IPv6, auto-detected if empty) |
 | `--totp CODE` | TOTP 6-digit code from authenticator app (required if server has TOTP enabled) |
+| `--delete-key` | Delete the imported server key from secure storage |
 | `--cfgdir DIR` | Custom config directory (overrides platform default) |
 | `--logdir DIR` | Custom log directory (overrides platform default) |
 
@@ -252,14 +230,11 @@ See [docs/configuration.md](docs/configuration.md) for the full server and clien
 
 ### ML-KEM-1024 or Padded Packets Not Arriving
 
-**Symptom:** Knocks work with ML-KEM-768 (no padding) but fail with ML-KEM-1024, or fail when padding is enabled with KEM-768.
+Packets over the 1500-byte MTU require IP fragmentation, and many WAN firewalls, NAT devices, and ISPs silently drop fragmented UDP.
 
-**Cause:** Packets exceeding the 1500-byte Ethernet MTU require IP fragmentation. Many WAN firewalls, NAT devices, and ISP equipment silently drop fragmented UDP packets.
-
-**Solutions:**
-- **Use ML-KEM-768** (default) -- packets are ~1170-1190 bytes without padding, well within MTU
-- **Limit padding:** Set `padding_max_bytes = 96` (or less) to keep KEM-768 packets under 1472 bytes (UDP payload limit after IP+UDP headers)
-- **For KEM-1024:** Only use on LANs or networks where IP fragmentation is known to work. Test with `ping -f -l 1800 <server_ip>` (Windows) or `ping -M do -s 1800 <server_ip>` (Linux) to verify
+- **Use ML-KEM-768** (default) -- packets stay well within MTU
+- **Limit padding:** set `padding_max_bytes = 96` (or less) to keep KEM-768 packets under the 1472-byte UDP payload limit
+- **For KEM-1024:** use only on networks where fragmentation is known to work; verify with `ping -f -l 1800 <server_ip>` (Windows) or `ping -M do -s 1800 <server_ip>` (Linux)
 
 ### Stealth Mode Not Working
 
@@ -267,36 +242,33 @@ See [docs/capture-modes.md - Stealth Mode and Hardware Firewalls](docs/capture-m
 
 ### Server Time Sync
 
-**Symptom:** Knocks are rejected with timestamp errors ("timestamp too far in the past/future").
+Knocks rejected with "timestamp too far in the past/future" mean the client and server clocks differ by more than `timestamp_tolerance` (default: 30s).
 
-**Cause:** The server clock is out of sync. SPK requires client and server clocks to be within `timestamp_tolerance` seconds of each other (default: 30s).
-
-**Solutions:**
-- **Enable NTP** on the server: `timedatectl set-ntp true` (Linux systemd) or Windows Time service
+- **Enable NTP** on the server: `timedatectl set-ntp true` (Linux systemd) or the Windows Time service
 - **Increase tolerance** in server config: `timestamp_tolerance = 60` (up to 300s recommended max)
-- Dynamic port rotation also depends on synchronized clocks -- if the clocks drift by more than `dynamic_port_window / 2`, the client and server may compute different ports
+- Dynamic port rotation also needs synchronized clocks -- drift beyond `dynamic_port_window / 2` makes client and server compute different ports
 
 ## FAQ
 
 **Q: Can SPK be used as an IP whitelist/blacklist replacement?**
 
-Yes. SPK effectively replaces static IP whitelists by dynamically opening firewall rules for authenticated clients. Unlike IP whitelists, SPK works with dynamic IPs, mobile users, and CGNAT environments. Each authorized knock opens the firewall for a specific IP and duration, then automatically closes it.
+Yes. Each authorized knock opens the firewall for a specific IP and duration, then automatically closes it -- unlike static whitelists, this works with dynamic IPs, mobile users, and CGNAT.
 
 **Q: Will antivirus flag the binary as a virus?**
 
-If built with [UPX](https://github.com/upx/upx/releases) compression (enabled by default when UPX is installed), some antivirus products may flag the binary as suspicious because UPX is commonly used by malware to evade detection. Additionally, builds with pcap/sniffer support may trigger heuristic detections because the binary loads packet capture libraries (wpcap.dll / libpcap) at runtime -- a pattern also associated with network sniffing malware. These are **false positives**. To avoid them, either build without UPX (remove UPX from PATH), add an exception in your antivirus, or use the non-pcap build (UDP sniffer mode).
+Possibly. [UPX](https://github.com/upx/upx/releases) compression (enabled by default when UPX is installed) and runtime loading of packet capture libraries (wpcap.dll / libpcap) are both patterns associated with malware, so some products raise heuristic detections. These are **false positives** -- build without UPX, add an antivirus exception, or use the non-pcap build.
 
 **Q: Does SPK require a persistent connection?**
 
-No. Each knock is a single UDP datagram -- fire and forget. There is no handshake, session, keepalive, or response. The client sends one packet and exits. This makes SPK ideal for low-bandwidth, high-latency, or intermittent connections.
+No. Each knock is a single UDP datagram -- no handshake, session, keepalive, or response. The client sends one packet and exits, which suits low-bandwidth, high-latency, or intermittent connections.
 
 **Q: Can I use SPK on IoT / embedded devices?**
 
-Yes. SPK compiles to a single static binary with no runtime dependencies (when built with `CGO_ENABLED=0`). The binary is ~6-8 MB (or ~3 MB with UPX). It runs on Linux ARM64 (Raspberry Pi, OpenWRT routers), Windows, and macOS. The single-packet design minimizes bandwidth and processing.
+Yes. SPK compiles to a single static binary (~6-8 MB, or ~3 MB with UPX) with no runtime dependencies when built with `CGO_ENABLED=0`. It runs on Linux ARM64 (Raspberry Pi, OpenWRT routers), Windows, and macOS.
 
 **Q: Does SPK support multiple users?**
 
-SPK does not implement built-in per-user authentication -- a single server instance uses one key pair and one configuration. If separate per-user access policies are required (different allowed ports, different keys, individual revocation), the recommended approach is to run multiple SPK instances on the same machine. Each instance is isolated with its own key pair, allowed ports, TOTP secret, custom commands, config directory, and firewall rules. Use separate config directories (`--cfgdir`) and enter a different service label when prompted during `--install`:
+Not directly -- a server instance uses one key pair and one configuration. For per-user policies (different allowed ports, keys, individual revocation), run one instance per user, each with its own `--cfgdir` and service label:
 
 ```bash
 # Set up instance for alice:
@@ -312,23 +284,23 @@ Each instance runs as an independent service (`spk_alice`, `spk_bob`) with its o
 
 **Q: What happens if the server crashes while ports are open?**
 
-SPK persists open-port state to `state.json`. On restart, it recovers state and closes any ports whose timeouts have expired. If `close_ports_on_crash = true` (default), all ports are closed immediately on recovery. The graceful shutdown handler (SIGINT/SIGTERM) also closes all ports before exit.
+Open-port state is persisted to `state.json`. On restart, SPK recovers it and closes expired ports -- or all ports immediately if `close_ports_on_crash = true` (default). Graceful shutdown (SIGINT/SIGTERM) also closes all ports before exit.
 
 **Q: How does SPK handle multiple clients behind the same NAT?**
 
-Each knock is independent -- multiple clients behind the same NAT can knock simultaneously. The nonce ensures each packet is unique even if timestamps match. IP matching verifies the NAT's public IP (via STUN), so all clients behind the same NAT share the same firewall rules for that external IP.
+Each knock is independent; the nonce keeps packets unique even with matching timestamps. Since all clients share the NAT's public IP (detected via STUN), they share the firewall rules opened for that IP.
 
 **Q: Can I run SPK alongside other services on the same port?**
 
-In stealth mode (pcap, AF_PACKET, WinDivert), SPK captures packets at the network layer without binding the port, so the port appears closed to scanners. However, another service cannot bind the same port while SPK is listening. In UDP socket mode, the port is bound normally.
+In stealth mode (pcap, AF_PACKET, WinDivert), SPK captures at the network layer without binding the port, so the port appears closed to scanners -- but another service still cannot bind it while SPK listens. In UDP socket mode, the port is bound normally.
 
 **Q: Why no TCP support for knock packets?**
 
-TCP requires a handshake (SYN/SYN-ACK/ACK) before data transfer, which reveals the server is listening and creates attack surface. UDP allows fire-and-forget: one packet, no response, no state. This is fundamental to SPK's zero-response architecture.
+A TCP handshake reveals the server is listening and creates attack surface. UDP is fire-and-forget: one packet, no response, no state -- fundamental to SPK's zero-response architecture.
 
 **Q: What's the difference between ML-KEM-768 and ML-KEM-1024?**
 
-Both are NIST-approved post-quantum algorithms (FIPS 203). ML-KEM-768 provides NIST security level 3 (~192-bit classical), and ML-KEM-1024 provides level 5 (~256-bit classical). The practical difference for SPK is packet size: KEM-768 fits within standard MTU (1500 bytes), while KEM-1024 requires IP fragmentation and may be dropped by some ISPs/firewalls. **ML-KEM-768 is recommended for all deployments.**
+Both are NIST-approved (FIPS 203). KEM-768 is security level 3 (~192-bit classical), KEM-1024 level 5 (~256-bit). The practical difference is packet size: KEM-768 fits within a 1500-byte MTU; KEM-1024 requires IP fragmentation and may be dropped. **ML-KEM-768 is recommended for all deployments.**
 
 ## Files
 

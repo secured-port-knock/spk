@@ -29,6 +29,8 @@ type ExportBundle struct {
 	DefaultOpenDuration     int    `json:"-"`  // Default open duration seconds
 	DynPortWindow           int    `json:"-"`  // Port rotation period in seconds (0 = default 600)
 	KEMSize                 int    `json:"-"`  // ML-KEM key size (768 or 1024)
+	DynPortMin              int    `json:"-"`  // Dynamic port range lower bound, inclusive (0 = default 10000)
+	DynPortMax              int    `json:"-"`  // Dynamic port range upper bound, inclusive (0 = default 65000)
 }
 
 // bundleMagic identifies a binary activation bundle.
@@ -36,6 +38,11 @@ var bundleMagic = []byte("SPK")
 
 // encMagic identifies an encrypted binary bundle.
 var encMagic = []byte("SPKE")
+
+// bundleVersion is the current activation bundle format version. Version 2
+// made the dynamic port range an inclusive, always-present field; version 1
+// bundles are rejected with a re-export hint.
+const bundleVersion = 2
 
 const (
 	argon2Time    = 3
@@ -55,26 +62,42 @@ func CreateExportBundle(ek EncapsulationKey, port int, customDuration, customPor
 // CreateExportBundleWithWindow creates a compact binary bundle with all metadata including custom rotation window.
 func CreateExportBundleWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) (string, error) {
+	return CreateExportBundleWithRange(ek, port, customDuration, customPort, openAll,
+		portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, 0, 0)
+}
 
-	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
+// CreateExportBundleWithRange creates a compact binary bundle including the
+// dynamic port range (both bounds inclusive). Pass 0, 0 to use the defaults.
+func CreateExportBundleWithRange(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int, dynPortMin, dynPortMax int) (string, error) {
+
+	raw, err := encodeBinary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, dynPortMin, dynPortMax)
 	if err != nil {
 		return "", err
 	}
 
-	// encodeV1Binary already includes the "SPK" magic prefix.
+	// encodeBinary already includes the "SPK" magic prefix.
 	return base64.StdEncoding.EncodeToString(raw), nil
 }
 
 // CreateExportBundleRawWithWindow returns the raw binary with custom rotation window (for QR codes).
 func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
+	return CreateExportBundleRawWithRange(ek, port, customDuration, customPort, openAll,
+		portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, 0, 0)
+}
 
-	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
+// CreateExportBundleRawWithRange returns the raw binary including the dynamic
+// port range (for QR codes). Pass 0, 0 to use the defaults.
+func CreateExportBundleRawWithRange(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int, dynPortMin, dynPortMax int) ([]byte, error) {
+
+	raw, err := encodeBinary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, dynPortMin, dynPortMax)
 	if err != nil {
 		return nil, err
 	}
 
-	// encodeV1Binary already includes the "SPK" magic prefix.
+	// encodeBinary already includes the "SPK" magic prefix.
 	return raw, nil
 }
 
@@ -82,8 +105,16 @@ func CreateExportBundleRawWithWindow(ek EncapsulationKey, port int, customDurati
 // Uses the same SPKE format as the base64 variant but returns raw bytes instead of base64.
 func CreateEncryptedExportBundleRawWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
+	return CreateEncryptedExportBundleRawWithRange(ek, port, customDuration, customPort, openAll,
+		password, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, 0, 0)
+}
 
-	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
+// CreateEncryptedExportBundleRawWithRange returns a password-encrypted raw
+// binary bundle including the dynamic port range (for QR codes).
+func CreateEncryptedExportBundleRawWithRange(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int, dynPortMin, dynPortMax int) ([]byte, error) {
+
+	raw, err := encodeBinary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, dynPortMin, dynPortMax)
 	if err != nil {
 		return nil, err
 	}
@@ -109,19 +140,22 @@ func CreateEncryptedExportBundleRawWithWindow(ek EncapsulationKey, port int, cus
 	return buf.Bytes(), nil
 }
 
-// encodeV1Binary creates the raw v1 binary bundle.
-// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable) + crc32(4)
+// encodeBinary creates the raw v2 binary bundle.
+// Format: "SPK"(3) + ver(1=2) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4)
+//   - [range_min(2) + range_max(2), dynamic bundles only, both inclusive]
+//   - kem_size(2) + ek(variable) + crc32(4)
+//
 // The final 4 bytes are a CRC32/IEEE checksum (big-endian) of all preceding bytes.
-func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
-	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) ([]byte, error) {
+func encodeBinary(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int, dynPortMin, dynPortMax int) ([]byte, error) {
 
 	var buf bytes.Buffer
 
 	// Magic + version
 	buf.Write(bundleMagic) // "SPK"
-	buf.WriteByte(1)       // version 1
+	buf.WriteByte(bundleVersion)
 
-	// Flags (1 byte)
+	// Flags (1 byte); bits 4-7 are reserved and must stay zero.
 	var flags byte
 	if customDuration {
 		flags |= 0x01
@@ -163,6 +197,16 @@ func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, o
 	binary.BigEndian.PutUint32(wBytes, uint32(dynPortWindow))
 	buf.Write(wBytes)
 
+	// Dynamic port range (2 + 2 bytes big-endian, dynamic bundles only).
+	// Both bounds inclusive; unset or invalid input falls back to the defaults.
+	if dynamicPort {
+		nMin, nMax := NormalizeDynPortRange(dynPortMin, dynPortMax)
+		rBytes := make([]byte, 4)
+		binary.BigEndian.PutUint16(rBytes[:2], uint16(nMin))
+		binary.BigEndian.PutUint16(rBytes[2:], uint16(nMax))
+		buf.Write(rBytes)
+	}
+
 	// KEM size (2 bytes big-endian)
 	kemSize := int(ek.KEMSize())
 	ksBytes := make([]byte, 2)
@@ -184,10 +228,37 @@ func encodeV1Binary(ek EncapsulationKey, port int, customDuration, customPort, o
 	return buf.Bytes(), nil
 }
 
-// decodeBinary parses a v1 binary bundle.
-// Format: "SPK"(3) + ver(1=1) + flags(1) + [port(2) | seed(8)] + open_duration(4) + window(4) + kem_size(2) + ek(variable) + crc32(4)
-// The final 4 bytes MUST be the CRC32/IEEE checksum (big-endian) of all preceding bytes.
-// Bundles missing the CRC32 trailer are rejected.
+// readBundleHeader consumes and validates the magic, version, and flags bytes,
+// returning the flags. Version 1 bundles are rejected with a re-export hint;
+// reserved flag bits (4-7) must be zero.
+func readBundleHeader(r *bytes.Reader) (byte, error) {
+	magic := make([]byte, 3)
+	if _, err := io.ReadFull(r, magic); err != nil {
+		return 0, fmt.Errorf("read magic: %w", err)
+	}
+	ver, err := r.ReadByte()
+	if err != nil {
+		return 0, fmt.Errorf("read version: %w", err)
+	}
+	if ver == 1 {
+		return 0, fmt.Errorf("bundle version 1 is no longer supported - re-export the activation bundle on the server (spk --server --export) and import the new one")
+	}
+	if ver != bundleVersion {
+		return 0, fmt.Errorf("unsupported bundle version: %d (expected %d)", ver, bundleVersion)
+	}
+	flags, err := r.ReadByte()
+	if err != nil {
+		return 0, fmt.Errorf("read flags: %w", err)
+	}
+	if flags&0xF0 != 0 {
+		return 0, fmt.Errorf("bundle has unknown flag bits set: 0x%02x", flags)
+	}
+	return flags, nil
+}
+
+// decodeBinary parses a v2 binary bundle (see encodeBinary for the layout).
+// The final 4 bytes MUST be the CRC32/IEEE checksum (big-endian) of all preceding
+// bytes; bundles missing it are rejected.
 func decodeBinary(data []byte) (*ExportBundle, error) {
 	// Minimum size: magic(3) + ver(1) + flags(1) + port(2) + open_duration(4) = 11 + some EK
 	if len(data) < 11 {
@@ -195,26 +266,9 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	}
 
 	r := bytes.NewReader(data)
-
-	// Skip magic (already verified by caller)
-	magic := make([]byte, 3)
-	if _, err := io.ReadFull(r, magic); err != nil {
-		return nil, fmt.Errorf("read magic: %w", err)
-	}
-
-	// Version
-	ver, err := r.ReadByte()
+	flags, err := readBundleHeader(r)
 	if err != nil {
-		return nil, fmt.Errorf("read version: %w", err)
-	}
-	if ver != 1 {
-		return nil, fmt.Errorf("unsupported bundle version: %d (expected 1)", ver)
-	}
-
-	// Flags
-	flags, err := r.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("read flags: %w", err)
+		return nil, err
 	}
 	customDuration := flags&0x01 != 0
 	customPort := flags&0x02 != 0
@@ -256,6 +310,21 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	}
 	dynWindow = int(binary.BigEndian.Uint32(wBytes))
 
+	// Dynamic port range: min(2) + max(2), big-endian, both inclusive.
+	// Present for every dynamic-port bundle.
+	var dynPortMin, dynPortMax int
+	if dynPort {
+		rBytes := make([]byte, 4)
+		if _, err := io.ReadFull(r, rBytes); err != nil {
+			return nil, fmt.Errorf("read port range: %w", err)
+		}
+		dynPortMin = int(binary.BigEndian.Uint16(rBytes[:2]))
+		dynPortMax = int(binary.BigEndian.Uint16(rBytes[2:]))
+		if dynPortMin < 1 || dynPortMin >= dynPortMax {
+			return nil, fmt.Errorf("invalid port range in bundle: %d-%d", dynPortMin, dynPortMax)
+		}
+	}
+
 	ksBytes := make([]byte, 2)
 	if _, err := io.ReadFull(r, ksBytes); err != nil {
 		return nil, fmt.Errorf("read kem_size: %w", err)
@@ -288,7 +357,7 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	}
 
 	bundle := &ExportBundle{
-		Version:                 int(ver),
+		Version:                 bundleVersion,
 		EncapsulationKey:        base64.StdEncoding.EncodeToString(ekBytes),
 		Port:                    port,
 		AllowCustomOpenDuration: customDuration,
@@ -299,6 +368,8 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 		DefaultOpenDuration:     defOpenDuration,
 		DynPortWindow:           dynWindow,
 		KEMSize:                 kemSize,
+		DynPortMin:              dynPortMin,
+		DynPortMax:              dynPortMax,
 	}
 	return bundle, nil
 }
@@ -318,9 +389,17 @@ func CreateEncryptedExportBundle(ek EncapsulationKey, port int, customDuration, 
 // CreateEncryptedExportBundleWithWindow creates a password-encrypted bundle with custom rotation window.
 func CreateEncryptedExportBundleWithWindow(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
 	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int) (string, error) {
+	return CreateEncryptedExportBundleWithRange(ek, port, customDuration, customPort, openAll,
+		password, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, 0, 0)
+}
+
+// CreateEncryptedExportBundleWithRange creates a password-encrypted bundle
+// including the dynamic port range. Pass 0, 0 to use the defaults.
+func CreateEncryptedExportBundleWithRange(ek EncapsulationKey, port int, customDuration, customPort, openAll bool,
+	password string, portSeed []byte, dynamicPort bool, defaultOpenDuration int, dynPortWindow int, dynPortMin, dynPortMax int) (string, error) {
 
 	// First create the raw v1 binary bundle
-	raw, err := encodeV1Binary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow)
+	raw, err := encodeBinary(ek, port, customDuration, customPort, openAll, portSeed, dynamicPort, defaultOpenDuration, dynPortWindow, dynPortMin, dynPortMax)
 	if err != nil {
 		return "", err
 	}

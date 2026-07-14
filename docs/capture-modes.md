@@ -9,9 +9,8 @@ During setup, the server detects available capture methods:
 | AF_PACKET | Linux | Yes | Both | None (built-in, root/CAP_NET_RAW, BPF-filtered) | **Stable** |
 | WinDivert | Windows | Yes | Both | [WinDivert driver](https://reqrypt.org/windivert.html) | **Good** |
 
-> **Stealth mode**: The listen port is invisible to port scans. Only the sniffer sees the packet at the network layer.
-
-> **AF_PACKET filtering**: Uses dual sockets (ETH_P_IP + ETH_P_IPV6) with kernel-level Berkeley Packet Filters (BPF) to capture only UDP packets on the target port. This prevents CPU/memory waste from irrelevant traffic on busy servers.
+> [!NOTE]
+> **Stealth mode**: the listen port is invisible to port scans -- only the sniffer sees the packet at the network layer. AF_PACKET uses kernel-level BPF filters (dual ETH_P_IP + ETH_P_IPV6 sockets) so only UDP packets on the target port reach userspace.
 
 pcap is automatically included when zig is available (all targets) or when building natively with GCC. Use `NOPCAP=1` or `-nopcap` to disable. See [Build Toolchain Priority](compilation.md#build-toolchain-priority) for details.
 

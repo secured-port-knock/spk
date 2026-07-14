@@ -224,11 +224,13 @@ func getLocalIPForHost(host string, port int) (string, error) {
 }
 
 // resolvePortWithWindow returns the current port using a custom rotation window.
+// The port range comes from dynamic_port_min/max in the client config (written
+// during setup from the activation bundle); unset values fall back to defaults.
 func resolvePortWithWindow(cfg *config.Config, windowSeconds int) int {
 	if cfg.DynamicPort && cfg.PortSeed != "" {
 		seed, err := hex.DecodeString(cfg.PortSeed)
 		if err == nil && len(seed) >= 8 {
-			return crypto.ComputeDynamicPortWithWindow(seed[:8], windowSeconds)
+			return crypto.ComputeDynamicPortInRange(seed[:8], windowSeconds, cfg.DynPortMin, cfg.DynPortMax)
 		}
 	}
 	return cfg.ServerPort

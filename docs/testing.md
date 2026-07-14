@@ -265,6 +265,7 @@ Runs on every push and pull request to `main`/`master`.
 | **smoke-tests** | Ubuntu, Windows, macOS | End-to-end smoke tests (UDP mode; no elevated privileges needed) |
 | **unit-tests** | Ubuntu, Windows, macOS | Unit + integration tests (`./...`) |
 | **fuzz-seed-corpus** | Ubuntu | All Fuzz* targets run against their seed corpuses (no mutation) |
+| **fuzz-mutation** | Ubuntu | Each Fuzz* target run with mutation for 10s; fails on new crashes |
 | **coverage** | Ubuntu | Same tests as unit-tests with `-coverprofile`; artifact uploaded to Codecov |
 | **sniffer-tests-linux** | Ubuntu | Sniffer tests with libpcap + AF_PACKET (requires sudo) |
 | **sniffer-tests-windows** | Windows | Non-pcap sniffer tests (Npcap unavailable in CI) |
@@ -272,9 +273,8 @@ Runs on every push and pull request to `main`/`master`.
 | **lint** | Ubuntu | `go vet`, `gofmt`, `ineffassign`, `misspell`, **gocognit** |
 | **govulncheck** | Ubuntu | Vulnerability scanning (informational, non-blocking) |
 
-The `lint` job enforces a cognitive complexity limit of **25** on all production code using
-[gocognit](https://github.com/uudashr/gocognit). Test helpers and test files are also kept
-below this threshold for readability. Run it locally:
+The `lint` job enforces a cognitive complexity limit of **25** using
+[gocognit](https://github.com/uudashr/gocognit). Run it locally:
 
 ```bash
 # Install gocognit

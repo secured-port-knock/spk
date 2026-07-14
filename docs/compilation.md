@@ -31,87 +31,64 @@ go install github.com/secured-port-knock/spk@v1.0.4
 
 **Limitations of go install compared to release binaries:**
 
-- **No pcap / stealth mode.** pcap requires CGO linkage against a native C library, which `go install`
-  does not support. The installed binary uses UDP socket mode (port visible to scanners) or
-  AF_PACKET/WinDivert where available. For stealth mode, download a release binary or build from
-  source using the build scripts.
+- **No pcap / stealth mode.** pcap requires CGO, which `go install` does not use here. The installed
+  binary supports UDP socket mode and AF_PACKET/WinDivert. For pcap stealth mode, use a release
+  binary or the build scripts.
 - **No UPX compression.** Binary is larger (~6-8 MB vs ~3 MB for a UPX-compressed release build).
-- **No version metadata.** Linker flags (`-X github.com/secured-port-knock/spk/internal/app.version=...`
-  etc.) are not injected by `go install`. Instead, SPK reads the module
-  version embedded in the binary via `runtime/debug.ReadBuildInfo()`. The `--version` output
-  will show the tag you installed from and `(Go Install)` as the build label, for example:
+- **No version metadata.** Build-script linker flags are not injected; SPK instead reads the module
+  version via `runtime/debug.ReadBuildInfo()` and labels the build `(Go)`:
 
   ```
   SPK - Secured Port Knock - 1.0.2 (Go) [No PCAP]
   ```
 
-  If no tag is available (e.g. `go install` of a local development copy), the output falls
-  back to the hardcoded placeholder `1.0.0.0 (Dev) [No PCAP]`.
+  With no tag available (e.g. `go install` of a local copy), it falls back to `1.0.0.0 (Dev) [No PCAP]`.
 
-For production server deployments, the release binaries are recommended. `go install` is convenient
-for client-only use (sending knock packets) or quick testing.
+> [!TIP]
+> `go install` is convenient for client-only use or quick testing. For production server deployments, use the release binaries.
 
 ## Build Scripts
 
-**Windows PowerShell:**
+All three scripts accept the same flags. Run the one for your OS:
 
-```powershell
-.\build.ps1                        # Build windows/amd64 + linux/amd64
-.\build.ps1 -all                   # Build all platform/arch combinations
-.\build.ps1 -windows               # Build windows/amd64 + windows/arm64
-.\build.ps1 -linux                 # Build linux/amd64 + linux/arm64
-.\build.ps1 -darwin                # Build darwin/amd64 + darwin/arm64
-.\build.ps1 -windows -amd64       # Build windows/amd64 only
-.\build.ps1 -linux -arm64         # Build linux/arm64 only
-.\build.ps1 -nopcap               # Disable pcap for all targets
-.\build.ps1 -test                  # Run unit + integration tests + fuzz seed corpus
-.\build.ps1 -testall              # Run all tests: smoke, unit+integration, fuzz, sniffer
-.\build.ps1 -testSniffer          # Run sniffer hardware tests (requires Npcap)
-.\build.ps1 -testsmoke            # Run end-to-end smoke tests
-.\build.ps1 -coverage             # Run tests with coverage
-.\build.ps1 -clean                # Clean build artifacts
-.\build.ps1 -linux -deb           # Build linux + create .deb packages
-.\build.ps1 -linux -rpm           # Build linux + create .rpm packages
-.\build.ps1 -linux -deb -rpm      # Build linux + both .deb and .rpm
-.\build.ps1 -upx                  # Enable UPX compression (requires upx in PATH)
-```
+| Platform | Command |
+|---|---|
+| Linux / macOS | `./build.sh [flags]` |
+| Windows (PowerShell) | `.\build.ps1 [flags]` |
+| Windows (CMD) | `build.cmd [flags]` (forwards to `build.ps1`) |
 
-**Linux/macOS:**
+| Flag | Effect |
+|---|---|
+| `-windows` / `-linux` / `-darwin` | Select platform(s); combine freely |
+| `-amd64` / `-arm64` | Select architecture(s); combine freely |
+| `-all` | Build every platform/arch combination |
+| `-nopcap` | Disable pcap for Linux/macOS targets (Windows is always pcap) |
+| `-upx` | Enable UPX binary compression (requires `upx` in `PATH`) |
+| `-deb` / `-rpm` | Package linux builds as .deb/.rpm (combine with `-linux`) |
+| `-test` | Run unit + integration tests + fuzz seed corpus |
+| `-testall` | Run the full suite: smoke, unit+integration, fuzz, sniffer |
+| `-testSniffer` | Run sniffer hardware tests (requires libpcap/Npcap) |
+| `-testsmoke` | Run end-to-end smoke tests (builds a binary) |
+| `-coverage` | Run tests with a coverage report |
+| `-clean` | Remove build artifacts |
 
-```bash
-./build.sh                         # Default: linux + windows amd64
-./build.sh -all                    # All platforms
-./build.sh -darwin                 # darwin/amd64 + darwin/arm64
-./build.sh -linux -amd64           # linux/amd64 only
-./build.sh -nopcap                 # Disable pcap for all targets
-./build.sh -test                   # Run unit + integration tests + fuzz seed corpus
-./build.sh -testall                # Run all tests: smoke, unit+integration, fuzz, sniffer
-./build.sh -testSniffer           # Run sniffer hardware tests (requires libpcap)
-./build.sh -testsmoke              # Run end-to-end smoke tests
-./build.sh -linux -deb             # Build linux + create .deb packages
-./build.sh -linux -rpm             # Build linux + create .rpm packages
-./build.sh -linux -deb -rpm        # Build linux + both .deb and .rpm
-./build.sh -upx                    # Enable UPX compression (requires upx in PATH)
-```
+Example: `./build.sh -linux -arm64 -deb` builds linux/arm64 and packages it as `.deb`.
 
-**Makefile:**
+> [!NOTE]
+> With no flags, all three scripts build windows/amd64 + linux/amd64. Darwin is
+> always opt-in (`-darwin` or `-all`). See [Build Toolchain Priority](#build-toolchain-priority)
+> for how pcap support is decided per target.
+
+**Makefile** (Linux/macOS convenience wrapper; not flag-based):
 
 ```bash
 make build                  # Native build (attempts pcap)
 make build NOPCAP=1         # Native build without pcap
-make cross                  # All platforms (delegates to build.sh)
+make cross                  # All platforms (delegates to build.sh -all)
 make test                   # Run unit + integration tests + fuzz seed corpus
 make testall                # Run all tests (delegates to build.sh -testall)
 make testfuzz               # Run fuzz seed corpus only
 make coverage               # Tests with coverage report
-```
-
-**Windows CMD:**
-
-```cmd
-build.cmd                   # Forwards to build.ps1
-build.cmd -nopcap           # Without pcap sniffer
-build.cmd -all              # All platforms
 ```
 
 ## Build Versioning
@@ -125,8 +102,6 @@ Pcap-capable file**names** append `p` (e.g. `spk_1.0.0.1000p-linux-amd64`). The 
 # SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [No PCAP]    -- non-pcap build
 # SPK - Secured Port Knock - 1.0.0.1000 (abc1234) [With PCAP]  -- pcap build
 ```
-
-The `p` suffix in the filename helps distinguish pcap-capable binaries when multiple builds are stored together. The `[With PCAP]` / `[No PCAP]` label in the version output makes the capability immediately clear at runtime.
 
 To pin an exact version without auto-incrementing or writing back to version files, set `VERSION` and `BUILD_NUMBER` as environment variables before invoking the build script:
 
@@ -143,7 +118,7 @@ $env:VERSION="1.0.0"; $env:BUILD_NUMBER="1000"; .\build.ps1 -linux
 All builds attempt pcap by default. pcap is a **runtime-only** dependency -- no SDK or development headers are needed at compile time. The build scripts apply this priority:
 
 1. **Windows targets** -- always built with pcap. Pure Go, `CGO_ENABLED=0`. Loads `wpcap.dll` (Npcap) at runtime. No zig, no SDK needed.
-2. **Darwin targets on non-macOS host** -- always built **without** pcap (no-pcap fallback, no error). The zig 0.13.x Mach-O linker rejects `-Wl,-x` which Go injects unconditionally for CGO darwin builds. Only a native Apple toolchain (clang) can link darwin CGO binaries correctly.
+2. **Darwin targets on non-macOS host** -- always built **without** pcap (no-pcap fallback, no error). See [Known Limitations](#known-limitations).
 3. **Linux/darwin + zig (native macOS host only for darwin)** -- built with pcap using `zig cc` as the CGO compiler. Loads `libpcap.so` / `libpcap.dylib` at runtime via `dlopen` (only `dlfcn.h` needed at compile time -- part of libc, always available with zig's bundled sysroot).
 4. **Linux/darwin + GCC/clang (native only)** -- built with pcap using `gcc` / `clang`. Same runtime loading. macOS native darwin targets fall through to this path when zig is not installed.
 5. **No CGO toolchain for Linux/darwin** -- builds without pcap (pure Go, `CGO_ENABLED=0`).
@@ -174,6 +149,7 @@ make cross               # All platforms
 
 Zig target triples used: `x86_64-linux-gnu`, `aarch64-linux-gnu`, `x86_64-windows-gnu`, `aarch64-windows-gnu`, `x86_64-macos`, `aarch64-macos`.
 
+> [!NOTE]
 > Without zig, cross-compiled targets support UDP, AF_PACKET, and WinDivert sniffers. Only the pcap sniffer mode requires zig (for cross linux/windows targets) or GCC/clang (for native targets).
 
 ### pcap availability by host/target matrix
@@ -218,26 +194,16 @@ CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o spk_darwin ./
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o spk ./
 ```
 
-> **Note:** Cross-compiling darwin with CGO (e.g. via `zig cc -target x86_64-macos`) is not
-> supported with zig 0.13.x. Go's `cmd/link` unconditionally passes `-Wl,-x` to the external
-> linker for darwin CGO builds, but zig's Mach-O linker rejects that flag. Use a native macOS
-> host with the Apple clang toolchain to produce darwin pcap-capable binaries.
+> [!NOTE]
+> Cross-compiling darwin with CGO is not supported -- see [Known Limitations](#known-limitations).
 
 ## Known Limitations
 
 ### Darwin pcap cross-compilation (zig 0.13.x)
 
-Building darwin targets with pcap from a non-macOS host (Linux or Windows) is not supported with zig 0.13.x. The root cause is a missing feature in zig's Mach-O linker: Go's `cmd/link` unconditionally passes `-Wl,-x` to the external linker when CGO is enabled for darwin, but zig's Mach-O linker rejects that flag with `error: unsupported linker arg: -x`.
+Building darwin targets with pcap from a non-macOS host is not supported: Go's `cmd/link` unconditionally passes `-Wl,-x` to the external linker for darwin CGO builds, and zig 0.13.x's Mach-O linker rejects that flag. The build scripts therefore attempt pcap for darwin only on a truly native build (darwin host, matching arch); every other darwin build silently produces a no-pcap binary. When zig adds Mach-O `-x` support this guard can be removed.
 
-**Workaround:** The build scripts skip zig entirely for all darwin targets. pcap is only attempted when the build host IS darwin AND the target arch matches the host arch (i.e. truly native). In all other cases a no-pcap binary is produced silently (no error, build succeeds). Cross-arch darwin builds on the same OS (e.g. darwin/amd64 on an arm64 macOS host) also fall back to no-pcap.
-
-To get pcap-enabled darwin binaries for both architectures, build each on its matching native runner:
-- `darwin/arm64`: build on an arm64 macOS host (e.g. `macos-latest` GitHub Actions runner)
-- `darwin/amd64`: build on an Intel (x86_64) macOS host (e.g. `macos-##-intel` GitHub Actions runner)
-
-The release workflow uses both `macos-latest` and `macos-##-intel` runners so that all darwin releases include pcap.
-
-When zig adds full Mach-O `-x` support this guard can be removed.
+To get pcap-enabled darwin binaries for both architectures, build each on its matching native host (arm64 and Intel macOS). The release workflow uses both `macos-latest` and `macos-##-intel` runners for this reason.
 
 ## Linux Packaging (.deb / .rpm)
 
@@ -245,6 +211,7 @@ The build scripts support creating `.deb` and `.rpm` packages using [nfpm](https
 
 **Prerequisites:** Install nfpm: `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest`
 
+> [!NOTE]
 > If nfpm is not found when `-deb` or `-rpm` is requested, the build scripts automatically install it via `go install`.
 
 **Examples:**
@@ -295,19 +262,7 @@ sudo spk --install
 
 ## GitHub Actions Workflows
 
-### CI Workflow (`.github/workflows/ci.yml`)
-
-Runs automatically on every push and pull request to `main`/`master`.
-
-| Job | Platform(s) | Description |
-|---|---|---|
-| **unit-tests** | Ubuntu, Windows, macOS | Unit + integration tests (`./...`) |
-| **coverage** | Ubuntu | Coverage report uploaded as artifact |
-| **sniffer-tests-linux** | Ubuntu | Sniffer tests with libpcap + AF_PACKET |
-| **sniffer-tests-windows** | Windows | Non-pcap sniffer tests (Npcap unavailable in CI) |
-| **sniffer-tests-macos** | macOS | Sniffer tests with built-in libpcap |
-| **vet** | Ubuntu | `go vet ./...` static analysis |
-| **govulncheck** | Ubuntu | Vulnerability scanning (informational, non-blocking) |
+The CI workflow (`.github/workflows/ci.yml`) is documented in [testing.md](testing.md#continuous-integration).
 
 ### Build Workflow (`.github/workflows/build.yml`)
 
@@ -372,16 +327,7 @@ Binary filenames still embed the full four-part version (e.g. `spk_1.0.2.1044p-l
 **Steps:**
 1. Runs CI tests on all three platforms -- fails fast on any error
 2. Resolves version and build number from `version/` files, applying any user overrides
-3. Builds 10 release artifacts using native build scripts (no UPX):
-   - Linux: `build.sh -linux -deb -rpm` -- amd64 pcap (gcc), arm64 pcap (zig)
-   - Windows: `build.ps1 -windows` -- amd64/arm64 always pcap (pure Go)
-   - macOS arm64 (`macos-latest`): `build.sh -darwin -arm64` -- arm64 pcap (native clang)
-   - macOS amd64 (`macos-##-intel`): `build.sh -darwin -amd64` -- amd64 pcap (native Intel clang)
-4. Verifies pcap binaries exist for linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64, darwin/arm64
-5. If any build fails, the release is aborted and version files are not modified
-6. Updates `version/version_base.txt` (if version was changed) and `version/build_number.txt`
-7. Commits and pushes the updated version files
-8. Computes SHA256 checksums for all release files
-9. Creates a GitHub Release with all 10 files attached
+3. Builds 10 release artifacts using the build scripts above (no UPX) and verifies a pcap binary exists for every platform/arch
+4. Commits the updated `version/` files, computes SHA256 checksums, and creates a GitHub Release with all files attached
 
 If any build fails, the workflow aborts -- no version files are modified and no release is created.

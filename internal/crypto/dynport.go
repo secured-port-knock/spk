@@ -12,6 +12,12 @@ import (
 // DynPortWindowSeconds is the default time window for dynamic port rotation (10 minutes).
 const DynPortWindowSeconds = 600
 
+// DefaultDynPortMin is the default lower bound (inclusive) of the dynamic port range.
+const DefaultDynPortMin = 10000
+
+// DefaultDynPortMax is the default upper bound (inclusive) of the dynamic port range.
+const DefaultDynPortMax = 65000
+
 // MinDynPortWindowSeconds is the minimum allowed rotation window (60 seconds).
 // The server setup wizard rejects values below this; callers that accept user
 // input should validate against this constant.
@@ -23,26 +29,53 @@ func ComputeDynamicPort(seed []byte) int {
 	return ComputeDynamicPortWithWindow(seed, DynPortWindowSeconds)
 }
 
-// ComputeDynamicPortWithWindow derives a deterministic port using a custom window period.
-// Both server and client compute the same port given the same seed, time, and window.
-// Port changes every `windowSeconds` seconds. Returns a port in range [10000, 65000).
+// ComputeDynamicPortWithWindow derives a deterministic port using a custom window period
+// and the default port range. Port changes every `windowSeconds` seconds.
 func ComputeDynamicPortWithWindow(seed []byte, windowSeconds int) int {
+	return ComputeDynamicPortInRange(seed, windowSeconds, DefaultDynPortMin, DefaultDynPortMax)
+}
+
+// ComputeDynamicPortInRange derives a deterministic port within [minPort, maxPort],
+// both bounds inclusive. Both server and client must use the same seed, window, and
+// range or the computed ports will not match. Invalid ranges fall back to the
+// defaults via NormalizeDynPortRange.
+func ComputeDynamicPortInRange(seed []byte, windowSeconds, minPort, maxPort int) int {
 	if windowSeconds <= 0 {
 		windowSeconds = DynPortWindowSeconds
 	}
 	window := time.Now().Unix() / int64(windowSeconds)
-	return computeDynamicPortForWindow(seed, window)
+	return computeDynamicPortForWindowInRange(seed, window, minPort, maxPort)
 }
 
-// computeDynamicPortForWindow computes the port for a specific time window (for testing).
+// NormalizeDynPortRange validates an inclusive dynamic port range and substitutes
+// the defaults when the range is unset or invalid. A valid range satisfies
+// 1 <= min < max <= 65535.
+func NormalizeDynPortRange(minPort, maxPort int) (int, int) {
+	if minPort < 1 || maxPort > 65535 || minPort >= maxPort {
+		return DefaultDynPortMin, DefaultDynPortMax
+	}
+	return minPort, maxPort
+}
+
+// computeDynamicPortForWindow computes the default-range port for a specific time
+// window (for testing).
 func computeDynamicPortForWindow(seed []byte, window int64) int {
+	return computeDynamicPortForWindowInRange(seed, window, DefaultDynPortMin, DefaultDynPortMax)
+}
+
+// computeDynamicPortForWindowInRange computes the port for a specific time window
+// and inclusive range. The HMAC output is reduced with
+// `uint16 % (max - min + 1) + min`, matching the wire-format contract documented
+// in docs/integration.md.
+func computeDynamicPortForWindowInRange(seed []byte, window int64, minPort, maxPort int) int {
+	minPort, maxPort = NormalizeDynPortRange(minPort, maxPort)
 	h := hmac.New(sha256.New, seed)
 	wb := make([]byte, 8)
 	binary.BigEndian.PutUint64(wb, uint64(window))
 	h.Write(wb)
 	sum := h.Sum(nil)
 	port := binary.BigEndian.Uint16(sum[:2])
-	return int(port)%55000 + 10000 // range [10000, 65000)
+	return int(port)%(maxPort-minPort+1) + minPort
 }
 
 // DynPortSecondsUntilChange returns how many seconds until the next port rotation.

@@ -26,15 +26,17 @@ See [Activation Bundle Format](activation.md) for the complete binary layout and
 ```python
 # Pseudocode
 window_seconds = window if window > 0 else 600
+# range_min / range_max come from the bundle (dynamic bundles always carry
+# them); both bounds are INCLUSIVE. Defaults are 10000 and 65000.
 time_window = floor(current_unix_time / window_seconds)
 time_bytes = uint64_big_endian(time_window)     # 8 bytes
 
 hmac_result = HMAC-SHA256(key=seed, message=time_bytes)
 port_raw = uint16_big_endian(hmac_result[0:2])  # first 2 bytes
-target_port = (port_raw % 55000) + 10000        # range [10000, 65000)
+target_port = (port_raw % (range_max - range_min + 1)) + range_min
 ```
 
-Both client and server independently compute the same port. The port changes every `window_seconds`.
+Both client and server independently compute the same port. The port changes every `window_seconds`. See [Activation Bundle Format](activation.md#binary-layout) for the range field.
 
 ## Step 3: Build the Knock Packet
 
@@ -79,7 +81,7 @@ payload = (
     + struct.pack('!Q', unix_timestamp)      # Timestamp (uint64 BE)
     + nonce                                   # 32 raw bytes
     + ip_bytes                                # 4 or 16 bytes
-    + struct.pack('!I', timeout)             # Timeout (uint32 BE)
+    + struct.pack('!I', open_duration)       # OpenDuration (uint32 BE)
     + struct.pack('!B', cmd_len)             # CmdLen
     + struct.pack('!B', cmd_type)            # CmdType (0x00/0x01/0x02)
     + cmd_data                                # CmdData
@@ -125,15 +127,15 @@ No response will be received. The server processes the packet silently.
 
 ## Minimal Client Implementation Checklist
 
-- [ ] Parse activation bundle (base64 decode -> detect format -> decompress -> extract key + config)
+- [ ] Parse activation bundle (base64 decode -> detect format -> extract key + config)
 - [ ] Optionally decrypt bundle with Argon2id + AES-256-GCM if password-protected
 - [ ] Store the ML-KEM encapsulation key (1184 bytes for 768, 1568 bytes for 1024)
 - [ ] Note the KEM size from the bundle (768 or 1024) for correct encapsulation
-- [ ] Compute dynamic port via HMAC-SHA256 (if dynamic port enabled)
+- [ ] Compute dynamic port via HMAC-SHA256 (if dynamic port enabled), honoring the bundle's port range when present
 - [ ] Generate 32 random bytes for the nonce
 - [ ] Determine current unix timestamp (seconds)
 - [ ] Determine client's source IP (the IP the server will see) and encode as 4 or 16 raw bytes
-- [ ] Build binary payload: `[Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][Timeout:4][CmdLen:1][CmdType:1][CmdData:N-1][TOTP:6?][Pad:rest]`
+- [ ] Build binary payload: `[Version:1][Flags:1][Timestamp:8][Nonce:32][IP:4|16][OpenDuration:4][CmdLen:1][CmdType:1][CmdData:N-1][TOTP:6?][Pad:rest]`
 - [ ] ML-KEM encapsulate (768 or 1024, matching bundle's KEM size) with the stored public key -> get shared_key + ciphertext
 - [ ] AES-256-GCM encrypt the binary payload with shared_key -> get nonce + ciphertext+tag
 - [ ] Concatenate: kem_ciphertext (1088 or 1568) + aes_nonce (12) + aes_ciphertext_and_tag
@@ -151,4 +153,5 @@ No response will be received. The server processes the packet silently.
 | Java | [Bouncy Castle](https://www.bouncycastle.org/) (bc-pqc) | `javax.crypto.Cipher` |
 | JavaScript/Node | [liboqs-node](https://github.com/nicktacik/liboqs-node) | `crypto` module (built-in) |
 
-> **Important:** ML-KEM is the standardized name (FIPS 203). SPK supports both ML-KEM-768 and ML-KEM-1024. Some libraries may still use the draft name "Kyber" or "CRYSTALS-Kyber". Ensure the implementation matches FIPS 203 - the final standard has minor differences from earlier Kyber drafts.
+> [!IMPORTANT]
+> Some libraries still use the draft name "Kyber" / "CRYSTALS-Kyber". Ensure the implementation matches the final FIPS 203 standard, which differs slightly from earlier Kyber drafts.

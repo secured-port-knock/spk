@@ -327,6 +327,12 @@ func applyBundleConfig(cfg *config.Config, bundle *crypto.ExportBundle) {
 	if bundle.DynPortWindow > 0 {
 		cfg.DynPortWindow = bundle.DynPortWindow
 	}
+	// Custom dynamic port range from the bundle (absent = server uses the
+	// default range; leave cfg at 0 so the client falls back to the same default).
+	if bundle.DynPortMin > 0 && bundle.DynPortMax > 0 {
+		cfg.DynPortMin = bundle.DynPortMin
+		cfg.DynPortMax = bundle.DynPortMax
+	}
 	if bundle.KEMSize > 0 {
 		cfg.KEMSize = bundle.KEMSize
 	} else {

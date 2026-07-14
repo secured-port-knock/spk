@@ -12,7 +12,7 @@ import (
 // Export Bundle v1 Multi-KEM Tests
 // =============================================================================
 
-func TestExportBundleV1WithKEM768(t *testing.T) {
+func TestExportBundleWithKEM768(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
@@ -29,8 +29,8 @@ func TestExportBundleV1WithKEM768(t *testing.T) {
 		t.Fatalf("ParseExportBundle: %v", err)
 	}
 
-	if bundle.Version != 1 {
-		t.Errorf("Version = %d, want 1", bundle.Version)
+	if bundle.Version != 2 {
+		t.Errorf("Version = %d, want 2", bundle.Version)
 	}
 	if bundle.KEMSize != 768 {
 		t.Errorf("KEMSize = %d, want 768", bundle.KEMSize)
@@ -72,7 +72,7 @@ func TestExportBundleV1WithKEM768(t *testing.T) {
 	}
 }
 
-func TestExportBundleV1WithKEM1024(t *testing.T) {
+func TestExportBundleWithKEM1024(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM1024)
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
@@ -89,8 +89,8 @@ func TestExportBundleV1WithKEM1024(t *testing.T) {
 		t.Fatalf("ParseExportBundle: %v", err)
 	}
 
-	if bundle.Version != 1 {
-		t.Errorf("Version = %d, want 1", bundle.Version)
+	if bundle.Version != 2 {
+		t.Errorf("Version = %d, want 2", bundle.Version)
 	}
 	if bundle.KEMSize != 1024 {
 		t.Errorf("KEMSize = %d, want 1024", bundle.KEMSize)
@@ -165,7 +165,7 @@ func TestExportBundleVersionRejected(t *testing.T) {
 	}
 }
 
-func TestExportBundleV1RawBinaryFormat(t *testing.T) {
+func TestExportBundleRawBinaryFormat(t *testing.T) {
 	// Verify the v1 binary format explicitly has the kem_size field
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
@@ -173,9 +173,9 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 	}
 	ek := dk.EncapsulationKey()
 
-	raw, err := encodeV1Binary(ek, 22222, false, false, false, nil, false, 1800, 300)
+	raw, err := encodeBinary(ek, 22222, false, false, false, nil, false, 1800, 300, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary: %v", err)
+		t.Fatalf("encodeBinary: %v", err)
 	}
 
 	// Check magic
@@ -183,8 +183,8 @@ func TestExportBundleV1RawBinaryFormat(t *testing.T) {
 		t.Errorf("magic = %q, want \"SPK\"", string(raw[:3]))
 	}
 	// Check version
-	if raw[3] != 1 {
-		t.Errorf("version = %d, want 1", raw[3])
+	if raw[3] != 2 {
+		t.Errorf("version = %d, want 2", raw[3])
 	}
 	// Check flags (all false = 0)
 	if raw[4] != 0 {
@@ -269,9 +269,9 @@ func TestExportBundleDynamicPortWithKEM768(t *testing.T) {
 
 	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
-	raw, err := encodeV1Binary(ek, 0, false, false, false, seed, true, 3600, 600)
+	raw, err := encodeBinary(ek, 0, false, false, false, seed, true, 3600, 600, 0, 0)
 	if err != nil {
-		t.Fatalf("encodeV1Binary with dynamic port: %v", err)
+		t.Fatalf("encodeBinary with dynamic port: %v", err)
 	}
 
 	bundle, err := decodeBinary(raw)

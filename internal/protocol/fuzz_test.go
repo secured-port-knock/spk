@@ -191,7 +191,7 @@ func FuzzEncodeDecodePayloadRoundtrip(f *testing.F) {
 			return
 		}
 		// The protocol canonicalizes command prefixes to lowercase
-		// (e.g. "Cust-0" → "cust-0"), so normalize before comparison.
+		// (e.g. "Cust-0" -> "cust-0"), so normalize before comparison.
 		cmdType, cmdData, err := encodeCommandBinary(cmd)
 		if err != nil {
 			return

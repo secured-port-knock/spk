@@ -22,65 +22,45 @@ func FuzzComputeDynamicPortForWindow(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, seed []byte, window int64) {
 		port := computeDynamicPortForWindow(seed, window)
-		if port < 10000 || port >= 65000 {
-			t.Errorf("port %d outside valid range [10000, 65000) for seed=%x window=%d", port, seed, window)
+		if port < 10000 || port > 65000 {
+			t.Errorf("port %d outside valid range 10000-65000 inclusive for seed=%x window=%d", port, seed, window)
+		}
+	})
+}
+
+// FuzzComputeDynamicPortInRange ensures range-aware port computation never
+// panics, always lands inside the normalized range, and is deterministic.
+func FuzzComputeDynamicPortInRange(f *testing.F) {
+	f.Add([]byte{}, int64(0), 0, 0)
+	f.Add([]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, int64(100), 30010, 30020)
+	f.Add(make([]byte, 8), int64(-1), -100, 100)
+	f.Add(make([]byte, 8), int64(1<<62), 65535, 1)
+	f.Add(make([]byte, 32), int64(42), 1, 65535)
+	f.Add(make([]byte, 8), int64(7), 40000, 40001)
+
+	f.Fuzz(func(t *testing.T, seed []byte, window int64, minPort, maxPort int) {
+		port := computeDynamicPortForWindowInRange(seed, window, minPort, maxPort)
+		nMin, nMax := NormalizeDynPortRange(minPort, maxPort)
+		if port < nMin || port > nMax {
+			t.Errorf("port %d outside normalized range %d-%d for seed=%x window=%d min=%d max=%d",
+				port, nMin, nMax, seed, window, minPort, maxPort)
+		}
+		if again := computeDynamicPortForWindowInRange(seed, window, minPort, maxPort); again != port {
+			t.Errorf("non-deterministic: %d then %d", port, again)
 		}
 	})
 }
 
 // --- Property-based tests ---
 
-// TestDynPort_Deterministic verifies same inputs always produce same port.
-func TestDynPort_Deterministic(t *testing.T) {
-	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	window := int64(12345)
-
-	port1 := computeDynamicPortForWindow(seed, window)
-	port2 := computeDynamicPortForWindow(seed, window)
-	if port1 != port2 {
-		t.Errorf("non-deterministic: %d != %d", port1, port2)
-	}
-}
-
-// TestDynPort_DifferentWindows verifies different time windows usually produce different ports.
-func TestDynPort_DifferentWindows(t *testing.T) {
-	seed := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	ports := make(map[int]int) // port -> count
-	for w := int64(0); w < 1000; w++ {
-		port := computeDynamicPortForWindow(seed, w)
-		ports[port]++
-	}
-	// With 55000 possible ports and 1000 windows, collisions should be rare
-	// At least 900 unique ports expected
-	if len(ports) < 900 {
-		t.Errorf("too few unique ports: %d out of 1000 windows", len(ports))
-	}
-}
-
-// TestDynPort_DifferentSeeds verifies different seeds produce different ports for the same window.
-func TestDynPort_DifferentSeeds(t *testing.T) {
-	window := int64(42)
-	ports := make(map[int]bool)
-	for i := 0; i < 100; i++ {
-		seed := make([]byte, 8)
-		binary.BigEndian.PutUint64(seed, uint64(i))
-		port := computeDynamicPortForWindow(seed, window)
-		ports[port] = true
-	}
-	// At least 95 unique ports out of 100 seeds
-	if len(ports) < 95 {
-		t.Errorf("too many collisions: only %d unique ports from 100 seeds", len(ports))
-	}
-}
-
 // TestDynPort_EmptySeed verifies empty seed does not panic.
 func TestDynPort_EmptySeed(t *testing.T) {
 	port := computeDynamicPortForWindow(nil, 0)
-	if port < 10000 || port >= 65000 {
+	if port < 10000 || port > 65000 {
 		t.Errorf("invalid port for nil seed: %d", port)
 	}
 	port2 := computeDynamicPortForWindow([]byte{}, 0)
-	if port2 < 10000 || port2 >= 65000 {
+	if port2 < 10000 || port2 > 65000 {
 		t.Errorf("invalid port for empty seed: %d", port2)
 	}
 }
@@ -96,30 +76,10 @@ func TestDynPort_MatchesHMACSHA256(t *testing.T) {
 	binary.BigEndian.PutUint64(wb, uint64(window))
 	h.Write(wb)
 	sum := h.Sum(nil)
-	expected := int(binary.BigEndian.Uint16(sum[:2]))%55000 + 10000
+	expected := int(binary.BigEndian.Uint16(sum[:2]))%55001 + 10000 // width 55001: 10000-65000 inclusive
 
 	actual := computeDynamicPortForWindow(seed, window)
 	if actual != expected {
 		t.Errorf("port mismatch: got %d, want %d", actual, expected)
-	}
-}
-
-// TestDynPort_WindowZeroFallback verifies windowSeconds<=0 uses default.
-func TestDynPort_WindowZeroFallback(t *testing.T) {
-	seed := []byte{1, 2, 3, 4, 5, 6, 7, 8}
-
-	// ComputeDynamicPortWithWindow with 0 should use default (600)
-	port0 := ComputeDynamicPortWithWindow(seed, 0)
-	portNeg := ComputeDynamicPortWithWindow(seed, -100)
-
-	if port0 < 10000 || port0 >= 65000 {
-		t.Errorf("invalid port for window=0: %d", port0)
-	}
-	if portNeg < 10000 || portNeg >= 65000 {
-		t.Errorf("invalid port for window=-100: %d", portNeg)
-	}
-	// Both should use default window and produce the same port
-	if port0 != portNeg {
-		t.Errorf("window=0 and window=-100 should produce same result: %d vs %d", port0, portNeg)
 	}
 }

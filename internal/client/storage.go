@@ -67,8 +67,8 @@ func validateStorageLabel(label string) error {
 }
 
 // escapePSQuote escapes single quotes within a string for use inside a
-// PowerShell single-quoted string literal.  Single quotes are doubled
-// because PowerShell's only escape sequence inside '...' is ”.
+// PowerShell single-quoted string literal.  Doubling the quote character is
+// the only escape sequence PowerShell recognizes inside '...' literals.
 func escapePSQuote(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }

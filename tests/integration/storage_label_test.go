@@ -76,7 +76,7 @@ func TestKeyStorageLabelOmittedWhenEmpty(t *testing.T) {
 }
 
 // TestKeyStorageLabelSurvivesConfigDirChange verifies that the label stored
-// in the TOML is not a function of the config directory — the same TOML file
+// in the TOML is not a function of the config directory -- the same TOML file
 // read from a different directory path still carries the same label value.
 func TestKeyStorageLabelSurvivesConfigDirChange(t *testing.T) {
 	dir1 := t.TempDir()

@@ -50,7 +50,7 @@ func TestDynPortDifferentWindowsProduceDifferentPorts(t *testing.T) {
 		ports[p] = true
 	}
 
-	// With 55000 possible ports and 100 windows, collisions are possible but
+	// With 55001 possible ports and 100 windows, collisions are possible but
 	// we should see at least 50 unique ports
 	if len(ports) < 50 {
 		t.Errorf("too few unique ports from 100 windows: got %d, expected >= 50", len(ports))
@@ -64,8 +64,8 @@ func TestDynPortRange(t *testing.T) {
 	// Run 1000 iterations with different windows and verify all ports in range
 	for w := int64(0); w < 1000; w++ {
 		port := computeDynamicPortForWindow(seed, w)
-		if port < 10000 || port >= 65000 {
-			t.Errorf("window=%d: port %d out of range [10000, 65000)", w, port)
+		if port < 10000 || port > 65000 {
+			t.Errorf("window=%d: port %d out of range 10000-65000 inclusive", w, port)
 		}
 	}
 }

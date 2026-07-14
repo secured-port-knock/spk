@@ -34,8 +34,8 @@ func TestBundleSizeValidationNormalBundle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseExportBundle (KEM-%d): %v", kem, err)
 		}
-		if bundle.Version != 1 {
-			t.Errorf("version = %d, want 1", bundle.Version)
+		if bundle.Version != 2 {
+			t.Errorf("version = %d, want 2", bundle.Version)
 		}
 		if bundle.KEMSize != int(kem) {
 			t.Errorf("KEMSize = %d, want %d", bundle.KEMSize, kem)

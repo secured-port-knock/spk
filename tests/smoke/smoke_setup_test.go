@@ -34,6 +34,8 @@ type serverSetup struct {
 	dynamicPort         bool
 	portSeed            string
 	dynPortWindow       int
+	dynPortMin          int
+	dynPortMax          int
 }
 
 // defaultSetup returns conservative defaults suitable for most smoke tests.
@@ -163,12 +165,14 @@ func applyDynamicPortConfig(t *testing.T, cfg *config.Config, setup serverSetup)
 	cfg.PortSeed = setup.portSeed
 	cfg.DynPortWindow = window
 	cfg.ListenPort = 0
+	cfg.DynPortMin = setup.dynPortMin
+	cfg.DynPortMax = setup.dynPortMax
 
 	seedBytes, err := hex.DecodeString(setup.portSeed)
 	if err != nil {
 		t.Fatalf("decode portSeed: %v", err)
 	}
-	return crypto.ComputeDynamicPortWithWindow(seedBytes, window)
+	return crypto.ComputeDynamicPortInRange(seedBytes, window, setup.dynPortMin, setup.dynPortMax)
 }
 
 // startServerProcess launches the SPK binary in server mode and waits for it
