@@ -114,7 +114,11 @@ func tryParseBundle(reader *bufio.Reader, b64Data string) *crypto.ExportBundle {
 		}
 	}
 
-	fmt.Printf("  -> Server port: %d\n", bundle.Port)
+	if bundle.DynamicPort {
+		fmt.Printf("  -> Server port: %d-%d (dynamic)\n", bundle.DynPortMin, bundle.DynPortMax)
+	} else {
+		fmt.Printf("  -> Server port: %d\n", bundle.Port)
+	}
 	fmt.Printf("  -> Custom open duration: %v\n", bundle.AllowCustomOpenDuration)
 	fmt.Printf("  -> Custom port: %v\n", bundle.AllowCustomPort)
 	fmt.Printf("  -> Open all: %v\n", bundle.AllowOpenAll)
