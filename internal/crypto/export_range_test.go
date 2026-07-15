@@ -70,8 +70,8 @@ func TestBundleDynamicAlwaysCarriesRange(t *testing.T) {
 	}
 }
 
-// TestBundleV2WireLayout verifies the range bytes sit after the window field:
-// magic(3) + ver(1) + flags(1) + seed(8) + duration(4) + window(4) = offset 21.
+// TestBundleV2WireLayout verifies the range bytes sit directly after the flags,
+// ahead of the seed: magic(3) + ver(1) + flags(1) = offset 5.
 func TestBundleV2WireLayout(t *testing.T) {
 	dk, err := GenerateKeyPair(KEM768)
 	if err != nil {
@@ -88,8 +88,8 @@ func TestBundleV2WireLayout(t *testing.T) {
 	if raw[4] != 0x08 {
 		t.Fatalf("flags = 0x%02x, want 0x08 (dynamic only)", raw[4])
 	}
-	gotMin := int(binary.BigEndian.Uint16(raw[21:23]))
-	gotMax := int(binary.BigEndian.Uint16(raw[23:25]))
+	gotMin := int(binary.BigEndian.Uint16(raw[5:7]))
+	gotMax := int(binary.BigEndian.Uint16(raw[7:9]))
 	if gotMin != 30010 || gotMax != 30020 {
 		t.Errorf("wire range = %d-%d, want 30010-30020", gotMin, gotMax)
 	}
@@ -210,7 +210,7 @@ func TestBundleRangeCRCStillEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw[22] ^= 0xFF // corrupt a range byte
+	raw[6] ^= 0xFF // corrupt a range byte
 	if _, err := ParseExportBundleRaw(raw, ""); err == nil {
 		t.Error("corrupted range bytes must fail CRC verification")
 	}
@@ -229,8 +229,8 @@ func TestBundleMalformedRangeRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	// min = 40000, max = 30000 (inverted)
-	binary.BigEndian.PutUint16(raw[21:23], 40000)
-	binary.BigEndian.PutUint16(raw[23:25], 30000)
+	binary.BigEndian.PutUint16(raw[5:7], 40000)
+	binary.BigEndian.PutUint16(raw[7:9], 30000)
 	fixupCRC(raw)
 	if _, err := ParseExportBundleRaw(raw, ""); err == nil {
 		t.Error("bundle with min >= max must be rejected")
@@ -249,7 +249,7 @@ func TestBundleTruncatedAtRangeRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseExportBundleRaw(raw[:23], ""); err == nil {
+	if _, err := ParseExportBundleRaw(raw[:7], ""); err == nil {
 		t.Error("bundle truncated inside range field must be rejected")
 	}
 }

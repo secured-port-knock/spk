@@ -26,11 +26,11 @@ Flags          (1 byte)   -- bit field (bits 4-7 reserved, must be zero):
                              bit 2: open-all allowed
                              bit 3: dynamic port enabled
 [Port]         (2 bytes)  -- static listen port (only if dynamic=0)
+[RangeMin]     (2 bytes)  -- dynamic port range lower bound, INCLUSIVE (only if dynamic=1, big-endian)
+[RangeMax]     (2 bytes)  -- dynamic port range upper bound, INCLUSIVE (only if dynamic=1, big-endian)
 [Seed]         (8 bytes)  -- dynamic port seed (only if dynamic=1)
 OpenDuration   (4 bytes)  -- default open duration in seconds (big-endian)
 Window         (4 bytes)  -- dynamic port rotation period in seconds (0 = default 600)
-[RangeMin]     (2 bytes)  -- dynamic port range lower bound, INCLUSIVE (only if dynamic=1, big-endian)
-[RangeMax]     (2 bytes)  -- dynamic port range upper bound, INCLUSIVE (only if dynamic=1, big-endian)
 KEM Size       (2 bytes)  -- ML-KEM key size: 768 or 1024 (big-endian)
 Encapsulation Key (variable) -- ML-KEM public key (1184 bytes for 768, 1568 bytes for 1024)
 CRC32          (4 bytes)  -- CRC32/IEEE checksum of all preceding bytes (big-endian)
@@ -93,21 +93,18 @@ decoded[4]     = flags       // bit field (1 byte); reject if bits 4-7 set
                              //   bit 2 (0x04): allow open-all
                              //   bit 3 (0x08): dynamic port enabled
 
-if flags & 0x08:  // dynamic port
-    decoded[5:13]  = seed              // 8-byte dynamic port seed
-    offset = 13
+if flags & 0x08:  // dynamic port: range always present, both bounds INCLUSIVE
+    decoded[5:7]   = range_min         // uint16 big-endian
+    decoded[7:9]   = range_max         // uint16 big-endian
+    // reject if range_min < 1 or range_min >= range_max
+    decoded[9:17]  = seed              // 8-byte dynamic port seed
+    offset = 17
 else:             // static port
     decoded[5:7]   = port              // uint16 big-endian, static listen port
     offset = 7
 
 decoded[offset : offset+4]   = open_duration   // uint32 big-endian, default open duration in seconds
 decoded[offset+4 : offset+8] = window    // uint32 big-endian, port rotation period (0 = default 600s)
-
-if flags & 0x08:  // dynamic port: range always present, both bounds INCLUSIVE
-    decoded[offset+8 : offset+10]  = range_min  // uint16 big-endian
-    decoded[offset+10 : offset+12] = range_max  // uint16 big-endian
-    // reject if range_min < 1 or range_min >= range_max
-    offset += 4
 
 decoded[offset+8 : offset+10] = kem_size // uint16 big-endian, 768 or 1024
 
@@ -133,12 +130,12 @@ decoded[offset+10 : offset+10+ek_size] = encapsulation_key
 | Value | Type | Description |
 |---|---|---|
 | `flags` | byte | Policy bit field |
-| `seed` | 8 bytes | Dynamic port seed (only if dynamic) |
 | `port` | uint16 | Static listen port (only if not dynamic) |
-| `open_duration` | uint32 | Default open duration in seconds |
-| `window` | uint32 | Port rotation period in seconds (0 = 600) |
 | `range_min` | uint16 | Dynamic port range lower bound, inclusive (dynamic bundles only) |
 | `range_max` | uint16 | Dynamic port range upper bound, inclusive (dynamic bundles only) |
+| `seed` | 8 bytes | Dynamic port seed (only if dynamic) |
+| `open_duration` | uint32 | Default open duration in seconds |
+| `window` | uint32 | Port rotation period in seconds (0 = 600) |
 | `kem_size` | uint16 | ML-KEM key size: 768 or 1024 |
 | `encapsulation_key` | 1184 or 1568 bytes | ML-KEM public (encapsulation) key |
 | `crc32` | uint32 (big-endian) | CRC32/IEEE checksum of all preceding bytes (mandatory) |

@@ -161,8 +161,9 @@ func CreateEncryptedExportBundleRawWithRange(ek EncapsulationKey, port int, cust
 }
 
 // encodeBinary creates the raw v2 binary bundle.
-// Format: "SPK"(3) + ver(1=2) + flags(1) + [port(2)|seed(8)] + open_duration(4) + window(4)
-//   - [range_min(2) + range_max(2), dynamic bundles only, both inclusive]
+// Format: "SPK"(3) + ver(1=2) + flags(1) + port_block + open_duration(4) + window(4)
+//   - port_block for dynamic bundles: range_min(2) + range_max(2) + seed(8), both bounds inclusive
+//   - port_block for static bundles:  port(2)
 //   - kem_size(2) + ek(variable) + crc32(4)
 //
 // The final 4 bytes are a CRC32/IEEE checksum (big-endian) of all preceding bytes.
@@ -191,9 +192,24 @@ func encodeBinary(ek EncapsulationKey, port int, customDuration, customPort, ope
 	}
 	buf.WriteByte(flags)
 
-	// If dynamic port: write 8-byte seed (no static port needed)
-	// If static port: write 2-byte port (no seed needed)
 	if dynamicPort {
+		// Dynamic port range (2 + 2 bytes big-endian, both bounds inclusive).
+		// Unset or invalid input falls back to the defaults.
+		nMin, nMax := NormalizeDynPortRange(dynPortMin, dynPortMax)
+		minU, err := toUint16("dynamic_port_min", nMin)
+		if err != nil {
+			return nil, err
+		}
+		maxU, err := toUint16("dynamic_port_max", nMax)
+		if err != nil {
+			return nil, err
+		}
+		rBytes := make([]byte, 4)
+		binary.BigEndian.PutUint16(rBytes[:2], minU)
+		binary.BigEndian.PutUint16(rBytes[2:], maxU)
+		buf.Write(rBytes)
+
+		// 8-byte dynamic port seed.
 		seed := make([]byte, 8)
 		if len(portSeed) >= 8 {
 			copy(seed, portSeed[:8])
@@ -228,24 +244,6 @@ func encodeBinary(ek EncapsulationKey, port int, customDuration, customPort, ope
 	wBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(wBytes, winU)
 	buf.Write(wBytes)
-
-	// Dynamic port range (2 + 2 bytes big-endian, dynamic bundles only).
-	// Both bounds inclusive; unset or invalid input falls back to the defaults.
-	if dynamicPort {
-		nMin, nMax := NormalizeDynPortRange(dynPortMin, dynPortMax)
-		minU, err := toUint16("dynamic_port_min", nMin)
-		if err != nil {
-			return nil, err
-		}
-		maxU, err := toUint16("dynamic_port_max", nMax)
-		if err != nil {
-			return nil, err
-		}
-		rBytes := make([]byte, 4)
-		binary.BigEndian.PutUint16(rBytes[:2], minU)
-		binary.BigEndian.PutUint16(rBytes[2:], maxU)
-		buf.Write(rBytes)
-	}
 
 	// KEM size (2 bytes big-endian)
 	kemU, err := toUint16("kem size", int(ek.KEMSize()))
@@ -320,9 +318,21 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 
 	var port int
 	var seed []byte
+	var dynPortMin, dynPortMax int
 
 	if dynPort {
-		// Dynamic port: read 8-byte seed
+		// Dynamic port range: min(2) + max(2), big-endian, both inclusive.
+		rBytes := make([]byte, 4)
+		if _, err := io.ReadFull(r, rBytes); err != nil {
+			return nil, fmt.Errorf("read port range: %w", err)
+		}
+		dynPortMin = int(binary.BigEndian.Uint16(rBytes[:2]))
+		dynPortMax = int(binary.BigEndian.Uint16(rBytes[2:]))
+		if dynPortMin < 1 || dynPortMin >= dynPortMax {
+			return nil, fmt.Errorf("invalid port range in bundle: %d-%d", dynPortMin, dynPortMax)
+		}
+
+		// 8-byte dynamic port seed.
 		seed = make([]byte, 8)
 		if _, err := io.ReadFull(r, seed); err != nil {
 			return nil, fmt.Errorf("read seed: %w", err)
@@ -343,36 +353,18 @@ func decodeBinary(data []byte) (*ExportBundle, error) {
 	}
 	defOpenDuration := int(binary.BigEndian.Uint32(toBytes))
 
-	var dynWindow int
-	var kemSize int
-
-	// v1: always has window + kem_size fields
+	// Dynamic port window (always present).
 	wBytes := make([]byte, 4)
 	if _, err := io.ReadFull(r, wBytes); err != nil {
 		return nil, fmt.Errorf("read window: %w", err)
 	}
-	dynWindow = int(binary.BigEndian.Uint32(wBytes))
-
-	// Dynamic port range: min(2) + max(2), big-endian, both inclusive.
-	// Present for every dynamic-port bundle.
-	var dynPortMin, dynPortMax int
-	if dynPort {
-		rBytes := make([]byte, 4)
-		if _, err := io.ReadFull(r, rBytes); err != nil {
-			return nil, fmt.Errorf("read port range: %w", err)
-		}
-		dynPortMin = int(binary.BigEndian.Uint16(rBytes[:2]))
-		dynPortMax = int(binary.BigEndian.Uint16(rBytes[2:]))
-		if dynPortMin < 1 || dynPortMin >= dynPortMax {
-			return nil, fmt.Errorf("invalid port range in bundle: %d-%d", dynPortMin, dynPortMax)
-		}
-	}
+	dynWindow := int(binary.BigEndian.Uint32(wBytes))
 
 	ksBytes := make([]byte, 2)
 	if _, err := io.ReadFull(r, ksBytes); err != nil {
 		return nil, fmt.Errorf("read kem_size: %w", err)
 	}
-	kemSize = int(binary.BigEndian.Uint16(ksBytes))
+	kemSize := int(binary.BigEndian.Uint16(ksBytes))
 
 	// Determine expected EK size
 	ekSize := EncapsulationKeySizeFor(KEMSize(kemSize))
