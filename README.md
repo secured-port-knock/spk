@@ -25,10 +25,6 @@ SPK is a single-packet authorization (SPA) port knocking tool that uses ML-KEM (
 - Add a pre-authentication layer in front of any TCP/UDP service
 - Zero-response architecture: the server never replies, so there is no reflection/amplification vector
 
-## AI Assisted
-
-This project is AI assisted. The core idea and original code started back in 2024 as a personal project; AI helped finish planned features, restructure the code, and catch bugs.
-
 ## Security and Features
 
 | Feature | Implementation |

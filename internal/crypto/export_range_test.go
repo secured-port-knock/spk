@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"hash/crc32"
+	"math"
 	"testing"
 )
 
@@ -276,6 +277,35 @@ func TestBundleRangeStaticPortOmitted(t *testing.T) {
 	wantLen := 3 + 1 + 1 + 2 + 4 + 4 + 2 + 1184 + 4
 	if len(raw) != wantLen {
 		t.Errorf("static bundle length = %d, want %d (no range field)", len(raw), wantLen)
+	}
+}
+
+// TestBundleFieldExceedingWireBoundsRejected verifies the checked narrowings
+// reject values that do not fit their wire field instead of silently
+// truncating them.
+func TestBundleFieldExceedingWireBoundsRejected(t *testing.T) {
+	dk, err := GenerateKeyPair(KEM768)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ek := dk.EncapsulationKey()
+
+	cases := []struct {
+		name                   string
+		port, duration, window int
+	}{
+		{"static port over uint16", 70000, 3600, 0},
+		{"open duration over uint32", 1234, math.MaxUint32 + 1, 0},
+		{"port window over uint32", 0, 3600, math.MaxUint32 + 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := CreateExportBundleRawWithRange(ek, tc.port, false, false, false,
+				nil, false, tc.duration, tc.window, 0, 0)
+			if err == nil {
+				t.Errorf("%s must be rejected, not truncated on the wire", tc.name)
+			}
+		})
 	}
 }
 

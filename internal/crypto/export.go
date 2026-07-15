@@ -10,11 +10,31 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 
 	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/argon2"
 )
+
+// toUint16 narrows an int to uint16, returning an error if it does not fit.
+// Used at the bundle wire-encoding boundaries so each narrowing conversion is
+// explicitly range-checked rather than relying on upstream validation.
+func toUint16(name string, v int) (uint16, error) {
+	if v < 0 || v > math.MaxUint16 {
+		return 0, fmt.Errorf("%s (%d) does not fit in a uint16", name, v)
+	}
+	return uint16(v), nil
+}
+
+// toUint32 narrows an int to uint32, returning an error if it does not fit.
+// Same rationale as toUint16.
+func toUint32(name string, v int) (uint32, error) {
+	if v < 0 || v > math.MaxUint32 {
+		return 0, fmt.Errorf("%s (%d) does not fit in a uint32", name, v)
+	}
+	return uint32(v), nil
+}
 
 // ExportBundle contains server public key and metadata for client provisioning.
 type ExportBundle struct {
@@ -182,35 +202,58 @@ func encodeBinary(ek EncapsulationKey, port int, customDuration, customPort, ope
 		}
 		buf.Write(seed)
 	} else {
+		portU, err := toUint16("listen port", port)
+		if err != nil {
+			return nil, err
+		}
 		portBytes := make([]byte, 2)
-		binary.BigEndian.PutUint16(portBytes, uint16(port))
+		binary.BigEndian.PutUint16(portBytes, portU)
 		buf.Write(portBytes)
 	}
 
 	// Default open duration (4 bytes big-endian)
+	durU, err := toUint32("open duration", defaultOpenDuration)
+	if err != nil {
+		return nil, err
+	}
 	toBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(toBytes, uint32(defaultOpenDuration))
+	binary.BigEndian.PutUint32(toBytes, durU)
 	buf.Write(toBytes)
 
 	// Dynamic port window (4 bytes big-endian, 0 = default 600s)
+	winU, err := toUint32("dynamic port window", dynPortWindow)
+	if err != nil {
+		return nil, err
+	}
 	wBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(wBytes, uint32(dynPortWindow))
+	binary.BigEndian.PutUint32(wBytes, winU)
 	buf.Write(wBytes)
 
 	// Dynamic port range (2 + 2 bytes big-endian, dynamic bundles only).
 	// Both bounds inclusive; unset or invalid input falls back to the defaults.
 	if dynamicPort {
 		nMin, nMax := NormalizeDynPortRange(dynPortMin, dynPortMax)
+		minU, err := toUint16("dynamic_port_min", nMin)
+		if err != nil {
+			return nil, err
+		}
+		maxU, err := toUint16("dynamic_port_max", nMax)
+		if err != nil {
+			return nil, err
+		}
 		rBytes := make([]byte, 4)
-		binary.BigEndian.PutUint16(rBytes[:2], uint16(nMin))
-		binary.BigEndian.PutUint16(rBytes[2:], uint16(nMax))
+		binary.BigEndian.PutUint16(rBytes[:2], minU)
+		binary.BigEndian.PutUint16(rBytes[2:], maxU)
 		buf.Write(rBytes)
 	}
 
 	// KEM size (2 bytes big-endian)
-	kemSize := int(ek.KEMSize())
+	kemU, err := toUint16("kem size", int(ek.KEMSize()))
+	if err != nil {
+		return nil, err
+	}
 	ksBytes := make([]byte, 2)
-	binary.BigEndian.PutUint16(ksBytes, uint16(kemSize))
+	binary.BigEndian.PutUint16(ksBytes, kemU)
 	buf.Write(ksBytes)
 
 	// Encapsulation key (variable size: 1184 for 768, 1568 for 1024)
