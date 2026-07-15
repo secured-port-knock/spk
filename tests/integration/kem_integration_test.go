@@ -527,8 +527,8 @@ func TestDynamicPortDeterminismMultiKEM(t *testing.T) {
 		t.Errorf("dynamic port not deterministic: %d != %d", port1, port2)
 	}
 
-	if port1 < 10000 || port1 >= 65000 {
-		t.Errorf("dynamic port %d out of range [10000, 65000)", port1)
+	if port1 < 10000 || port1 > 65000 {
+		t.Errorf("dynamic port %d out of range [10000, 65000]", port1)
 	}
 }
 

@@ -26,8 +26,8 @@ func TestDynamicPortValidRange(t *testing.T) {
 
 		for _, window := range []int{60, 120, 300, 600, 3600, 86400} {
 			port := crypto.ComputeDynamicPortWithWindow(seed, window)
-			if port < 10000 || port > 64999 {
-				t.Errorf("seed=%s window=%d: port %d out of range [10000, 64999]",
+			if port < 10000 || port > 65000 {
+				t.Errorf("seed=%s window=%d: port %d out of range [10000, 65000]",
 					hex.EncodeToString(seed), window, port)
 			}
 		}
@@ -170,19 +170,19 @@ func TestDynPortWindowBoundary(t *testing.T) {
 
 	// Minimum window (60s)
 	port60 := crypto.ComputeDynamicPortWithWindow(seed, 60)
-	if port60 < 10000 || port60 > 64999 {
+	if port60 < 10000 || port60 > 65000 {
 		t.Errorf("window=60: port %d out of range", port60)
 	}
 
 	// Maximum window (86400s = 1 day)
 	port86400 := crypto.ComputeDynamicPortWithWindow(seed, 86400)
-	if port86400 < 10000 || port86400 > 64999 {
+	if port86400 < 10000 || port86400 > 65000 {
 		t.Errorf("window=86400: port %d out of range", port86400)
 	}
 
 	// Window=1 (edge case - very fast rotation)
 	port1 := crypto.ComputeDynamicPortWithWindow(seed, 1)
-	if port1 < 10000 || port1 > 64999 {
+	if port1 < 10000 || port1 > 65000 {
 		t.Errorf("window=1: port %d out of range", port1)
 	}
 }

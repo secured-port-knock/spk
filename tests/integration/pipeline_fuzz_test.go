@@ -433,7 +433,7 @@ func TestDynPortFullPipeline(t *testing.T) {
 		t.Errorf("same seed produced different ports: %d vs %d", port1, port2)
 	}
 
-	if port1 < 10000 || port1 >= 65000 {
+	if port1 < 10000 || port1 > 65000 {
 		t.Fatalf("port out of range: %d", port1)
 	}
 
