@@ -252,7 +252,7 @@ Yes. Each authorized knock opens the firewall for a specific IP and duration, th
 
 **Q: Will antivirus flag the binary as a virus?**
 
-Possibly. [UPX](https://github.com/upx/upx/releases) compression (enabled by default when UPX is installed) and runtime loading of packet capture libraries (wpcap.dll / libpcap) are both patterns associated with malware, so some products raise heuristic detections. These are **false positives** -- build without UPX, add an antivirus exception, or use the non-pcap build.
+Possibly. Runtime loading of packet capture libraries (wpcap.dll / libpcap) is a pattern associated with malware, so some products raise heuristic detections. These are **false positives** -- add an antivirus exception, or use the non-pcap build.
 
 **Q: Does SPK require a persistent connection?**
 
@@ -260,7 +260,7 @@ No. Each knock is a single UDP datagram -- no handshake, session, keepalive, or 
 
 **Q: Can I use SPK on IoT / embedded devices?**
 
-Yes. SPK compiles to a single static binary (~6-8 MB, or ~3 MB with UPX) with no runtime dependencies when built with `CGO_ENABLED=0`. It runs on Linux ARM64 (Raspberry Pi, OpenWRT routers), Windows, and macOS.
+Yes. SPK compiles to a single static binary (~6-8 MB) with no runtime dependencies when built with `CGO_ENABLED=0`. It runs on Linux ARM64 (Raspberry Pi, OpenWRT routers), Windows, and macOS.
 
 **Q: Does SPK support multiple users?**
 

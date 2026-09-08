@@ -76,7 +76,6 @@ RUN_CLEAN=false
 DISABLE_PCAP=false
 BUILD_DEB=false
 BUILD_RPM=false
-USE_UPX_FLAG=false
 HAS_PLATFORM=false
 HAS_ARCH=false
 
@@ -97,8 +96,7 @@ for arg in "$@"; do
     -nopcap)       DISABLE_PCAP=true ;;
     -deb)          BUILD_DEB=true ;;
     -rpm)          BUILD_RPM=true ;;
-    -upx)          USE_UPX_FLAG=true ;;
-    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testall] [-testSniffer] [-testsmoke] [-coverage] [-clean] [-deb] [-rpm] [-upx]"; exit 1 ;;
+    *)             echo "Unknown argument: $arg"; echo "Usage: $0 [-windows] [-linux] [-darwin] [-amd64] [-arm64] [-all] [-nopcap] [-test] [-testall] [-testSniffer] [-testsmoke] [-coverage] [-clean] [-deb] [-rpm]"; exit 1 ;;
   esac
 done
 
@@ -399,19 +397,6 @@ if command -v gcc &>/dev/null; then
   GCC_AVAILABLE=true
 fi
 
-# Check for UPX (binary compression)
-UPX_AVAILABLE=false
-if command -v upx &>/dev/null; then
-  UPX_AVAILABLE=true
-  if $USE_UPX_FLAG; then
-    echo "UPX: found ($(command -v upx))"
-  fi
-elif $USE_UPX_FLAG; then
-  echo "UPX: not found (-upx supplied but upx is not in PATH, skipping compression)"
-fi
-USE_UPX=false
-if $USE_UPX_FLAG && $UPX_AVAILABLE; then USE_UPX=true; fi
-
 # Check for nfpm (needed for -deb / -rpm packaging)
 NFPM_AVAILABLE=false
 if command -v nfpm &>/dev/null; then
@@ -482,18 +467,6 @@ build_one() {
     if [ -n "$cc" ]; then export CC="$cc"; fi
     go build -buildvcs=false -trimpath -ldflags "${ldflags}" -o "${output}" ./
   ); then
-    # UPX compress if requested and available
-    if $USE_UPX && [ -f "${output}" ]; then
-      local orig_size
-      orig_size=$(stat -f%z "${output}" 2>/dev/null || stat -c%s "${output}" 2>/dev/null || echo 0)
-      if upx --best --lzma -q "${output}" 2>/dev/null; then
-        local new_size
-        new_size=$(stat -f%z "${output}" 2>/dev/null || stat -c%s "${output}" 2>/dev/null || echo 0)
-        echo "    -> UPX compressed: ${new_size} bytes (was ${orig_size})"
-      else
-        echo "    -> UPX skipped for ${output}"
-      fi
-    fi
     return 0
   else
     echo "    FAILED: ${output}"

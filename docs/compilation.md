@@ -9,7 +9,6 @@ This document covers building SPK from source, cross-compilation, and Linux pack
 | **Go 1.25+** | Yes | `crypto/mlkem` standard library support (`go 1.25.0` in `go.mod`) |
 | **zig** | Optional | Cross-compile Linux/macOS with pcap (`zig cc` as CGO compiler) |
 | **GCC** | Optional | Native builds with pcap (fallback when zig is not installed) |
-| **UPX** | Optional | Compress binaries (~50% smaller); pass `-upx` to enable |
 | **nfpm** | Optional | Build `.deb` / `.rpm` Linux packages |
 
 Install zig: [ziglang.org/download](https://ziglang.org/download/) (`winget install zig.zig` / `brew install zig` / `snap install zig`)
@@ -34,7 +33,6 @@ go install github.com/secured-port-knock/spk@v1.0.4
 - **No pcap / stealth mode.** pcap requires CGO, which `go install` does not use here. The installed
   binary supports UDP socket mode and AF_PACKET/WinDivert. For pcap stealth mode, use a release
   binary or the build scripts.
-- **No UPX compression.** Binary is larger (~6-8 MB vs ~3 MB for a UPX-compressed release build).
 - **No version metadata.** Build-script linker flags are not injected; SPK instead reads the module
   version via `runtime/debug.ReadBuildInfo()` and labels the build `(Go)`:
 
@@ -63,7 +61,6 @@ All three scripts accept the same flags. Run the one for your OS:
 | `-amd64` / `-arm64` | Select architecture(s); combine freely |
 | `-all` | Build every platform/arch combination |
 | `-nopcap` | Disable pcap for Linux/macOS targets (Windows is always pcap) |
-| `-upx` | Enable UPX binary compression (requires `upx` in `PATH`) |
 | `-deb` / `-rpm` | Package linux builds as .deb/.rpm (combine with `-linux`) |
 | `-test` | Run unit + integration tests + fuzz seed corpus |
 | `-testall` | Run the full suite: smoke, unit+integration, fuzz, sniffer |
@@ -327,7 +324,7 @@ Binary filenames still embed the full four-part version (e.g. `spk_1.0.2.1044p-l
 **Steps:**
 1. Runs CI tests on all three platforms -- fails fast on any error
 2. Resolves version and build number from `version/` files, applying any user overrides
-3. Builds 10 release artifacts using the build scripts above (no UPX) and verifies a pcap binary exists for every platform/arch
+3. Builds 10 release artifacts using the build scripts above and verifies a pcap binary exists for every platform/arch
 4. Commits the updated `version/` files, computes SHA256 checksums, and creates a GitHub Release with all files attached
 
 If any build fails, the workflow aborts -- no version files are modified and no release is created.

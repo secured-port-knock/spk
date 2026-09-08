@@ -22,8 +22,7 @@ param(
     [switch]$coverage,
     [switch]$clean,
     [switch]$deb,
-    [switch]$rpm,
-    [switch]$upx
+    [switch]$rpm
 )
 
 $Binary = "spk"
@@ -101,19 +100,6 @@ if ($NfpmPath) {
         }
     }
 }
-
-# UPX
-$UPXAvailable = $false
-$UPXPath = Get-Command upx -ErrorAction SilentlyContinue
-if ($UPXPath) {
-    $UPXAvailable = $true
-    if ($upx.IsPresent) {
-        Write-Host "UPX:     found ($($UPXPath.Source))" -ForegroundColor Green
-    }
-} elseif ($upx.IsPresent) {
-    Write-Host "UPX:     not found (-upx supplied but upx is not in PATH, skipping compression)" -ForegroundColor Yellow
-}
-$UseUPX = $upx.IsPresent -and $UPXAvailable
 
 # Zig (needed only for cross-compiling Linux/Darwin with pcap)
 $ZigAvailable = $false
@@ -439,18 +425,7 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
     }
 
     $origSize = (Get-Item $output).Length
-    if ($script:UseUPX) {
-        upx --best --lzma -q $output 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $newSize = (Get-Item $output).Length
-            $ratio = [math]::Round(($newSize / $origSize) * 100, 1)
-            Write-Host "    -> $([math]::Round($newSize/1MB, 2)) MB (UPX: $ratio%)" -ForegroundColor Cyan
-        } else {
-            Write-Host "    -> $([math]::Round($origSize/1MB, 2)) MB (UPX skipped)" -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "    -> $([math]::Round($origSize/1MB, 2)) MB" -ForegroundColor White
-    }
+    Write-Host "    -> $([math]::Round($origSize/1MB, 2)) MB" -ForegroundColor White
     return $true
 }
 
