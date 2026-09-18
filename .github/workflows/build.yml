@@ -6,8 +6,7 @@ run-name: ${{ github.workflow }} - ${{ github.event.head_commit.message }}
 on:
   push:
     branches: [main, master]
-  pull_request:
-    branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +17,69 @@ env:
   KEEP_ARTIFACTS: "false"
 
 jobs:
+  # ---------------------------------------------------------------
+  # Direct cross-compile matrix: a fast per-target compile check,
+  # independent of the build scripts exercised in the jobs below.
+  # ---------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(cat version/version_base.txt | tr -d '[:space:]')
+          BUILD=$(cat version/build_number.txt | tr -d '[:space:]')
+          COMMIT=$(git rev-parse --short HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "full=$VERSION.$BUILD" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          MODULE="github.com/secured-port-knock/spk/internal/app"
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          OUTPUT="build/spk_${{ steps.version.outputs.full }}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          go build -buildvcs=false \
+            -ldflags "-s -w -X ${MODULE}.version=${{ steps.version.outputs.version }} -X ${MODULE}.commit=${{ steps.version.outputs.commit }} -X ${MODULE}.buildNumber=${{ steps.version.outputs.build }}" \
+            -trimpath \
+            -o "$OUTPUT" \
+            ./
+
+      - name: Upload artifact
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spk-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/spk_*
+
   # ---------------------------------------------------------------
   # Build script verification -- Linux (ubuntu-latest)
   # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
@@ -45,67 +107,28 @@ jobs:
           sudo apt-get install -y libpcap-dev
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: Build all platforms amd64+arm64 (pcap via zig)
-        run: chmod +x build.sh && ./build.sh -all
-
+      # Each call starts by clearing build/, so only the last one's output
+      # survives. The no-pcap mode is exercised first; the pcap pass over every
+      # target then produces what gets uploaded, packages included. The
+      # -linux -deb -rpm call that used to come last threw away every
+      # cross-compiled binary the earlier calls had produced.
       - name: Build all platforms without pcap
-        run: ./build.sh -all -nopcap
+        run: chmod +x build.sh && ./build.sh -all -nopcap
 
-      - name: Build linux + create deb and rpm packages
-        run: ./build.sh -linux -deb -rpm
+      - name: Build all platforms amd64+arm64 (pcap via zig) and package linux
+        run: ./build.sh -all -deb -rpm
 
       - name: Run tests via build script (-test flag)
         run: ./build.sh -test
+
+      - name: Build script tests
+        run: go test -tags scripts -count=1 -timeout 900s ./tests/scripts/
 
       - name: Upload build artifacts
         if: env.KEEP_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: build-linux
-          path: build/
-
-  # ---------------------------------------------------------------
-  # Build script verification -- macOS (macos-latest, arm64)
-  # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
-  #        darwin/arm64 pcap via native clang (IS_NATIVE),
-  #        darwin/amd64 no-pcap (cross-arch; zig never used for darwin),
-  #        nopcap, deb+rpm packaging, build script -test flag.
-  # ---------------------------------------------------------------
-  build-scripts-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install Zig
-        uses: mlugg/setup-zig@v1
-        with:
-          version: "0.13.0"
-
-      - name: Install tools (nfpm)
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-
-      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin via native clang)
-        run: chmod +x build.sh && ./build.sh -all
-
-      - name: Build all platforms without pcap
-        run: ./build.sh -all -nopcap
-
-      - name: Build linux + create deb and rpm packages
-        run: ./build.sh -linux -deb -rpm
-
-      - name: Run tests via build script (-test flag)
-        run: ./build.sh -test
-
-      - name: Upload build artifacts
-        if: env.KEEP_ARTIFACTS == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-macos
           path: build/
 
   # ---------------------------------------------------------------
@@ -133,23 +156,71 @@ jobs:
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: Build all platforms amd64+arm64
-        run: .\build.ps1 -all
-
+      # Each call starts by clearing build/, so only the last one's output
+      # survives -- see the linux job above.
       - name: Build all platforms without pcap
         run: .\build.ps1 -all -nopcap
 
-      - name: Build linux + create deb and rpm packages
-        run: .\build.ps1 -linux -deb -rpm
+      - name: Build all platforms amd64+arm64 and package linux
+        run: .\build.ps1 -all -deb -rpm
 
       - name: Run tests via build script (-test flag)
         run: .\build.ps1 -test
+
+      - name: Build script tests
+        run: go test -tags scripts -count=1 -timeout 900s ./tests/scripts/
 
       - name: Upload build artifacts
         if: env.KEEP_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: build-windows
+          path: build/
+
+  # ---------------------------------------------------------------
+  # Build script verification -- macOS (macos-latest, arm64)
+  # Tests: all-platforms amd64+arm64, linux/windows pcap via zig,
+  #        darwin/arm64 pcap via native clang (IS_NATIVE),
+  #        darwin/amd64 no-pcap (cross-arch; zig never used for darwin),
+  #        nopcap, deb+rpm packaging, build script -test flag.
+  # ---------------------------------------------------------------
+  build-scripts-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.13.0"
+
+      - name: Install tools (nfpm)
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      # Each call starts by clearing build/, so only the last one's output
+      # survives -- see the linux job above.
+      - name: Build all platforms without pcap
+        run: chmod +x build.sh && ./build.sh -all -nopcap
+
+      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin via native clang) and package linux
+        run: ./build.sh -all -deb -rpm
+
+      - name: Run tests via build script (-test flag)
+        run: ./build.sh -test
+
+      - name: Build script tests
+        run: go test -tags scripts -count=1 -timeout 900s ./tests/scripts/
+
+      - name: Upload build artifacts
+        if: env.KEEP_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos
           path: build/
 
   # ---------------------------------------------------------------
@@ -308,17 +379,19 @@ jobs:
       - name: Install tools (nfpm)
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin/amd64 pcap via native clang)
-        run: chmod +x build.sh && ./build.sh -all
-
+      # Each call starts by clearing build/, so only the last one's output
+      # survives -- see the linux job above.
       - name: Build all platforms without pcap
-        run: ./build.sh -all -nopcap
+        run: chmod +x build.sh && ./build.sh -all -nopcap
 
-      - name: Build linux + create deb and rpm packages
-        run: ./build.sh -linux -deb -rpm
+      - name: Build all platforms amd64+arm64 (linux/windows pcap via zig; darwin/amd64 pcap via native clang) and package linux
+        run: ./build.sh -all -deb -rpm
 
       - name: Run tests via build script (-test flag)
         run: ./build.sh -test
+
+      - name: Build script tests
+        run: go test -tags scripts -count=1 -timeout 900s ./tests/scripts/
 
       - name: Upload build artifacts
         if: env.KEEP_ARTIFACTS == 'true'

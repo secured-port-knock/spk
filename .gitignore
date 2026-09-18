@@ -58,3 +58,6 @@ build/
 # Log files
 *.log
 spk_server.log*
+
+# Lock file created by the build scripts while taking a build number
+version/build_number.txt.lock

@@ -8,6 +8,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,8 +26,8 @@ jobs:
   # smoke tests. sudo -E preserves GOPATH, TMPDIR, and the Go
   # module cache so the internal go build in TestMain succeeds.
   # ---------------------------------------------------------------
-  smoke-tests-linux:
-    name: Smoke tests (Linux)
+  smoke-linux:
+    name: Smoke Tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,8 +49,8 @@ jobs:
   # allow the pcap sniffer smoke test. sudo -E preserves the Go
   # environment so the internal go build in TestMain succeeds.
   # ---------------------------------------------------------------
-  smoke-tests-macos:
-    name: Smoke tests (macOS)
+  smoke-macos:
+    name: Smoke Tests (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,8 +71,8 @@ jobs:
   # license); pcap smoke tests auto-skip. Windows CI runners
   # already run as Administrator so no elevation is needed.
   # ---------------------------------------------------------------
-  smoke-tests-windows:
-    name: Smoke tests (Windows)
+  smoke-windows:
+    name: Smoke Tests (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,8 +109,8 @@ jobs:
   # Integration tests (tests/integration/) are pure Go, require no
   # compiled binary or sniffer hardware, and run via ./... here.
   # ---------------------------------------------------------------
-  unit-tests:
-    name: Unit + integration tests (${{ matrix.os }})
+  test:
+    name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -133,7 +134,7 @@ jobs:
   # Linux only; corpus is platform-independent.
   # ---------------------------------------------------------------
   fuzz-seed-corpus:
-    name: Fuzz seed corpus
+    name: Fuzz Seed Corpus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -158,7 +159,7 @@ jobs:
   # Linux only; mutation is platform-independent.
   # ---------------------------------------------------------------
   fuzz-mutation:
-    name: Fuzz mutation
+    name: Fuzz Mutation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -206,9 +207,9 @@ jobs:
           if $FAILED; then exit 1; fi
 
   # ---------------------------------------------------------------
-  # Coverage -- same tests as unit-tests but with -coverprofile.
+  # Coverage -- same tests as the test job but with -coverprofile.
   # Linux only; result uploaded as artifact and sent to Codecov.
-  # Kept as a separate job so unit-tests stays fast without profiling.
+  # Kept as a separate job so the test job stays fast without profiling.
   # ---------------------------------------------------------------
   coverage:
     runs-on: ubuntu-latest
@@ -239,7 +240,7 @@ jobs:
   # ---------------------------------------------------------------
   # Sniffer tests -- Linux (pcap + AF_PACKET)
   # ---------------------------------------------------------------
-  sniffer-tests-linux:
+  sniffer-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -266,7 +267,7 @@ jobs:
   # license, so pcap tests auto-skip (loadPcapLibrary returns an
   # error when wpcap.dll is absent).
   # ---------------------------------------------------------------
-  sniffer-tests-windows:
+  sniffer-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -301,7 +302,7 @@ jobs:
   # ---------------------------------------------------------------
   # Sniffer tests -- macOS (pcap via built-in libpcap)
   # ---------------------------------------------------------------
-  sniffer-tests-macos:
+  sniffer-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -328,7 +329,9 @@ jobs:
           cache: true
 
       - name: Vet
-        run: go vet -buildvcs=false ./...
+        run: |
+          go vet -buildvcs=false ./...
+          go vet -buildvcs=false -tags scripts ./tests/scripts/
 
       - name: Format check
         run: |

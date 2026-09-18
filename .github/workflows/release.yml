@@ -147,6 +147,11 @@ jobs:
           else
             BUILD_NUMBER=$FILE_BUILD
           fi
+          # Decimal whatever the spelling: "08" is not octal, and "007" has to
+          # name the same files on every platform. build.ps1 reads it as 7,
+          # so the zeros are dropped here, before the number reaches any job.
+          BUILD_NUMBER=$(printf '%s' "$BUILD_NUMBER" | tr -cd '0-9')
+          BUILD_NUMBER=$((10#${BUILD_NUMBER:-0}))
           NEXT_BUILD_NUMBER=$((BUILD_NUMBER + 1))
 
           FULL_VERSION="${VERSION}.${BUILD_NUMBER}"

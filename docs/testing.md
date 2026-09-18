@@ -13,13 +13,11 @@ go test ./... -run=^Fuzz
 go test ./internal/server/ -v
 
 # With coverage
-make coverage
+./build.sh -coverage   # Linux/macOS
+.\build.ps1 -coverage  # Windows
 
-# Quick (no -v)
-make test-short
-
-# Run all test phases: smoke, unit+integration, fuzz, sniffer
-make testall           # Linux/macOS via build.sh
+# Run all test phases: unit, fuzz, integration, smoke, sniffer, build scripts
+./build.sh -testall    # Linux/macOS
 .\build.ps1 -testall   # Windows
 ```
 

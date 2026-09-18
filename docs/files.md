@@ -72,7 +72,6 @@ version/              - Version metadata
 build.ps1             - Windows build script (PowerShell)
 build.sh              - Linux/macOS build script (bash)
 build.cmd             - Windows CMD wrapper for build.ps1
-Makefile              - Make targets for build/test/coverage
 .github/workflows/    - GitHub Actions CI and release workflows
   ci.yml              - Continuous integration (tests, sniffer tests, linting)
   build.yml           - Build script verification across all platforms

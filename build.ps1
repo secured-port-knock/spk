@@ -14,19 +14,71 @@ param(
     [switch]$amd64,
     [switch]$arm64,
     [switch]$all,
+    [switch]$native,
     [switch]$nopcap,
     [switch]$test,
     [switch]$testall,
-    [switch]$testSniffer,
+    [switch]$integration,
+    [switch]$teste2e,
+    # PowerShell matches parameter names case-insensitively, so -testSniffer
+    # keeps working; every other flag is lower case.
+    [switch]$testsniffer,
     [switch]$testsmoke,
+    [switch]$testscripts,
     [switch]$coverage,
     [switch]$clean,
     [switch]$deb,
-    [switch]$rpm
+    [switch]$rpm,
+    # Anything not matched above. build.sh rejects unknown flags; without
+    # this PowerShell would silently ignore a typo and run a default build.
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Rest
 )
 
+# Show-Usage prints the same flag list as build.sh.
+function Show-Usage {
+    @"
+Usage: build.ps1 [targets] [actions]
+
+Targets:
+  -windows -linux -darwin    select platform(s)
+  -amd64 -arm64              select architecture(s)
+  -all                       every platform and architecture
+  -native                    this host's platform and architecture only
+  -nopcap                    build Linux/macOS without pcap support
+
+Actions:
+  -test          unit tests + fuzz seed corpus (excluding sniffer)
+  -integration   integration tests
+  -teste2e       end-to-end tests (none in this project; see -testsmoke)
+  -testsmoke     end-to-end smoke tests
+  -testscripts   the build scripts, against a copy of the tree
+  -testsniffer   sniffer hardware tests (requires libpcap/Npcap)
+  -testall       every suite above, in order
+  -coverage      unit tests with an HTML coverage report
+  -clean         remove build artifacts
+  -deb -rpm      package linux builds (combine with -linux or -all)
+"@ | Write-Host
+}
+
+if ($Rest) {
+    Write-Host "Unknown argument: $($Rest -join ' ')"
+    Write-Host ""
+    Show-Usage
+    exit 1
+}
+
 $Binary = "spk"
-$Commit = try { git rev-parse --short HEAD 2>$null } catch { "dev" }
+
+# Outside a git checkout (a source tarball, or the copy the script tests build
+# in) git writes to stderr. Errors are tolerated explicitly here so the lookup
+# stays harmless if this script ever adopts $ErrorActionPreference = "Stop",
+# under which a bare stderr write would end the run before it started.
+$Commit = ""
+$prevErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try { $Commit = (git rev-parse --short HEAD 2>$null) } catch { $Commit = "" }
+$ErrorActionPreference = $prevErrorAction
 if (-not $Commit) { $Commit = "dev" }
 
 # Read base version from version/version_base.txt
@@ -42,7 +94,10 @@ if ($env:VERSION) { $Version = $env:VERSION }
 $BuildNumberFile = Join-Path $PSScriptRoot "version\build_number.txt"
 $SkipBuildNumberBump = $false
 if ($env:BUILD_NUMBER) {
-    $BuildNumber = [int]$env:BUILD_NUMBER
+    # Only the digits count, and a value with none is 0, which is what build.sh
+    # does with the same input; "007" is 7 on both.
+    $rawEnv = $env:BUILD_NUMBER -replace '[^0-9]', ''
+    $BuildNumber = if ($rawEnv) { [int]$rawEnv } else { 0 }
     $SkipBuildNumberBump = $true
 } else {
     $BuildNumber = 0
@@ -51,26 +106,39 @@ if ($env:BUILD_NUMBER) {
         if ($raw) { $BuildNumber = [int]$raw }
     }
 }
-if (-not $SkipBuildNumberBump) {
-    # Use a named system Mutex so concurrent PowerShell build processes do not
-    # produce duplicate build numbers or corrupt the file.
+$Module = "github.com/secured-port-knock/spk/internal/app"
+$FullVersion = "$Version.$BuildNumber"
+$LDFlags = "-X ${Module}.version=$Version -X ${Module}.commit=$Commit -X ${Module}.buildNumber=$BuildNumber"
+$BuildDir = "build"
+
+# Take-BuildNumber is called only once a build is actually going to happen.
+# This build takes the number the file holds and leaves the next one behind:
+# the convention build.sh, the release workflow and the sibling projects
+# share. Taking the number the file was bumped TO instead would stamp this
+# build one ahead of the release built from the same starting file.
+#
+# It is NOT called for -test, -clean and the other actions, because a run that
+# produces no binary must not consume a version.
+#
+# A named system Mutex keeps concurrent PowerShell builds from taking the same
+# number or corrupting the file.
+function Take-BuildNumber {
+    if ($SkipBuildNumberBump) { return }
     $mtx = [System.Threading.Mutex]::new($false, "Global\SPKBuildNumber")
     try {
         $null = $mtx.WaitOne()
         # Re-read under the lock to handle the TOCTOU window.
         $lockedRaw = (Get-Content $BuildNumberFile -Raw -ErrorAction SilentlyContinue).Trim() -replace '[^0-9]', ''
         $lockedNum = if ($lockedRaw) { [int]$lockedRaw } else { 0 }
-        $BuildNumber = $lockedNum + 1
-        Set-Content $BuildNumberFile $BuildNumber
+        $script:BuildNumber = $lockedNum
+        Set-Content $BuildNumberFile ($lockedNum + 1)
     } finally {
         $mtx.ReleaseMutex()
         $mtx.Dispose()
     }
+    $script:FullVersion = "$Version.$script:BuildNumber"
+    $script:LDFlags = "-X ${Module}.version=$Version -X ${Module}.commit=$Commit -X ${Module}.buildNumber=$script:BuildNumber"
 }
-
-$FullVersion = "$Version.$BuildNumber"
-$LDFlags = "-X github.com/secured-port-knock/spk/internal/app.version=$Version -X github.com/secured-port-knock/spk/internal/app.commit=$Commit -X github.com/secured-port-knock/spk/internal/app.buildNumber=$BuildNumber"
-$BuildDir = "build"
 
 Write-Host "SPK Build Script" -ForegroundColor Cyan
 Write-Host "========================"
@@ -79,26 +147,42 @@ Write-Host "Commit:  $Commit"
 
 # -- Detect toolchain ------------------------------------------------
 
+# Find-Nfpm returns the nfpm executable: the one on PATH, or the one go install
+# leaves in GOBIN (GOPATH\bin by default), which is not always on PATH.
+function Find-Nfpm {
+    $cmd = Get-Command nfpm -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $gobin = (go env GOBIN)
+    if (-not $gobin) { $gobin = Join-Path (go env GOPATH) "bin" }
+    foreach ($name in "nfpm.exe", "nfpm") {
+        $cand = Join-Path $gobin $name
+        if (Test-Path $cand) { return $cand }
+    }
+    return $null
+}
+
 # nfpm (needed for -deb / -rpm packaging)
 $NfpmAvailable = $false
-$NfpmPath = Get-Command nfpm -ErrorAction SilentlyContinue
+$NfpmPath = Find-Nfpm
 if ($NfpmPath) {
     $NfpmAvailable = $true
-    Write-Host "nfpm:    found ($($NfpmPath.Source))" -ForegroundColor Green
-} else {
-    if ($deb.IsPresent -or $rpm.IsPresent) {
-        Write-Host "nfpm:    not found -- auto-installing..." -ForegroundColor Yellow
-        & go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest 2>&1 | Out-Null
-        $NfpmPath = Get-Command nfpm -ErrorAction SilentlyContinue
-        if ($NfpmPath) {
-            $NfpmAvailable = $true
-            Write-Host "nfpm:    installed ($($NfpmPath.Source))" -ForegroundColor Green
-        } else {
-            Write-Host "nfpm:    auto-install failed" -ForegroundColor Red
-            Write-Host "         Install manually: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest" -ForegroundColor Yellow
-            exit 1
-        }
+    Write-Host "nfpm:    found ($NfpmPath)" -ForegroundColor Green
+} elseif ($deb.IsPresent -or $rpm.IsPresent) {
+    Write-Host "nfpm:    not found -- auto-installing..." -ForegroundColor Yellow
+    # The install's own output is kept, so a failure says why.
+    go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "nfpm:    auto-install failed" -ForegroundColor Red
+        Write-Host "         Install manually: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest" -ForegroundColor Yellow
+        exit 1
     }
+    $NfpmPath = Find-Nfpm
+    if (-not $NfpmPath) {
+        Write-Host "nfpm:    installed, but not found in GOBIN or on PATH" -ForegroundColor Red
+        exit 1
+    }
+    $NfpmAvailable = $true
+    Write-Host "nfpm:    installed ($NfpmPath)" -ForegroundColor Green
 }
 
 # Zig (needed only for cross-compiling Linux/Darwin with pcap)
@@ -135,11 +219,36 @@ function Exit-TestTmp($saved) {
     Remove-Item $saved.SpkTmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# No-Suite: this project has no such suite. The flag is accepted so the same
+# commands work across every project; it reports and succeeds.
+function No-Suite($name) {
+    Write-Host "No $name tests in this project."
+    exit 0
+}
+
+if ($teste2e) { No-Suite "end-to-end" }
+
+if ($integration) {
+    Write-Host "Running integration tests..." -ForegroundColor Green
+    $saved = Enter-TestTmp
+    try {
+        go test -buildvcs=false -count=1 -timeout 300s ./tests/integration/
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Integration tests failed" -ForegroundColor Red
+            exit 1
+        }
+    } finally {
+        Exit-TestTmp $saved
+    }
+    Write-Host "Integration tests passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($testsmoke) {
     Write-Host "Running end-to-end smoke tests (tag: testsmoke)..." -ForegroundColor Green
     $saved = Enter-TestTmp
     try {
-        go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+        go test -buildvcs=false -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Smoke tests failed!" -ForegroundColor Red
             exit 1
@@ -150,8 +259,21 @@ if ($testsmoke) {
     exit 0
 }
 
+if ($testscripts) {
+    Write-Host "Running build script tests..." -ForegroundColor Green
+    # No temp redirection here: the suite controls TEMP itself so it can check
+    # that the generated nfpm config does not outlive a run.
+    go test -tags scripts -count=1 -timeout 900s ./tests/scripts/
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Build script tests failed" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Build script tests passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($test) {
-    Write-Host "Running unit tests + fuzz seed corpus (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
+    Write-Host "Running unit tests + fuzz seed corpus (excluding sniffer -- use -testsniffer for those)..." -ForegroundColor Green
     $packages = & go list -buildvcs=false ./... | Where-Object { $_ -notlike '*/sniffer' }
     $saved = Enter-TestTmp
     try {
@@ -181,7 +303,7 @@ if ($testall) {
     try {
         # Phase 1: smoke tests (requires SPK binary subprocess)
         Write-Host "[1/4] Smoke tests..." -ForegroundColor Cyan
-        go test -buildvcs=false -v -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
+        go test -buildvcs=false -count=1 -timeout 300s -tags testsmoke ./tests/smoke/
         if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Smoke tests failed" }
 
         # Phase 2: unit + integration tests (pure Go, no binary or hardware needed)
@@ -216,7 +338,7 @@ if ($testall) {
             $snifferBin = Join-Path $saved.SpkTmp "spk_sniffer_test.exe"
             go test -buildvcs=false -c -o $snifferBin ./internal/sniffer/
             if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Sniffer test binary failed to compile" }
-            go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
+            go test -buildvcs=false -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
             if ($LASTEXITCODE -ne 0) { $failed = $true; throw "Sniffer tests failed" }
         }
     } catch {
@@ -231,7 +353,7 @@ if ($testall) {
     exit 0
 }
 
-if ($testSniffer) {
+if ($testsniffer) {
     Write-Host "Running sniffer hardware tests on Windows..." -ForegroundColor Green
     Write-Host ""
 
@@ -268,7 +390,7 @@ if ($testSniffer) {
             Write-Host ""
 
             # Run the Windows-specific sniffer tests
-            go test -buildvcs=false -v -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
+            go test -buildvcs=false -count=1 -timeout 120s ./internal/sniffer/ -run $runFilter
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "ERROR: Sniffer tests failed." -ForegroundColor Red
                 $snifferFailed = $true
@@ -282,7 +404,7 @@ if ($testSniffer) {
 }
 
 if ($coverage) {
-    Write-Host "Running tests with coverage (excluding sniffer -- use -testSniffer for those)..." -ForegroundColor Green
+    Write-Host "Running tests with coverage (excluding sniffer -- use -testsniffer for those)..." -ForegroundColor Green
     $packages = & go list -buildvcs=false ./... | Where-Object { $_ -notlike '*/sniffer' }
     $saved = Enter-TestTmp
     $coverFailed = $false
@@ -322,7 +444,21 @@ $platforms = @()
 $osExplicit  = $windows.IsPresent -or $linux.IsPresent -or $darwin.IsPresent
 $archExplicit = $amd64.IsPresent -or $arm64.IsPresent
 
-if ($all) {
+if ($native) {
+    # -native: this host only, whatever it is.
+    $nativeOS = (go env GOOS)
+    $nativeArch = (go env GOARCH)
+    if ($nativeOS -notin @("windows", "linux", "darwin")) {
+        Write-Host "Unsupported host platform: $nativeOS" -ForegroundColor Red
+        exit 1
+    }
+    if ($nativeArch -notin @("amd64", "arm64")) {
+        Write-Host "Unsupported host architecture: $nativeArch" -ForegroundColor Red
+        exit 1
+    }
+    $selectedOS = @($nativeOS)
+    $selectedArch = @($nativeArch)
+} elseif ($all) {
     $selectedOS = @("windows", "linux", "darwin")
     $selectedArch = @("amd64", "arm64")
 } elseif ($osExplicit -and $archExplicit) {
@@ -363,6 +499,10 @@ foreach ($os in $selectedOS) {
     }
 }
 
+# A build is definitely happening now, so take the build number and leave the
+# next one in the file.
+Take-BuildNumber
+
 Write-Host "Building $($platforms.Count) target(s)..." -ForegroundColor Green
 
 # Zig target triple map
@@ -380,6 +520,13 @@ $hostGOOS = (go env GOOS 2>$null)
 if (-not $hostGOOS) { $hostGOOS = "windows" }
 $hostGOARCH = (go env GOARCH 2>$null)
 if (-not $hostGOARCH) { $hostGOARCH = "amd64" }
+
+# Clear-GoEnv drops the per-target variables so they do not outlive the script
+# in the calling session, whichever way the script ends.
+function Clear-GoEnv {
+    Remove-Item Env:\GOOS, Env:\GOARCH, Env:\CGO_ENABLED, Env:\CC, `
+        Env:\CGO_CFLAGS, Env:\CGO_LDFLAGS -ErrorAction SilentlyContinue
+}
 
 # -- Build function ---------------------------------------------------
 function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
@@ -421,12 +568,17 @@ function Build-Target($p, [bool]$pcap, [string]$ccOverride) {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAILED: $output" -ForegroundColor Red
         Remove-Item $output -ErrorAction SilentlyContinue
-        return $false
+        if ($pcap) {
+            Write-Host "ERROR: pcap build failed for $($p.GOOS)/$($p.GOARCH)" -ForegroundColor Red
+        }
+        Clear-GoEnv
+        # A compile error ends the run, as it does in build.sh. A partial build
+        # that went on to report "Build complete" would be shipped as if whole.
+        exit 1
     }
 
     $origSize = (Get-Item $output).Length
     Write-Host "    -> $([math]::Round($origSize/1MB, 2)) MB" -ForegroundColor White
-    return $true
 }
 
 # -- nfpm packaging function -------------------------------------------
@@ -465,13 +617,14 @@ contents:
     Set-Content -Path $tmpYaml -Value $nfpmYaml -Encoding UTF8
 
     Write-Host "  Packaging $pkgFile..." -ForegroundColor Magenta
-    & nfpm pkg --config $tmpYaml --packager $format --target $pkgFile
+    & $NfpmPath pkg --config $tmpYaml --packager $format --target $pkgFile
     $exitCode = $LASTEXITCODE
     Remove-Item $tmpYaml -ErrorAction SilentlyContinue
 
     if ($exitCode -ne 0) {
         Write-Host "    FAILED: $pkgFile" -ForegroundColor Red
-        return
+        Clear-GoEnv
+        exit 1
     }
     $size = (Get-Item $pkgFile).Length
     Write-Host "    -> $([math]::Round($size/1KB, 1)) KB" -ForegroundColor Magenta
@@ -484,44 +637,32 @@ foreach ($p in $platforms) {
 
     if ($p.GOOS -eq "windows") {
         # Windows: always pcap (pure Go, CGO_ENABLED=0)
-        Build-Target $p $true "" | Out-Null
+        Build-Target $p $true ""
     } elseif ($nopcap) {
         # -nopcap: build Linux/Darwin without pcap (CGO_ENABLED=0)
-        Build-Target $p $false "" | Out-Null
+        Build-Target $p $false ""
     } elseif ($p.GOOS -eq "darwin") {
         # zig 0.13 Mach-O linker rejects -Wl,-x which Go injects for all CGO darwin builds.
         # Only a native Apple clang can link darwin CGO binaries correctly.
         # Use native gcc/clang only when host IS darwin AND arch matches; no-pcap otherwise.
         if ($isNative -and $gccNative) {
-            $pcapOk = Build-Target $p $true "gcc"
-            if (-not $pcapOk) {
-                Write-Host "ERROR: pcap build failed for $crossKey" -ForegroundColor Red
-                exit 1
-            }
+            Build-Target $p $true "gcc"
         } else {
             Write-Host "    (darwin pcap requires native Apple clang for exact host arch; using no-pcap)" -ForegroundColor Yellow
-            Build-Target $p $false "" | Out-Null
+            Build-Target $p $false ""
         }
     } elseif ($ZigAvailable) {
         # Cross-build with zig: CGO for dlfcn.h (linux targets only; darwin handled above)
         $zigTarget = $zigTargetMap[$crossKey]
         if ($zigTarget) {
             $zigCC = "zig cc -target $zigTarget"
-            $pcapOk = Build-Target $p $true $zigCC
-            if (-not $pcapOk) {
-                Write-Host "ERROR: pcap build failed for $crossKey" -ForegroundColor Red
-                exit 1
-            }
+            Build-Target $p $true $zigCC
         } else {
-            Build-Target $p $false "" | Out-Null
+            Build-Target $p $false ""
         }
     } elseif ($isNative -and $gccNative) {
         # Native build with gcc/clang
-        $pcapOk = Build-Target $p $true "gcc"
-        if (-not $pcapOk) {
-            Write-Host "ERROR: pcap build failed for $crossKey" -ForegroundColor Red
-            exit 1
-        }
+        Build-Target $p $true "gcc"
     } else {
         # No C compiler available
         if (-not $isNative) {
@@ -529,7 +670,7 @@ foreach ($p in $platforms) {
         } else {
             Write-Host "    (no C compiler found -- no pcap)" -ForegroundColor Yellow
         }
-        Build-Target $p $false "" | Out-Null
+        Build-Target $p $false ""
     }
 }
 
@@ -559,12 +700,7 @@ if ($NfpmAvailable -and ($deb.IsPresent -or $rpm.IsPresent)) {
 }
 
 # Reset environment
-Remove-Item Env:\GOOS -ErrorAction SilentlyContinue
-Remove-Item Env:\GOARCH -ErrorAction SilentlyContinue
-Remove-Item Env:\CGO_ENABLED -ErrorAction SilentlyContinue
-Remove-Item Env:\CC -ErrorAction SilentlyContinue
-Remove-Item Env:\CGO_CFLAGS -ErrorAction SilentlyContinue
-Remove-Item Env:\CGO_LDFLAGS -ErrorAction SilentlyContinue
+Clear-GoEnv
 
 Write-Host ""
 Write-Host "Build complete. Output in $BuildDir/" -ForegroundColor Green

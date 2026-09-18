@@ -60,33 +60,32 @@ All three scripts accept the same flags. Run the one for your OS:
 | `-windows` / `-linux` / `-darwin` | Select platform(s); combine freely |
 | `-amd64` / `-arm64` | Select architecture(s); combine freely |
 | `-all` | Build every platform/arch combination |
+| `-native` | Build this host's platform/arch only |
 | `-nopcap` | Disable pcap for Linux/macOS targets (Windows is always pcap) |
 | `-deb` / `-rpm` | Package linux builds as .deb/.rpm (combine with `-linux`) |
-| `-test` | Run unit + integration tests + fuzz seed corpus |
-| `-testall` | Run the full suite: smoke, unit+integration, fuzz, sniffer |
-| `-testSniffer` | Run sniffer hardware tests (requires libpcap/Npcap) |
+| `-test` | Run unit tests + fuzz seed corpus (excluding sniffer) |
+| `-integration` | Run integration tests |
 | `-testsmoke` | Run end-to-end smoke tests (builds a binary) |
-| `-coverage` | Run tests with a coverage report |
+| `-testscripts` | Run the build scripts against a copy of the tree (slow) |
+| `-testsniffer` | Run sniffer hardware tests (requires libpcap/Npcap) |
+| `-testall` | Run every suite above in order |
+| `-coverage` | Run unit tests with an HTML coverage report |
 | `-clean` | Remove build artifacts |
 
 Example: `./build.sh -linux -arm64 -deb` builds linux/arm64 and packages it as `.deb`.
 
+For a quick local build, `./build.sh -native` produces just this machine's
+binary under `build/<os>/`. Add `-nopcap` to skip the CGO path.
+
 > [!NOTE]
 > With no flags, all three scripts build windows/amd64 + linux/amd64. Darwin is
-> always opt-in (`-darwin` or `-all`). See [Build Toolchain Priority](#build-toolchain-priority)
-> for how pcap support is decided per target.
+> always opt-in (`-darwin`, `-native` on a Mac, or `-all`). See
+> [Build Toolchain Priority](#build-toolchain-priority) for how pcap support is
+> decided per target.
 
-**Makefile** (Linux/macOS convenience wrapper; not flag-based):
-
-```bash
-make build                  # Native build (attempts pcap)
-make build NOPCAP=1         # Native build without pcap
-make cross                  # All platforms (delegates to build.sh -all)
-make test                   # Run unit + integration tests + fuzz seed corpus
-make testall                # Run all tests (delegates to build.sh -testall)
-make testfuzz               # Run fuzz seed corpus only
-make coverage               # Tests with coverage report
-```
+`-teste2e` is accepted but reports that this project has no end-to-end suite --
+`-testsmoke` covers that ground here. The flag exists so the same commands work
+across every project in this family.
 
 ## Build Versioning
 
@@ -139,9 +138,9 @@ When [zig](https://ziglang.org/) is installed, Linux and Windows cross-compiled 
 
 ```bash
 # Linux/macOS
-make cross               # All platforms
-./build.sh -all          # Same, shell version
+./build.sh -all          # All platforms
 ./build.sh -amd64        # All platforms, amd64 only
+./build.sh -native       # Just this machine
 ```
 
 Zig target triples used: `x86_64-linux-gnu`, `aarch64-linux-gnu`, `x86_64-windows-gnu`, `aarch64-windows-gnu`, `x86_64-macos`, `aarch64-macos`.
